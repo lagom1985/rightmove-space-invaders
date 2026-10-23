@@ -2,6 +2,7 @@ import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from './theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { loadBest, saveBest } from './storage.js';
+import { GameEvent } from './events.js';
 
 // Sizes in logical units, derived from the pixel art.
 export const IW = HURDLES[0].frames[0][0].length * PX, IH = HURDLES[0].frames[0].length * PX;
@@ -27,6 +28,11 @@ export const g = {
   dream: null, dreamTimer: 0, fireTimer: 0, respawn: 0, banner: 0, overT: 0, overReason: '',
 };
 
+// Moments the sound system reacts to. The rules publish them here; main.js takes them once per frame.
+const outbox = [];
+const emit = (type, detail) => outbox.push({ type, t: g.t, ...detail });
+export const takeEvents = () => outbox.splice(0);
+
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;
@@ -47,6 +53,7 @@ export function pause() {
 function startGame() {
   g.score = 0; g.lives = LIVES; g.newBest = false;
   startWave(0);
+  emit(GameEvent.GAME_STARTED);
 }
 
 function startWave(level) {
@@ -90,7 +97,10 @@ function movePlayer(dt, keyboard) {
   const right = keyboard.isDown('ArrowRight') || keyboard.isDown('KeyD');
   const left = keyboard.isDown('ArrowLeft') || keyboard.isDown('KeyA');
   g.player.x = clamp(g.player.x + (right - left) * PLAYER_SPEED * dt, 16, W - 16 - PW);
-  if (keyboard.isDown('Space') && !g.shot) g.shot = { x: g.player.x + PW / 2 - SHOT_W / 2, y: g.player.y - 10 };
+  if (keyboard.isDown('Space') && !g.shot) {
+    g.shot = { x: g.player.x + PW / 2 - SHOT_W / 2, y: g.player.y - 10 };
+    emit(GameEvent.SHOT_FIRED);
+  }
 }
 
 function formationInfo() {
@@ -154,6 +164,7 @@ function moveShot(dt) {
 function killInvader(v) {
   v.alive = false;
   g.score += HURDLES[v.type].value;
+  emit(GameEvent.HURDLE_HIT, { value: HURDLES[v.type].value });
   burst(invaderX(v) + IW / 2, invaderY(v) + IH / 2, HURDLES[v.type].color, 14);
   if (!g.invaders.some(v => v.alive)) { g.state = 'clear'; g.banner = 2.4; g.bolts = []; g.dream = null; }
 }

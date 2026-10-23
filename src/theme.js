@@ -1,3 +1,5 @@
+import { Sound } from './events.js';
+
 // Everything that makes this "Rightmove" rather than "Space Invaders" lives here as plain data.
 // Brand colours are approximations: replace them with values from the official brand kit.
 
@@ -40,3 +42,13 @@ export const LADDER = ['Studio flat', 'Terrace', 'Semi-detached', 'Detached', 'C
 export const ladderName = level => LADDER[Math.min(level, LADDER.length - 1)];
 
 export const pounds = n => '£' + n.toLocaleString('en-GB');
+
+// Sounds, as recipes the synth plays (src/synth.js): one short voice each, pitches in Hz, times in seconds.
+// `from` and `to` may be a function of the cue's detail (the hit pitch depends on the hurdle's value).
+// A hurdle hit is a "pop" whose start pitch rises with the hurdle's value.
+export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
+
+export const SOUND_RECIPES = {
+  [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
+  [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },
+};

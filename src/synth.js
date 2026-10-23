@@ -15,7 +15,10 @@
 //                 seq increases by one per entry and never repeats (use it, not the array index, as a cursor)
 //     music:      'playing' | 'stopped'
 //     voices:     effect voices sounding now (updated synchronously by perform);  peakVoices: highest ever (cap: 8)
-//   While state is 'locked', 'suspended' or 'unavailable', perform() changes nothing and writes no journal entry.
+//   While state is 'locked' or 'unavailable', perform() changes nothing and writes no journal entry. While it is
+//   'suspended' the context still holds what it was playing, so the stop operations (stopLoop, stopMusic,
+//   silence) act as they do when running: the director has forgotten those sounds and would never stop them,
+//   and they would be heard again on resume. The start and play operations do nothing while suspended.
 //   The look-ahead scheduler never schedules a note before the audio clock's current time, so fast-forwarded
 //   timers (Playwright's fake clock) cannot build a backlog: the audio clock runs on real time.
 //   A recipe's `wave` is an oscillator type, or 'noise' (white noise through a low-pass filter; `from` and `to`
@@ -35,6 +38,7 @@ import { SOUND_RECIPES, MUSIC, BUS_LEVELS, partsOf } from './theme.js';
 
 const State = Object.freeze({ LOCKED: 'locked', RUNNING: 'running', SUSPENDED: 'suspended', UNAVAILABLE: 'unavailable' });
 const VOICE_CAP = 8, JOURNAL_SIZE = 100;
+const STOPS = new Set([CueOp.STOP_LOOP, CueOp.STOP_MUSIC, CueOp.SILENCE]);   // these reach a suspended context too (see the header)
 const NOISE = 'noise', NOISE_SECONDS = 1;
 const ATTACK = 0.004, RELEASE = 0.03;   // seconds: short ramps at both ends of a voice, so it never clicks
 const MUSIC_TICK_MS = 25, MUSIC_LOOK_AHEAD = 0.1;   // the music timer wakes this often and schedules this far ahead (seconds)
@@ -260,9 +264,10 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setIn
     [CueOp.START_MUSIC]: startMusic, [CueOp.STOP_MUSIC]: stopMusic, [CueOp.SILENCE]: silence,
   };
 
+  const mayPerform = op => state === State.RUNNING || (state === State.SUSPENDED && STOPS.has(op));
+
   function perform(cue) {
-    if (state !== State.RUNNING) return;
-    operations[cue.op]?.(cue);
+    if (mayPerform(cue.op)) operations[cue.op]?.(cue);
   }
 
   const frozenCopy = entry => Object.freeze({ ...entry, detail: Object.freeze({ ...entry.detail }) });

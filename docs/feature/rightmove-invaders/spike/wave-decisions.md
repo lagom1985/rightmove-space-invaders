@@ -19,18 +19,21 @@ No DISCUSS artifacts existed. The brief came straight from the user: a Space Inv
 - The code will move out of the temporary session folder into a folder the user picks, then be refactored into the walking skeleton there.
 
 ## Walking Skeleton
-- Driving adapter: the browser page, played with keyboard events (Playwright `page.keyboard`).
-- Slice: title → Enter → move/fire → hit scored → game over → best score saved to `localStorage` and shown on the title screen.
-- Acceptance test: `tests/acceptance/rightmove-invaders/walking-skeleton.feature` (one `@walking_skeleton @driving_port` scenario).
-- Commit: _pending_
-- Demo command: _pending_
+- Driving adapter: the browser page, played with real keyboard events (Playwright `page.keyboard`).
+- Driven adapters: Canvas2D (screen), a DOM status mirror (screen readers; it is also what the test reads), and `localStorage` (best score). Nothing is mocked.
+- Slice: title → Enter → Space hits the Damp hurdle (£50) → the player stands still until the hurdles win → game over → reload → the title shows a best deposit of £50.
+- Acceptance test: [walking-skeleton.feature](../../../../tests/e2e/rightmove-invaders/acceptance/walking-skeleton.feature). One `@walking_skeleton @driving_port` scenario, run in Chromium, Firefox and WebKit. It took about 30 s for 15 runs (5 per engine) with no failures. It fails if saving the best score breaks, and it fails if quick key taps get dropped again.
+- Commit: `feat(rightmove-invaders): walking skeleton — playable wave with remembered best deposit`
+- Demo command: `npm start`, then open http://localhost:4173. Run the test with `npm test`.
+- Code: `src/` ES modules, no runtime dependencies: `main` (loop), `game` (rules and state), `render`, `input`, `shields`, `status`, `storage`, `theme`, `config`.
 
 ## Design Implications
 - No engine. Vanilla Canvas2D + ES modules, served as static files.
 - Core loop = fixed 120 Hz simulation steps + rAF rendering + `dt` clamp + latched key presses. This also lets tests step the game deterministically.
 - Shields = byte grids cached to offscreen canvases and repainted only on damage. Bullets sweep cells to avoid tunnelling.
 - Theme (names, colours, values, pixel art) is plain data, separate from game logic. Swap in official brand values from the Rightmove brand kit.
-- The game needs a test seam that skips randomness and timing (seeded RNG, injectable clock) so the acceptance test is not flaky.
+- The test doesn't need a test-only hook in the game. Playwright's fake clock fast-forwards `requestAnimationFrame` and timers, and the scenario is built so randomness can't change the outcome. More scenarios that depend on random enemy fire will need a seeded RNG.
+- Canvas pixels can't be asserted on, so the HUD and big moments are mirrored into a visually hidden DOM status region. That serves screen-reader users and is what tests read. Keep it in step with any new on-canvas text.
 
 ## Constraints Discovered
 - Taps shorter than one frame must be latched or they are lost.
@@ -38,4 +41,5 @@ No DISCUSS artifacts existed. The brief came straight from the user: a Space Inv
 - Clear held keys and pause on `blur`; clamp `dt` after hidden tabs.
 - `localStorage` access must be guarded.
 - Use the Rightmove name only with brand-team sign-off if this goes beyond internal use; all artwork is original.
+- ES modules don't load from `file://`, so the game has to be served (`scripts/serve.mjs`, no dependencies).
 - Still open: sound (unlock audio on Enter), reduced-motion and colour-blind-safe palette, remappable keys, a check on real 120 Hz and low-end hardware.

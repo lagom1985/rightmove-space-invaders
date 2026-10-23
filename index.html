@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make the Right Move</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/style.css">
+<script type="module" src="src/main.js"></script>
+</head>
+<body>
+<canvas id="game" aria-hidden="true"></canvas>
+
+<section id="status" class="visually-hidden" aria-label="Game status">
+  <h1>Make the Right Move</h1>
+  <dl>
+    <dt>Deposit saved</dt><dd data-hud="deposit">£0</dd>
+    <dt>Property ladder</dt><dd data-hud="ladder">Studio flat</dd>
+    <dt>Best deposit</dt><dd data-hud="best">£0</dd>
+    <dt>Homes left</dt><dd data-hud="homes">3</dd>
+  </dl>
+  <p role="status" aria-live="polite" data-hud="announcement"></p>
+</section>
+
+<div id="no-keyboard">
+  <div>
+    <h2>Make the Right Move</h2>
+    <p>This game needs a keyboard.<br>Open it on a laptop or desktop to play.</p>
+  </div>
+</div>
+</body>
+</html>

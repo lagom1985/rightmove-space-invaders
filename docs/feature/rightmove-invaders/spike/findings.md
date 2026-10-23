@@ -3,7 +3,9 @@
 **Date**: 2026-10-23
 **Probe question**: Can a zero-dependency Canvas2D game loop hold 60fps with 55 invaders, bullets, particles and pixel-eroding house shields, with responsive keyboard move + fire?
 **Budget**: p95 frame < 16.7 ms (60fps on a mid-range laptop), movement frame-rate independent.
-**Probe code**: single `index.html` (~480 lines, no dependencies) in the session scratchpad, `spike_rightmove_invaders/`.
+**Probe code**: single `index.html` (~480 lines, no dependencies). It was removed after promotion and is still in git at commit `6801c46`, as `.spike/probe/index.html` (`.spike/measure/measure.js` re-runs the measurements).
+
+**Promoted on 2026-10-23** into the walking skeleton under `src/`. See [wave-decisions.md](wave-decisions.md).
 
 ## Verdict
 

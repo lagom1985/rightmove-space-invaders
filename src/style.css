@@ -1,0 +1,18 @@
+html, body { margin: 0; height: 100%; background: #1c1c2b; overflow: hidden; }
+body { display: grid; place-items: center; font-family: "Press Start 2P", ui-monospace, monospace; }
+canvas { display: block; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+#no-keyboard {
+  display: none; position: fixed; inset: 0; padding: 24px;
+  place-items: center; text-align: center; line-height: 1.8;
+  background: #262637; color: #fff;
+}
+#no-keyboard h2 { color: #00deb6; font-size: 18px; text-transform: uppercase; }
+#no-keyboard p { font-size: 11px; color: #a9a9c8; }
+body.no-keyboard #no-keyboard { display: grid; }
+body.no-keyboard canvas { display: none; }

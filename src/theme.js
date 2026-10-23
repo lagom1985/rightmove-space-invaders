@@ -43,13 +43,6 @@ export const ladderName = level => LADDER[Math.min(level, LADDER.length - 1)];
 
 export const pounds = n => '£' + n.toLocaleString('en-GB');
 
-// Sounds, as recipes the synth plays (src/synth.js): one voice each, pitches in Hz, times in seconds.
-// `from` and `to` may be a function of the cue's detail (the hit pitch depends on the hurdle's value).
-// `wave: 'noise'` is filtered noise: `from` and `to` are then the filter's cut-off, and `level` is the gain
-// after the filter, so it runs above 1 to make up for what the filter takes out.
-// A jingle has `parts` instead of `from` / `to` / `duration`: the same voice plays each part in turn.
-// `loop: true` is a sound that runs until it is stopped: its pitch then swings between `from` and `to`,
-// once every `duration` seconds.
 // A hurdle hit is a "pop" whose start pitch rises with the hurdle's value.
 export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
 
@@ -57,6 +50,7 @@ export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
 export const MARCH_NOTES = [110, 103.83, 98, 92.5];
 const marchPitch = ({ note }) => MARCH_NOTES[note];
 
+// The parts a recipe plays in turn: a jingle's own, or the recipe itself as its only part.
 export const partsOf = recipe => recipe.parts ?? [recipe];
 
 // The mix: a voice's peak gain is its recipe's level times the level of the bus it plays on. The effects are
@@ -84,6 +78,13 @@ export const MUSIC = {
   notes: BARS.flatMap(([chord, pattern]) => [...pattern].map(tone => (tone === '.' ? null : midiHz(CHORDS[chord][tone])))),
 };
 
+// Sounds, as recipes the synth plays (src/synth.js): one voice each, pitches in Hz, times in seconds.
+// `from` and `to` may be a function of the cue's detail (the hit pitch depends on the hurdle's value).
+// `wave: 'noise'` is filtered noise: `from` and `to` are then the filter's cut-off, and `level` is the gain
+// after the filter, so it runs above 1 to make up for what the filter takes out.
+// A jingle has `parts` instead of `from` / `to` / `duration`: the same voice plays each part in turn.
+// `loop: true` is a sound that runs until it is stopped: its pitch then swings between `from` and `to`,
+// once every `duration` seconds.
 export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
   [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },

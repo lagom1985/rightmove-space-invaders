@@ -78,6 +78,7 @@ export function createFakeAudio() {
     context,
     nodes: () => nodes,
     voices,
+    advanceClock(seconds) { context.currentTime += seconds; },
     // The context changes state by itself (a browser suspends it), and tells the synth.
     changeState(state) { context.state = state; listeners.forEach(listener => listener()); },
     breakGraph() { failing = true; },

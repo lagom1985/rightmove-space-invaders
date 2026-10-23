@@ -19,6 +19,9 @@
 //   'suspended' the context still holds what it was playing, so the stop operations (stopLoop, stopMusic,
 //   silence) act as they do when running: the director has forgotten those sounds and would never stop them,
 //   and they would be heard again on resume. The start and play operations do nothing while suspended.
+//   The audio graph is the browser's and may fail at any time: when it throws inside perform() or the music timer,
+//   the synth stops what it can, goes 'unavailable' for good (silent fallback) and prints nothing, so the failure
+//   never reaches the game loop.
 //   The look-ahead scheduler never schedules a note before the audio clock's current time, so fast-forwarded
 //   timers (Playwright's fake clock) cannot build a backlog: the audio clock runs on real time.
 //   A recipe's `wave` is an oscillator type, or 'noise' (white noise through a low-pass filter; `from` and `to`
@@ -57,7 +60,10 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setIn
   const journal = [];
 
   // The context settles asynchronously after resume(); a browser may also suspend it later.
-  function followContext() { state = context.state === 'running' ? State.RUNNING : State.SUSPENDED; }
+  function followContext() {
+    if (state === State.UNAVAILABLE) return;   // a context that failed once is not trusted again
+    state = context.state === 'running' ? State.RUNNING : State.SUSPENDED;
+  }
 
   function resume() {
     state = State.RUNNING;
@@ -221,7 +227,7 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setIn
     if (music.playing) return;
     Object.assign(music, { playing: true, index: 0, nextAt: 0 });
     scheduleMusic();   // the first notes at once, not after the first tick
-    music.timer = setInterval(scheduleMusic, MUSIC_TICK_MS);
+    music.timer = setInterval(failSafe(scheduleMusic), MUSIC_TICK_MS);
   }
 
   function stopMusic() {
@@ -253,9 +259,12 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setIn
 
   const stopLoop = ({ sound }) => loops.get(sound)?.();
 
+  const stopEffects = () => cutVoicesDownTo(0);
+  const stopLoops = () => [...loops.values()].forEach(stop => stop());   // a copy: each stop takes its loop out of `loops`
+
   function silence() {
-    cutVoicesDownTo(0);
-    [...loops.values()].forEach(stop => stop());   // a copy: each stop takes its loop out of `loops`
+    stopEffects();
+    stopLoops();
     stopMusic();
   }
 
@@ -266,9 +275,22 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setIn
 
   const mayPerform = op => state === State.RUNNING || (state === State.SUSPENDED && STOPS.has(op));
 
-  function perform(cue) {
-    if (mayPerform(cue.op)) operations[cue.op]?.(cue);
+  // The synth silences what it still can, one kind of sound at a time (a broken graph may refuse any of them).
+  function giveUp() {
+    state = State.UNAVAILABLE;
+    for (const stop of [stopEffects, stopLoops, stopMusic]) {
+      try { stop(); } catch { /* the graph is beyond reach: nothing more can be stopped */ }
+    }
   }
+
+  // Runs `work`; a failure of the audio graph inside it ends the synth instead of reaching the caller.
+  function failSafe(work) {
+    return (...args) => {
+      try { work(...args); } catch { giveUp(); }
+    };
+  }
+
+  const perform = failSafe(cue => { if (mayPerform(cue.op)) operations[cue.op]?.(cue); });
 
   const frozenCopy = entry => Object.freeze({ ...entry, detail: Object.freeze({ ...entry.detail }) });
   const copyOfJournal = () => Object.freeze(journal.map(frozenCopy));

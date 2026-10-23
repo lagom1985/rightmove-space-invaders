@@ -12,7 +12,7 @@ import { CueOp, GameEvent, Sound } from './events.js';
 
 const THUD_GAP = 0.05;     // seconds of game time between two house thuds (DDD-7)
 const TOLERANCE = 1e-6;    // seconds: a gap this close to the limit counts as reached, so no float flakiness
-const MARCH_NOTES = 4;     // the beat cycles through four notes
+const MARCH_CYCLE = 4;     // the beat cycles through four notes
 
 const play = (sound, detail) => ({ op: CueOp.PLAY, sound, detail });
 const SILENCE = { op: CueOp.SILENCE };
@@ -48,7 +48,7 @@ function thudAllowed(state, t) {
   return state.lastThud === null || t - state.lastThud >= THUD_GAP - TOLERANCE;
 }
 
-function wavedOff(state) {   // the Dream Home leaves the screen: the siren stops, whether or not it was heard
+function dreamLeft(state) {   // the Dream Home leaves the screen: the siren stops, whether or not it was heard
   state.dream = false;
   return [STOP_SIREN];
 }
@@ -71,16 +71,16 @@ const ROWS = {
   },
   [GameEvent.FORMATION_STEPPED]: state => {   // the beat counts while muted, so the notes stay in step
     if (!state.inGame || state.paused) return [];
-    const note = state.marchIndex++ % MARCH_NOTES;
+    const note = state.marchIndex++ % MARCH_CYCLE;
     return whenAudible(state, play(Sound.MARCH, { note }));
   },
   [GameEvent.DREAM_APPEARED]: state => {
     state.dream = true;
     return whenAudible(state, START_SIREN);
   },
-  [GameEvent.DREAM_GONE]: wavedOff,
-  [GameEvent.DREAM_SAVED]: state => [...wavedOff(state), ...whenAudible(state, play(Sound.KA_CHING))],
-  [GameEvent.WAVE_CLEARED]: state => [...wavedOff(state), ...whenAudible(state, play(Sound.FANFARE))],
+  [GameEvent.DREAM_GONE]: dreamLeft,
+  [GameEvent.DREAM_SAVED]: state => [...dreamLeft(state), ...whenAudible(state, play(Sound.KA_CHING))],
+  [GameEvent.WAVE_CLEARED]: state => [...dreamLeft(state), ...whenAudible(state, play(Sound.FANFARE))],
   [GameEvent.GAME_OVER]: state => {
     const wasAudible = audible(state);
     Object.assign(state, { inGame: false, dream: false });

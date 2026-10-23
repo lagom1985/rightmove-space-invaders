@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
+import './support/seed.js';
 import { GameEvent } from '../../src/events.js';
+import { loadFreshGame, withDeterministicChance, arrange } from './support/fresh-game.js';
 
 // The marching beat follows the formation's steps (US-03), so the formation may only step while the game
 // is in play: never on the Wave cleared banner, while the pin respawns, or after game over. The rules
@@ -10,6 +12,7 @@ import { GameEvent } from '../../src/events.js';
 
 const STEP = 1 / 120;
 const SECONDS_PER_TICK = [STEP, 0.05, 0.3, 1, 1.5, 2.5];   // a frame, and long jumps over banners and respawns
+const OUT_OF_PLAY = ['clear', 'dead', 'over'];   // the banner, the respawn and game over
 
 const keyboard = { isDown: () => false };
 const tick = seconds => ({ run: game => game.advance(seconds) });
@@ -26,12 +29,14 @@ const command = fc.oneof(
   { weight: 1, arbitrary: fc.constant(formationOverrunsPin) },
 );
 
-let copies = 0;
+// Every state a game was seen in, over all the runs: proof that the arrangements still reach the states
+// this property is about.
+const seen = new Set();
 
-// A game of its own, with a deterministic Math.random (enemy fire and Dream Home timing).
+// A game of its own, driven the way the page drives it.
 async function freshGame() {
-  const { g, update, handlePresses, takeEvents, invaderX, invaderY, PW, IW, IH } =
-    await import(`../../src/game.js?copy=${++copies}`);
+  const rules = await loadFreshGame();
+  const { g, update, handlePresses, takeEvents } = rules;
   const ticks = [];   // per time step: formationStepped events published, and whether the step began in play
 
   function advance(seconds) {
@@ -40,42 +45,32 @@ async function freshGame() {
     const steps = takeEvents().filter(event => event.type === GameEvent.FORMATION_STEPPED).length;
     const pinIsBack = state === 'dead' && respawn - seconds <= 0;   // the respawn ends within this step, so the step counts as in play
     ticks.push({ steps, inPlay: state === 'play' || pinIsBack, began: state });
+    seen.add(state).add(g.state);
   }
 
   return {
     ticks,
     advance,
     press: key => { handlePresses(new Set([key])); takeEvents(); },
-    boltHitsPin: () => g.bolts.push({ x: g.player.x + PW / 2 - 1, y: g.player.y, vy: 240, color: '#ffffff' }),
+    boltHitsPin: () => arrange.boltOnPin(rules),
     lastHurdleShot() {
       if (g.state !== 'play') return;
-      const alive = g.invaders.filter(hurdle => hurdle.alive);
-      const last = alive.pop();
-      alive.forEach(hurdle => { hurdle.alive = false; });
-      g.shot = { x: invaderX(last) + IW / 2, y: invaderY(last) + IH / 2 };
+      arrange.lastHurdleShot(rules);
       advance(STEP);
     },
     formationOverrunsPin() {
       if (g.state !== 'play') return;
-      g.formation.y = g.player.y;
-      g.formation.timer = 0;
+      arrange.formationOnPin(rules);
       advance(STEP);
     },
   };
 }
 
-async function playWithDeterministicChance(commands) {
-  const random = Math.random;
-  let seed = 7;
-  Math.random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  try {
-    const game = await freshGame();
-    for (const step of [press('Enter'), ...commands]) step.run(game);
-    return game;
-  } finally {
-    Math.random = random;
-  }
-}
+const playWithDeterministicChance = commands => withDeterministicChance(async () => {
+  const game = await freshGame();
+  for (const step of [press('Enter'), ...commands]) step.run(game);
+  return game;
+});
 
 test('the formation never steps on the banner, while the pin respawns, or after game over', async () => {
   await fc.assert(fc.asyncProperty(fc.array(command, { maxLength: 80 }), async commands => {
@@ -83,4 +78,5 @@ test('the formation never steps on the banner, while the pin respawns, or after 
     const steppedOutOfPlay = game.ticks.filter(({ inPlay, steps }) => !inPlay && steps > 0);
     expect(steppedOutOfPlay, 'time steps that began out of play and still stepped the formation').toEqual([]);
   }));
+  for (const state of OUT_OF_PLAY) expect(seen.has(state), `no run reached the "${state}" state`).toBe(true);
 });

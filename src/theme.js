@@ -58,7 +58,6 @@ export const MARCH_NOTES = [110, 103.83, 98, 92.5];
 const marchPitch = ({ note }) => MARCH_NOTES[note];
 
 export const partsOf = recipe => recipe.parts ?? [recipe];
-export const recipeLength = recipe => partsOf(recipe).reduce((seconds, part) => seconds + part.duration, 0);
 
 export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },

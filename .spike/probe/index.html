@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Make the Right Move (probe)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #1c1c2b; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: "Press Start 2P", ui-monospace, monospace; }
+  canvas { display: block; }
+  #mobile { display: none; position: fixed; inset: 0; background: #262637; color: #fff; place-items: center; text-align: center; padding: 24px; line-height: 1.8; }
+  #mobile h1 { color: #00deb6; font-size: 18px; }
+  #mobile p { font-size: 11px; color: #a9a9c8; }
+  body.no-keyboard #mobile { display: grid; }
+  body.no-keyboard canvas { display: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="mobile"><div><h1>MAKE THE RIGHT MOVE</h1><p>This game needs a keyboard.<br>Open it on a laptop or desktop to play.</p></div></div>
+<script>
+// PROBE (throwaway): can vanilla Canvas2D hold 60fps with 55 invaders, bullets, particles
+// and pixel-eroding house shields, with responsive keyboard input?
+// ?bot = autoplay (invincible)   ?stress = bot + heavy particle/bullet load   F = stats overlay
+// window.__probe.report() returns frame-time and input-latency percentiles.
+
+const W = 960, H = 720, PX = 3, STEP = 1 / 120, GROUND = H - 34;
+const q = new URLSearchParams(location.search);
+const STRESS = q.has('stress'), BOT = STRESS || q.has('bot');
+const PMULT = STRESS ? 12 : 1, MAXP = 6000;
+
+const C = {
+  bg: '#262637', grid: '#2d2d43', road: '#323250', river: '#2b3758',
+  green: '#00deb6', text: '#ffffff', dim: '#a9a9c8',
+  brick: '#d9774b', window: '#ffe9a8', door: '#8a4a33', dream: '#ff7eb6',
+};
+
+const HURDLES = [
+  { name: 'GAZUMPER', value: 300, color: '#ff5a5f', art: [
+    ['...XXXXXX...', '...XXXXXX...', '.XXXXXXXXXX.', '..XXXXXXXX..', '..X..XX..X..', '..XXXXXXXX..', '.X.X....X.X.', 'X..........X'],
+    ['...XXXXXX...', '...XXXXXX...', '.XXXXXXXXXX.', '..XXXXXXXX..', '..X..XX..X..', '..XXXXXXXX..', '..X.X..X.X..', '.X........X.']] },
+  { name: 'STAMP DUTY', value: 200, color: '#ffc94d', art: [
+    ['X.X.X.X.X.X.', 'XXXXXXXXXXXX', 'XXXXX...XXXX', 'XXXX.XXXXXXX', 'XXX.....XXXX', 'XXXX.XXXXXXX', 'XXX......XXX', '.X.X.X.X.X.X'],
+    ['.X.X.X.X.X.X', 'XXXXXXXXXXXX', 'XXXXX...XXXX', 'XXXX.XXXXXXX', 'XXX.....XXXX', 'XXXX.XXXXXXX', 'XXX......XXX', 'X.X.X.X.X.X.']] },
+  { name: 'RATE RISE', value: 150, color: '#ff8a3d', art: [
+    ['.....XX.....', '....XXXX....', '...X.XX.X...', '..XXXXXXXX..', '.XXXXXXXXXX.', '....XXXX....', '...XX..XX...', '..XX....XX..'],
+    ['.....XX.....', '....XXXX....', '...X.XX.X...', '..XXXXXXXX..', '.XXXXXXXXXX.', '....XXXX....', '....XXXX....', '...X.XX.X...']] },
+  { name: 'BROKEN CHAIN', value: 100, color: '#b9b9d0', art: [
+    ['.XXX....XXX.', 'X...X..X...X', 'X...XX.X...X', 'X...X.XX...X', '.XXX....XXX.', '..X......X..', '.X........X.', '............'],
+    ['.XXX....XXX.', 'X...X..X...X', 'X...X.XX...X', 'X...XX.X...X', '.XXX....XXX.', '..X......X..', '..X......X..', '............']] },
+  { name: 'DAMP', value: 50, color: '#c9a97a', art: [
+    ['...XXXXXX...', '.XXXXXXXXXX.', 'XXX..XX..XXX', 'XXXXXXXXXXXX', 'XXXXXXXXXXXX', '.XX.XX.XX.XX', 'X..X..X..X..', '............'],
+    ['...XXXXXX...', '.XXXXXXXXXX.', 'XXX..XX..XXX', 'XXXXXXXXXXXX', 'XXXXXXXXXXXX', 'XX.XX.XX.XX.', '.X..X..X..X.', '..........X.']] },
+];
+const LADDER = ['STUDIO FLAT', 'TERRACE', 'SEMI-DETACHED', 'DETACHED', 'COUNTRY PILE', 'FOREVER HOME'];
+
+function sprite(rows, color) {
+  const c = document.createElement('canvas');
+  c.width = rows[0].length; c.height = rows.length;
+  const g = c.getContext('2d');
+  g.fillStyle = color;
+  rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) if (row[x] === 'X') g.fillRect(x, y, 1, 1); });
+  return c;
+}
+for (const h of HURDLES) h.sprites = h.art.map(a => sprite(a, h.color));
+const PIN = sprite(['....XXXXX....', '..XXXXXXXXX..', '.XXXXX.XXXXX.', '.XXXX...XXXX.', 'XXXX.....XXXX', 'XXXXX...XXXXX',
+  'XXXXX.X.XXXXX', '.XXXX.X.XXXX.', '..XXXXXXXXX..', '....XXXXX....', '......X......'], C.green);
+const DREAM = sprite(['..........XX....', '......XX..XX....', '.....XXXX.XX....', '....XXXXXXXX....', '...XXXXXXXXXX...', '..XXXXXXXXXXXX..',
+  '.XXXXXXXXXXXXXX.', '..XX.X.XXXXXXX..', '..X.....XX..XX..', '..XX...XXX..XX..', '..XXX.XXXX..XX..', '..XXXXXXXXXXXX..'], C.dream);
+const IW = 12 * PX, IH = 8 * PX, GX = 50, GY = 40, PW = PIN.width * PX, PH = PIN.height * PX, DW = DREAM.width * PX, DH = DREAM.height * PX;
+
+// Shields: two terraced houses per shield, one byte per 3x3px cell (0 gone, 1 brick, 2 window, 3 door)
+const SW = 24, SH = 18, SHIELD_Y = H - 190;
+function makeShield(x, y) {
+  const cells = new Uint8Array(SW * SH);
+  for (let cy = 0; cy < SH; cy++) for (let cx = 0; cx < SW; cx++) {
+    const lx = cx % 12;
+    let v = cy >= 8 || Math.abs(lx - 5.5) < cy - 1 ? 1 : 0;
+    if (cy >= 1 && cy < 5 && (lx === 8 || lx === 9)) v = 1;
+    if (cy >= 10 && cy <= 12 && (lx === 2 || lx === 3 || lx === 8 || lx === 9)) v = 2;
+    if (cy >= 13 && (lx === 5 || lx === 6)) v = 3;
+    if (cy >= 14 && cx >= 10 && cx <= 13) v = 0;
+    cells[cy * SW + cx] = v;
+  }
+  const canvas = document.createElement('canvas'); canvas.width = SW; canvas.height = SH;
+  return { x, y, cells, canvas, dirty: true };
+}
+function paintShield(s) {
+  const g = s.canvas.getContext('2d');
+  g.clearRect(0, 0, SW, SH);
+  for (let i = 0; i < s.cells.length; i++) {
+    const v = s.cells[i]; if (!v) continue;
+    g.fillStyle = v === 1 ? C.brick : v === 2 ? C.window : C.door;
+    g.fillRect(i % SW, (i / SW) | 0, 1, 1);
+  }
+  s.dirty = false;
+}
+function shieldAt(px, py) {
+  for (const s of shields) {
+    const cx = Math.floor((px - s.x) / PX), cy = Math.floor((py - s.y) / PX);
+    if (cx >= 0 && cy >= 0 && cx < SW && cy < SH && s.cells[cy * SW + cx]) return { s, cx, cy };
+  }
+  return null;
+}
+function sweep(px, y0, y1) {
+  const dir = Math.sign(y1 - y0) || 1, n = Math.ceil(Math.abs(y1 - y0) / 2);
+  for (let i = 0; i <= n; i++) { const hit = shieldAt(px, i === n ? y1 : y0 + dir * i * 2); if (hit) return hit; }
+  return null;
+}
+function erode({ s, cx, cy }, r) {
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    const d = Math.hypot(dx, dy), x = cx + dx, y = cy + dy;
+    if (d > r || x < 0 || y < 0 || x >= SW || y >= SH) continue;
+    if (d > r - 1.2 && Math.random() < 0.5) continue;
+    s.cells[y * SW + x] = 0;
+  }
+  s.dirty = true;
+  burst(s.x + cx * PX, s.y + cy * PX, C.brick, 6, 90);
+}
+
+// ---------- state ----------
+let state = 'title', paused = false, showStats = BOT, t = 0, newBest = false;
+let score = 0, hi = loadHi(), lives = 3, level = 0;
+let player = { x: W / 2 - PW / 2, y: H - 80 }, shot = null, eb = [], parts = [], texts = [], shields = [], inv = [];
+let F = { x: 0, y: 0, dir: 1, timer: 0, frame: 0 };
+let dream = null, dreamTimer = 0, fireTimer = 0, respawn = 0, banner = 0, overT = 0, overReason = '';
+
+function loadHi() { try { return +localStorage.getItem('rm-invaders-hi') || 0; } catch { return 0; } }
+function saveHi() { try { localStorage.setItem('rm-invaders-hi', hi); } catch {} }
+const fmt = n => n.toLocaleString('en-GB');
+const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+
+function startGame() { score = 0; lives = 3; newBest = false; startWave(0); }
+function startWave(lv) {
+  level = lv; inv = [];
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 11; c++) inv.push({ r, c, type: r, alive: true });
+  F = { x: (W - (10 * GX + IW)) / 2, y: 120 + Math.min(lv, 4) * 18, dir: 1, timer: 0.6, frame: 0 };
+  shields = [0, 1, 2, 3].map(i => makeShield(Math.round(W / 4 * (i + 0.5) - SW * PX / 2), SHIELD_Y));
+  player.x = W / 2 - PW / 2; shot = null; eb = []; dream = null;
+  dreamTimer = 12 + Math.random() * 10; fireTimer = 1; state = 'play';
+}
+function formationInfo() {
+  let minC = 99, maxC = -1, maxR = -1, alive = 0;
+  for (const v of inv) if (v.alive) { alive++; if (v.c < minC) minC = v.c; if (v.c > maxC) maxC = v.c; if (v.r > maxR) maxR = v.r; }
+  return { minC, maxC, maxR, alive };
+}
+function gameOver(reason) {
+  state = 'over'; overReason = reason; overT = 0; newBest = score > hi;
+  if (newBest) { hi = score; saveHi(); }
+}
+function killPlayer() {
+  lives--; state = 'dead'; respawn = 1.4; shot = null; eb.length = 0;
+  burst(player.x + PW / 2, player.y + PH / 2, C.green, 50, 240);
+}
+function burst(x, y, color, n, speed = 160) {
+  n = Math.floor(n * PMULT);
+  for (let i = 0; i < n && parts.length < MAXP; i++) {
+    const a = Math.random() * Math.PI * 2, s = speed * (0.3 + Math.random()), life = 0.4 + Math.random() * 0.4;
+    parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life, max: life, color });
+  }
+}
+
+// ---------- input ----------
+// unseen: keys pressed since the last simulation step. A tap shorter than one frame
+// (keydown + keyup before the next step) would otherwise never be seen by updatePlayer.
+const keys = new Set(), pressed = new Set(), unseen = new Set(), releaseAfterStep = new Set();
+const GAME_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space']);
+let pendingKey = 0, keyApplied = false;
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey) return;
+  if (GAME_KEYS.has(e.code)) e.preventDefault();
+  if (!e.repeat) {
+    pressed.add(e.code); unseen.add(e.code);
+    if (state === 'play' && !paused && /^(ArrowLeft|ArrowRight|KeyA|KeyD)$/.test(e.code)) pendingKey = e.timeStamp;
+  }
+  keys.add(e.code);
+});
+addEventListener('keyup', e => { if (unseen.has(e.code)) releaseAfterStep.add(e.code); else keys.delete(e.code); });
+addEventListener('blur', () => { keys.clear(); if (state === 'play' && !BOT) paused = true; });
+
+function frameInput() {
+  if (pressed.has('KeyF') || pressed.has('Backquote')) showStats = !showStats;
+  if (state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
+  else if (state === 'over' && overT > 0.6 && pressed.has('Enter')) startGame();
+  else if ((state === 'play' || state === 'dead' || state === 'clear') && (pressed.has('KeyP') || pressed.has('Escape'))) paused = !paused;
+  if (BOT && (state === 'title' || (state === 'over' && overT > 1.5))) startGame();
+  pressed.clear();
+}
+
+// ---------- simulation ----------
+function update(dt) {
+  simulate(dt);
+  unseen.clear();
+  for (const code of releaseAfterStep) keys.delete(code);
+  releaseAfterStep.clear();
+}
+function simulate(dt) {
+  t += dt;
+  updateParticles(dt);
+  if (state === 'over') { overT += dt; return; }
+  if (state === 'title') return;
+  if (state === 'clear') { banner -= dt; moveShot(dt); moveEnemyBullets(dt); if (banner <= 0) startWave(level + 1); return; }
+  if (state === 'dead') {
+    respawn -= dt;
+    if (respawn <= 0) { if (lives > 0) { state = 'play'; player.x = W / 2 - PW / 2; } else return gameOver('OFFER REJECTED'); }
+  }
+  if (state === 'play') updatePlayer(dt);
+  moveShot(dt);
+  moveEnemyBullets(dt);
+  updateDream(dt);
+  if (state === 'play') { stepFormation(dt); enemyFire(dt); }
+}
+function updatePlayer(dt) {
+  let dir = 0;
+  if (keys.has('ArrowLeft') || keys.has('KeyA')) dir--;
+  if (keys.has('ArrowRight') || keys.has('KeyD')) dir++;
+  if (BOT) dir = botDir();
+  if (dir && pendingKey) keyApplied = true;
+  player.x = Math.max(16, Math.min(W - 16 - PW, player.x + dir * 330 * dt));
+  if ((keys.has('Space') || BOT) && !shot) shot = { x: player.x + PW / 2 - 1.5, y: player.y - 10 };
+}
+function botDir() {
+  let tx = null;
+  if (dream) tx = dream.x + DW / 2 + dream.vx * 0.2;
+  else {
+    let best = Infinity;
+    for (const v of inv) if (v.alive) {
+      const x = F.x + v.c * GX + IW / 2, d = Math.abs(x - (player.x + PW / 2));
+      if (d < best) { best = d; tx = x; }
+    }
+  }
+  if (tx === null) return 0;
+  const d = tx - (player.x + PW / 2);
+  return Math.abs(d) < 4 ? 0 : Math.sign(d);
+}
+function stepFormation(dt) {
+  F.timer -= dt; if (F.timer > 0) return;
+  const f = formationInfo(); if (!f.alive) return;
+  F.timer = (0.03 + 0.5 * f.alive / inv.length) / (1 + level * 0.12);
+  F.frame ^= 1;
+  const nx = F.x + F.dir * 9;
+  if (nx + f.minC * GX < 16 || nx + f.maxC * GX + IW > W - 16) { F.y += 18; F.dir = -F.dir; } else F.x = nx;
+  eatShields(f.maxR);
+  if (F.y + f.maxR * GY + IH >= player.y) gameOver('GAZUMPED!');
+}
+function eatShields(maxR) {
+  if (F.y + maxR * GY + IH < SHIELD_Y) return;
+  for (const v of inv) if (v.alive) {
+    const x = F.x + v.c * GX, y = F.y + v.r * GY;
+    for (const s of shields) {
+      if (!overlap(x, y, IW, IH, s.x, s.y, SW * PX, SH * PX)) continue;
+      const x0 = Math.max(0, Math.floor((x - s.x) / PX)), x1 = Math.min(SW, Math.ceil((x + IW - s.x) / PX));
+      const y0 = Math.max(0, Math.floor((y - s.y) / PX)), y1 = Math.min(SH, Math.ceil((y + IH - s.y) / PX));
+      for (let cy = y0; cy < y1; cy++) for (let cx = x0; cx < x1; cx++) if (s.cells[cy * SW + cx]) { s.cells[cy * SW + cx] = 0; s.dirty = true; }
+    }
+  }
+}
+function enemyFire(dt) {
+  fireTimer -= dt;
+  const cap = STRESS ? 40 : Math.min(3 + level, 7);
+  if (fireTimer > 0 || eb.length >= cap) return;
+  fireTimer = STRESS ? 0.03 : Math.max(0.3, 1.0 - level * 0.12) * (0.5 + Math.random());
+  const cols = [];
+  for (const v of inv) if (v.alive && (!cols[v.c] || v.r > cols[v.c].r)) cols[v.c] = v;
+  const shooters = cols.filter(Boolean); if (!shooters.length) return;
+  let v = shooters[(Math.random() * shooters.length) | 0];
+  if (Math.random() < 0.4) {   // sometimes aim at the player
+    const px = player.x + PW / 2;
+    v = shooters.reduce((a, b) => Math.abs(F.x + b.c * GX - px) < Math.abs(F.x + a.c * GX - px) ? b : a);
+  }
+  eb.push({ x: F.x + v.c * GX + IW / 2 - 1.5, y: F.y + v.r * GY + IH, vy: 240 + level * 20, color: HURDLES[v.type].color });
+}
+function moveShot(dt) {
+  if (!shot) return;
+  const y0 = shot.y; shot.y -= 720 * dt;
+  const hs = sweep(shot.x + 1, y0, shot.y);
+  if (hs) { erode(hs, 2.2); shot = null; return; }
+  for (let i = 0; i < eb.length; i++) {
+    const b = eb[i];
+    if (overlap(shot.x, shot.y, 3, 12, b.x - 2, b.y, 7, 12)) { burst(b.x, b.y, C.green, 8); eb.splice(i, 1); shot = null; return; }
+  }
+  for (const v of inv) {
+    if (!v.alive) continue;
+    const x = F.x + v.c * GX, y = F.y + v.r * GY;
+    if (overlap(shot.x, shot.y, 3, 12, x, y, IW, IH)) { killInvader(v, x, y); shot = null; return; }
+  }
+  if (dream && overlap(shot.x, shot.y, 3, 12, dream.x, dream.y, DW, DH)) { saveDream(); shot = null; return; }
+  if (shot.y < 64) { burst(shot.x, 64, C.green, 4, 60); shot = null; }
+}
+function killInvader(v, x, y) {
+  v.alive = false; score += HURDLES[v.type].value;
+  burst(x + IW / 2, y + IH / 2, HURDLES[v.type].color, 14);
+  if (!inv.some(v => v.alive)) { state = 'clear'; banner = 2.4; eb.length = 0; dream = null; }
+}
+function saveDream() {
+  const bonus = [500, 1000, 1500, 3000][(Math.random() * 4) | 0];
+  score += bonus;
+  burst(dream.x + DW / 2, dream.y + DH / 2, C.dream, 40, 220);
+  texts.push({ s: 'DREAM HOME SAVED +£' + fmt(bonus), x: Math.max(150, Math.min(W - 150, dream.x + DW / 2)), y: dream.y + DH + 18, life: 1.8, color: C.dream });
+  dream = null; dreamTimer = 18 + Math.random() * 10;
+}
+function moveEnemyBullets(dt) {
+  for (let i = eb.length - 1; i >= 0; i--) {
+    const b = eb[i], y0 = b.y + 12; b.y += b.vy * dt;
+    const hs = sweep(b.x + 1, y0, b.y + 12);
+    if (hs) { erode(hs, 2.8); eb.splice(i, 1); continue; }
+    if (state === 'play' && !BOT && overlap(b.x, b.y, 3, 12, player.x + 4, player.y + 2, PW - 8, PH - 8)) { eb.splice(i, 1); killPlayer(); break; }
+    if (b.y + 12 >= GROUND) { burst(b.x, GROUND, b.color, 5, 60); eb.splice(i, 1); }
+  }
+}
+function updateDream(dt) {
+  if (state !== 'play') return;
+  if (!dream) {
+    dreamTimer -= dt;
+    if (dreamTimer <= 0 && formationInfo().alive > 6) { const d = Math.random() < 0.5 ? 1 : -1; dream = { x: d > 0 ? -DW : W, y: 66, vx: d * 150 }; }
+    return;
+  }
+  dream.x += dream.vx * dt;
+  if (dream.x < -DW - 4 || dream.x > W + 4) { dream = null; dreamTimer = 18 + Math.random() * 10; }
+}
+function updateParticles(dt) {
+  if (STRESS) for (let i = 0; i < 20 && parts.length < MAXP; i++)
+    parts.push({ x: Math.random() * W, y: 70 + Math.random() * 500, vx: (Math.random() - 0.5) * 80, vy: (Math.random() - 0.5) * 80, life: 0.8, max: 0.8, color: HURDLES[i % 5].color });
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life -= dt;
+    if (p.life <= 0) { parts[i] = parts[parts.length - 1]; parts.pop(); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.985; p.vy = p.vy * 0.985 + 120 * dt;
+  }
+  for (let i = texts.length - 1; i >= 0; i--) { texts[i].life -= dt; texts[i].y -= 24 * dt; if (texts[i].life <= 0) texts.splice(i, 1); }
+}
+
+// ---------- rendering ----------
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+let k = 1, bg;
+function resize() {
+  const dpr = devicePixelRatio || 1, scale = Math.min(innerWidth / W, innerHeight / H);
+  const cw = Math.floor(W * scale), ch = Math.floor(H * scale);
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  k = canvas.width / W;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  buildBg();
+  document.body.classList.toggle('no-keyboard', matchMedia('(hover: none) and (pointer: coarse)').matches || innerWidth < 640);
+}
+function buildBg() {   // faint "map search" backdrop, drawn once per resize
+  bg = document.createElement('canvas'); bg.width = canvas.width; bg.height = canvas.height;
+  const g = bg.getContext('2d'); g.setTransform(k, 0, 0, k, 0, 0);
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  g.strokeStyle = C.grid; g.lineWidth = 1;
+  for (let x = 0; x <= W; x += 48) { g.beginPath(); g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); g.stroke(); }
+  for (let y = 0; y <= H; y += 48) { g.beginPath(); g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); g.stroke(); }
+  g.strokeStyle = C.road; g.lineWidth = 6;
+  [[0, 180, 960, 260], [300, 0, 220, 720], [700, 0, 760, 720], [0, 600, 960, 560]].forEach(([a, b, c, d]) => { g.beginPath(); g.moveTo(a, b); g.lineTo(c, d); g.stroke(); });
+  g.strokeStyle = C.river; g.lineWidth = 18;
+  g.beginPath(); g.moveTo(-20, 420); g.bezierCurveTo(240, 340, 520, 520, 980, 380); g.stroke();
+  g.fillStyle = C.green; g.fillRect(0, GROUND, W, 2);
+}
+function blit(s, x, y, scale = PX) { ctx.drawImage(s, Math.round(x), Math.round(y), s.width * scale, s.height * scale); }
+function text(s, x, y, size, color, align = 'left') {
+  ctx.font = `${size}px "Press Start 2P", ui-monospace, monospace`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.fillText(s, x, y);
+}
+const blink = () => (t * 2 | 0) % 2 === 0;
+
+function render() {
+  ctx.drawImage(bg, 0, 0, W, H);
+  if (state === 'title') { drawTitle(); drawHud(); drawStats(); return; }
+  for (const s of shields) { if (s.dirty) paintShield(s); ctx.drawImage(s.canvas, s.x, s.y, SW * PX, SH * PX); }
+  for (const v of inv) if (v.alive) blit(HURDLES[v.type].sprites[F.frame], F.x + v.c * GX, F.y + v.r * GY);
+  if (dream) blit(DREAM, dream.x, dream.y);
+  if (state === 'play' || state === 'clear' || (state === 'over' && lives > 0)) blit(PIN, player.x, player.y);
+  if (shot) { ctx.fillStyle = C.green; ctx.fillRect(shot.x, shot.y, 3, 12); }
+  for (const b of eb) drawBolt(b);
+  for (const p of parts) { ctx.globalAlpha = p.life / p.max; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3); }
+  ctx.globalAlpha = 1;
+  for (const m of texts) { ctx.globalAlpha = Math.min(1, m.life); text(m.s, m.x, m.y, 8, m.color, 'center'); }
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < lives; i++) blit(PIN, 24 + i * 34, H - 28, 2);
+  drawHud();
+  if (state === 'clear') {
+    text('WAVE CLEARED!', W / 2, 300, 24, C.green, 'center');
+    text('MOVING UP THE LADDER TO', W / 2, 345, 8, C.dim, 'center');
+    text(LADDER[Math.min(level + 1, LADDER.length - 1)], W / 2, 385, 24, C.text, 'center');
+  }
+  if (state === 'over') drawOver();
+  if (paused) {
+    ctx.fillStyle = 'rgba(20,20,32,0.6)'; ctx.fillRect(0, 0, W, H);
+    text('PAUSED', W / 2, 340, 40, C.text, 'center'); text('PRESS P TO RESUME', W / 2, 390, 16, C.dim, 'center');
+  }
+  drawStats();
+}
+function drawBolt(b) {
+  ctx.fillStyle = b.color;
+  const z = (t * 16 | 0) % 2 ? 2 : -2;
+  for (let i = 0; i < 4; i++) ctx.fillRect(b.x + (i % 2 ? z : 0), b.y + i * 3, 3, 3);
+}
+function drawHud() {
+  text('DEPOSIT SAVED', 24, 28, 8, C.dim); text('£' + fmt(score), 24, 52, 16, C.text);
+  text('PROPERTY LADDER', W / 2, 28, 8, C.dim, 'center'); text(LADDER[Math.min(level, LADDER.length - 1)], W / 2, 52, 16, C.green, 'center');
+  text('BEST', W - 24, 28, 8, C.dim, 'right'); text('£' + fmt(Math.max(hi, score)), W - 24, 52, 16, C.text, 'right');
+}
+function drawTitle() {
+  text('MAKE THE', W / 2, 150, 16, C.text, 'center');
+  text('RIGHT MOVE', W / 2, 205, 40, C.green, 'center');
+  text('DEFEND YOUR DREAM HOME FROM THE HURDLES', W / 2, 250, 8, C.dim, 'center');
+  HURDLES.forEach((h, i) => {
+    const y = 290 + i * 44;
+    blit(h.sprites[(t * 2 | 0) % 2], 290, y);
+    text(h.name, 350, y + 20, 16, h.color);
+    text('£' + h.value, 670, y + 20, 16, C.text, 'right');
+  });
+  blit(DREAM, 284, 508); text('DREAM HOME', 350, 536, 16, C.dream); text('£???', 670, 536, 16, C.text, 'right');
+  if (blink()) text('PRESS ENTER TO START', W / 2, 620, 16, C.green, 'center');
+  text('ARROWS / A D  MOVE     SPACE  FIRE     P  PAUSE', W / 2, 660, 8, C.dim, 'center');
+}
+function drawOver() {
+  ctx.fillStyle = 'rgba(20,20,32,0.78)'; ctx.fillRect(0, 0, W, H);
+  text(overReason, W / 2, 260, 40, '#ff5a5f', 'center');
+  text('DEPOSIT SAVED  £' + fmt(score), W / 2, 330, 16, C.text, 'center');
+  text('REACHED  ' + LADDER[Math.min(level, LADDER.length - 1)], W / 2, 370, 16, C.green, 'center');
+  if (newBest) text('NEW BEST!', W / 2, 420, 16, C.dream, 'center');
+  if (overT > 0.6 && blink()) text('PRESS ENTER TO HOUSE-HUNT AGAIN', W / 2, 500, 16, C.green, 'center');
+}
+
+// ---------- loop + measurement ----------
+const N = 3600, iv = new Float32Array(N), wk = new Float32Array(N), lat = [];
+let fi = 0, fn = 0, last = 0, acc = 0, statsTxt = '';
+function drawStats() {
+  if (!showStats) return;
+  if (fn && fn % 30 === 0) {
+    const n = Math.min(fn, 60); let si = 0, sw = 0, mw = 0;
+    for (let i = 1; i <= n; i++) { const j = (fi - i + N) % N; si += iv[j]; sw += wk[j]; mw = Math.max(mw, wk[j]); }
+    statsTxt = `FPS ${Math.round(1000 / (si / n))}  WORK ${(sw / n).toFixed(2)}MS (MAX ${mw.toFixed(1)})  PARTICLES ${parts.length}  BULLETS ${eb.length}`;
+  }
+  text(statsTxt, W - 12, H - 8, 8, C.dim, 'right');
+}
+function frame(now) {
+  const t0 = performance.now(), first = !last;
+  if (!first) iv[fi] = now - last;
+  const dt = first ? 0 : Math.min((now - last) / 1000, 0.25);
+  last = now;
+  frameInput();
+  if (!paused) { acc += dt; while (acc >= STEP) { update(STEP); acc -= STEP; } }
+  render();
+  if (pendingKey && keyApplied) { lat.push(performance.now() - pendingKey); pendingKey = 0; keyApplied = false; }
+  wk[fi] = performance.now() - t0;
+  if (!first) { fi = (fi + 1) % N; fn++; }
+  requestAnimationFrame(frame);
+}
+window.__probe = {
+  report() {
+    const n = Math.min(fn, N), sorted = a => Array.from(a).sort((x, y) => x - y);
+    const a = sorted(iv.subarray(0, n)), b = sorted(wk.subarray(0, n)), l = sorted(lat);
+    const p = (arr, q) => arr.length ? +arr[Math.min(arr.length - 1, Math.floor(q * arr.length))].toFixed(2) : null;
+    return {
+      frames: n,
+      frameIntervalMs: { p50: p(a, 0.5), p95: p(a, 0.95), p99: p(a, 0.99), max: p(a, 1) },
+      workPerFrameMs: { p50: p(b, 0.5), p95: p(b, 0.95), p99: p(b, 0.99), max: p(b, 1) },
+      framesOver20ms: a.filter(x => x > 20).length,
+      inputLatencyMs: { n: l.length, p50: p(l, 0.5), p95: p(l, 0.95), max: p(l, 1) },
+      now: { state, level, alive: inv.filter(v => v.alive).length, particles: parts.length, enemyBullets: eb.length, score },
+    };
+  },
+  reset() { fi = 0; fn = 0; lat.length = 0; },
+  shieldCellsLeft: () => shields.map(s => s.cells.reduce((n, v) => n + (v ? 1 : 0), 0)),
+};
+addEventListener('resize', resize);
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

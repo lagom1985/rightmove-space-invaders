@@ -43,16 +43,22 @@ export const ladderName = level => LADDER[Math.min(level, LADDER.length - 1)];
 
 export const pounds = n => '£' + n.toLocaleString('en-GB');
 
-// Sounds, as recipes the synth plays (src/synth.js): one short voice each, pitches in Hz, times in seconds.
+// Sounds, as recipes the synth plays (src/synth.js): one voice each, pitches in Hz, times in seconds.
 // `from` and `to` may be a function of the cue's detail (the hit pitch depends on the hurdle's value).
 // `wave: 'noise'` is filtered noise: `from` and `to` are then the filter's cut-off, and `level` is the gain
 // after the filter, so it runs above 1 to make up for what the filter takes out.
+// A jingle has `parts` instead of `from` / `to` / `duration`: the same voice plays each part in turn.
+// `loop: true` is a sound that runs until it is stopped: its pitch then swings between `from` and `to`,
+// once every `duration` seconds.
 // A hurdle hit is a "pop" whose start pitch rises with the hurdle's value.
 export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
 
 // The marching beat: four descending bass notes (A2, G#2, G2, F#2), picked by the cue's detail.note (0 to 3).
 export const MARCH_NOTES = [110, 103.83, 98, 92.5];
 const marchPitch = ({ note }) => MARCH_NOTES[note];
+
+export const partsOf = recipe => recipe.parts ?? [recipe];
+export const recipeLength = recipe => partsOf(recipe).reduce((seconds, part) => seconds + part.duration, 0);
 
 export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
@@ -64,4 +70,31 @@ export const SOUND_RECIPES = {
   [Sound.BOLT_STOPPED]: { wave: 'sine', from: 2600, to: 2100, duration: 0.07, level: 0.1 },
   // Losing a home: an explosion whose noise falls from a bright crash to a rumble over about a second.
   [Sound.HOME_LOST]: { wave: 'noise', from: 2400, to: 70, duration: 1, level: 0.9 },
+  // Starting a game: "ding-dong", a high note then a lower one that rings on.
+  [Sound.DOORBELL]: { wave: 'sine', level: 0.28, parts: [
+    { from: 659.25, to: 659.25, duration: 0.3 },     // E5
+    { from: 523.25, to: 523.25, duration: 0.6 },     // C5
+  ] },
+  // The Dream Home on screen: a wailing siren, warbling twice a second until it is stopped.
+  [Sound.SIREN]: { wave: 'square', from: 620, to: 900, duration: 0.5, level: 0.07, loop: true },
+  // Saving the Dream Home: a short "ka" and a bright ringing "ching".
+  [Sound.KA_CHING]: { wave: 'square', level: 0.1, parts: [
+    { from: 1046.5, to: 1046.5, duration: 0.07 },    // C6
+    { from: 2093, to: 2093, duration: 0.5 },         // C7
+  ] },
+  // Clearing a wave: a rising run that lands on a held top note, well inside the banner's 2.4 s.
+  [Sound.FANFARE]: { wave: 'square', level: 0.14, parts: [
+    { from: 392, to: 392, duration: 0.16 },          // G4
+    { from: 523.25, to: 523.25, duration: 0.16 },    // C5
+    { from: 659.25, to: 659.25, duration: 0.16 },    // E5
+    { from: 783.99, to: 783.99, duration: 0.16 },    // G5
+    { from: 1046.5, to: 1046.5, duration: 0.9 },     // C6
+  ] },
+  // Losing the game: a falling tune that sinks away on its last note.
+  [Sound.GAME_OVER]: { wave: 'square', level: 0.14, parts: [
+    { from: 392, to: 392, duration: 0.25 },          // G4
+    { from: 329.63, to: 329.63, duration: 0.25 },    // E4
+    { from: 261.63, to: 261.63, duration: 0.25 },    // C4
+    { from: 196, to: 98, duration: 0.9 },            // G3, sliding down
+  ] },
 };

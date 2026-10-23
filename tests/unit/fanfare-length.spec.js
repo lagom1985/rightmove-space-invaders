@@ -1,0 +1,24 @@
+import { test, expect } from '@playwright/test';
+import fc from 'fast-check';
+import { BANNER_TIME } from '../../src/game.js';
+import { Sound } from '../../src/events.js';
+import { SOUND_RECIPES, recipeLength } from '../../src/theme.js';
+
+// The fanfare plays when a wave is cleared, while the "Wave cleared!" banner shows (US-05): it must be over
+// before the next wave starts, and it must sound like going up.
+
+const fanfare = SOUND_RECIPES[Sound.FANFARE];
+const notes = () => {
+  expect(fanfare, 'the wave-cleared fanfare has no recipe').toBeDefined();
+  return fanfare.parts;
+};
+
+test('no stretch of the fanfare, up to any note, outlasts the Wave cleared banner', () => {
+  const upToNote = fc.integer({ min: 1, max: notes().length });
+  fc.assert(fc.property(upToNote, count => recipeLength({ parts: notes().slice(0, count) }) <= BANNER_TIME));
+});
+
+test('every note of the fanfare is higher than the notes before it', () => {
+  const earlierThenLater = fc.tuple(fc.nat(notes().length - 1), fc.nat(notes().length - 1)).filter(([earlier, later]) => earlier < later);
+  fc.assert(fc.property(earlierThenLater, ([earlier, later]) => notes()[earlier].from < notes()[later].from));
+});

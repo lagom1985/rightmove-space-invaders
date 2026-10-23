@@ -20,11 +20,16 @@
 //   timers (Playwright's fake clock) cannot build a backlog: the audio clock runs on real time.
 //   A recipe's `wave` is an oscillator type, or 'noise' (white noise through a low-pass filter; `from` and `to`
 //   are then the filter's cut-off pitches). One noise buffer is shared by every noise voice.
-//   So far the synth performs `play` and `silence` (every voice stops at once: `voices` is 0 when perform returns);
-//   cues for sounds and operations without a recipe are skipped, the timers and `music: 'playing'` arrive
-//   with the music slice.
+//   A recipe with `parts` is a jingle: one voice plays each part in turn, every part with its own attack and release.
+//   A recipe with `loop: true` is played by `startLoop` (the Dream Home siren): an oscillator whose pitch swings
+//   between `from` and `to` once every `duration` seconds, until `stopLoop` or `silence`. A loop is not an effect
+//   voice: it is not counted in `voices` or `peakVoices` and the voice cap never cuts it; starting one writes a
+//   journal entry (detail {}), and starting a loop that is already running does nothing.
+//   So far the synth performs `play`, `startLoop`, `stopLoop` and `silence` (every voice and loop stops at once:
+//   `voices` is 0 when perform returns); cues for sounds and operations without a recipe are skipped, the timers
+//   and `music: 'playing'` arrive with the music slice.
 import { CueOp } from './events.js';
-import { SOUND_RECIPES } from './theme.js';
+import { SOUND_RECIPES, partsOf } from './theme.js';
 
 const State = Object.freeze({ LOCKED: 'locked', RUNNING: 'running', SUSPENDED: 'suspended', UNAVAILABLE: 'unavailable' });
 const VOICE_CAP = 8, JOURNAL_SIZE = 100;
@@ -36,6 +41,7 @@ const valueOf = (pitch, detail) => (typeof pitch === 'function' ? pitch(detail) 
 export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}) {
   let state = State.LOCKED, context = null, noise = null, entries = 0, peakVoices = 0;
   const voices = [];
+  const loops = new Map();   // sound -> a function that stops that loop
   const journal = [];
 
   // The context settles asynchronously after resume(); a browser may also suspend it later.
@@ -73,35 +79,45 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   }
 
   // The pitch a voice starts at, gliding to where it ends: the oscillator's frequency or the noise filter's cut-off.
-  function glide(param, recipe, detail, start, end) {
-    param.setValueAtTime(valueOf(recipe.from, detail), start);
-    param.exponentialRampToValueAtTime(valueOf(recipe.to, detail), end);
+  function glide(param, part, detail, start, end) {
+    param.setValueAtTime(valueOf(part.from, detail), start);
+    param.exponentialRampToValueAtTime(valueOf(part.to, detail), end);
   }
 
-  // A sound source and the node its sound comes out of.
-  function makeSource(recipe, detail, start, end) {
+  // A sound source, the node its sound comes out of, and the parameter that sets its pitch.
+  function makeSource(recipe) {
     if (recipe.wave === NOISE) {
       const source = context.createBufferSource(), filter = context.createBiquadFilter();
       source.buffer = noiseBuffer();
       source.loop = true;
       filter.type = 'lowpass';
-      glide(filter.frequency, recipe, detail, start, end);
       source.connect(filter);
-      return { source, output: filter };
+      return { source, output: filter, pitch: filter.frequency };
     }
     const source = context.createOscillator();
     source.type = recipe.wave;
-    glide(source.frequency, recipe, detail, start, end);
-    return { source, output: source };
+    return { source, output: source, pitch: source.frequency };
+  }
+
+  // Lays out the recipe's parts one after the other, each with its own short attack and release so it never
+  // clicks. Returns the time the last part ends.
+  function schedule(recipe, detail, pitch, level, start) {
+    let from = start;
+    for (const part of partsOf(recipe)) {
+      const to = from + part.duration;
+      glide(pitch, part, detail, from, to);
+      level.setValueAtTime(0, from);
+      level.linearRampToValueAtTime(recipe.level, from + ATTACK);
+      level.setValueAtTime(recipe.level, to - RELEASE);
+      level.linearRampToValueAtTime(0, to);
+      from = to;
+    }
+    return from;
   }
 
   function startVoice(recipe, detail) {
-    const start = context.currentTime, end = start + recipe.duration;
-    const { source, output } = makeSource(recipe, detail, start, end), gain = context.createGain();
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(recipe.level, start + ATTACK);
-    gain.gain.setValueAtTime(recipe.level, end - RELEASE);
-    gain.gain.linearRampToValueAtTime(0, end);
+    const { source, output, pitch } = makeSource(recipe), gain = context.createGain(), start = context.currentTime;
+    const end = schedule(recipe, detail, pitch, gain.gain, start);
     output.connect(gain).connect(context.destination);
     const voice = { fadeOut: () => fadeOut(gain.gain) };
     source.onended = () => forget(voice);
@@ -109,6 +125,30 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     source.stop(end);
     voices.push(voice);
     peakVoices = Math.max(peakVoices, voices.length);
+  }
+
+  // A siren: a carrier whose pitch a slow oscillator swings up and down, running until it is stopped.
+  function startLoopVoice(sound, recipe) {
+    const start = context.currentTime, low = valueOf(recipe.from, {}), high = valueOf(recipe.to, {});
+    const carrier = context.createOscillator(), swing = context.createOscillator();
+    const swingDepth = context.createGain(), gain = context.createGain();
+    carrier.type = recipe.wave;
+    carrier.frequency.value = (low + high) / 2;
+    swing.frequency.value = 1 / recipe.duration;
+    swingDepth.gain.value = (high - low) / 2;
+    swing.connect(swingDepth).connect(carrier.frequency);
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(recipe.level, start + ATTACK);
+    carrier.connect(gain).connect(context.destination);
+    carrier.start(start);
+    swing.start(start);
+    loops.set(sound, () => {
+      loops.delete(sound);
+      fadeOut(gain.gain);
+      const end = context.currentTime + 2 * RELEASE;   // after the fade, so it ends without a click
+      carrier.stop(end);
+      swing.stop(end);
+    });
   }
 
   function fadeOut(level) {
@@ -127,21 +167,35 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   }
 
   const makeRoomForAVoice = () => cutVoicesDownTo(VOICE_CAP - 1);
-  const silence = () => cutVoicesDownTo(0);
+
+  function record(sound, detail, t) {
+    journal.push({ seq: ++entries, sound, detail, t, at: now() });
+    if (journal.length > JOURNAL_SIZE) journal.shift();
+  }
 
   function play({ sound, detail = {}, t }) {
     const recipe = recipes[sound];
     if (!recipe) return;
     makeRoomForAVoice();
     startVoice(recipe, detail);
-    journal.push({ seq: ++entries, sound, detail, t, at: now() });
-    if (journal.length > JOURNAL_SIZE) journal.shift();
+    record(sound, detail, t);
   }
+
+  function startLoop({ sound, t }) {
+    const recipe = recipes[sound];
+    if (!recipe?.loop || loops.has(sound)) return;
+    startLoopVoice(sound, recipe);
+    record(sound, {}, t);
+  }
+
+  const stopLoop = ({ sound }) => loops.get(sound)?.();
+  const silence = () => { cutVoicesDownTo(0); [...loops.values()].forEach(stop => stop()); };
+
+  const OPERATIONS = { [CueOp.PLAY]: play, [CueOp.START_LOOP]: startLoop, [CueOp.STOP_LOOP]: stopLoop, [CueOp.SILENCE]: silence };
 
   function perform(cue) {
     if (state !== State.RUNNING) return;
-    if (cue.op === CueOp.PLAY) play(cue);
-    if (cue.op === CueOp.SILENCE) silence();
+    OPERATIONS[cue.op]?.(cue);
   }
 
   const copyOfJournal = () => Object.freeze(journal.map(entry => Object.freeze({ ...entry, detail: Object.freeze({ ...entry.detail }) })));

@@ -16,6 +16,7 @@ const FORMATION_SIZE = ROWS * COLS;
 const SHIELD_Y = H - 190;
 export const PLAYER_SPEED = 330;
 export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
+export const BANNER_TIME = 2.4;    // seconds the "Wave cleared!" banner shows; the fanfare must fit inside it
 const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
 
 // The whole game state. The renderer and the status mirror read it; only this module writes it.
@@ -206,12 +207,27 @@ function killInvader(v) {
   g.score += HURDLES[v.type].value;
   emit(GameEvent.HURDLE_HIT, { value: HURDLES[v.type].value });
   burst(invaderX(v) + IW / 2, invaderY(v) + IH / 2, HURDLES[v.type].color, 14);
-  if (!g.invaders.some(v => v.alive)) { g.state = 'clear'; g.banner = 2.4; g.bolts = []; g.dream = null; }
+  if (!g.invaders.some(v => v.alive)) clearWave();
+}
+
+function clearWave() {
+  g.state = 'clear'; g.banner = BANNER_TIME; g.bolts = [];
+  dismissDream();
+  emit(GameEvent.WAVE_CLEARED);
+}
+
+// The Dream Home leaves the screen without being saved (it flew off, the wave ended or the game did):
+// the sound system hears it go, so the siren stops.
+function dismissDream() {
+  if (!g.dream) return;
+  g.dream = null;
+  emit(GameEvent.DREAM_GONE);
 }
 
 function saveDream() {
   const d = g.dream, bonus = DREAM_BONUSES[(Math.random() * DREAM_BONUSES.length) | 0];
   g.score += bonus;
+  emit(GameEvent.DREAM_SAVED, { bonus });
   burst(d.x + DW / 2, d.y + DH / 2, COLORS.dream, 40, 220);
   g.texts.push({ text: 'Dream home saved +' + pounds(bonus), x: clamp(d.x + DW / 2, 150, W - 150), y: d.y + DH + 18, life: 1.8, color: COLORS.dream });
   g.dream = null; g.dreamTimer = 18 + Math.random() * 10;
@@ -241,17 +257,20 @@ function moveDream(dt) {
     if (g.dreamTimer <= 0 && formationInfo().alive > 6) {
       const dir = Math.random() < 0.5 ? 1 : -1;
       g.dream = { x: dir > 0 ? -DW : W, y: 66, vx: dir * 150 };
+      emit(GameEvent.DREAM_APPEARED);
     }
     return;
   }
   g.dream.x += g.dream.vx * dt;
-  if (g.dream.x < -DW - 4 || g.dream.x > W + 4) { g.dream = null; g.dreamTimer = 18 + Math.random() * 10; }
+  if (g.dream.x < -DW - 4 || g.dream.x > W + 4) { dismissDream(); g.dreamTimer = 18 + Math.random() * 10; }
 }
 
 function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; saveBest(g.best); }
+  dismissDream();
+  emit(GameEvent.GAME_OVER, { reason });
 }
 
 function burst(x, y, color, n, speed = 160) {

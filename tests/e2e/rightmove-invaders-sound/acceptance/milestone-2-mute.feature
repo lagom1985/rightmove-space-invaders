@@ -53,21 +53,21 @@ Feature: Silence it with M (US-02)
     When I press M
     Then the sound setting shows "Off"
 
-  @US-02 @in-memory @property @pending
+  @US-02 @in-memory @property
   Scenario: While the sound is off, nothing the game does makes a sound
     Given a game is running with sound off and music on
     When the game reports any sequence of events
     Then nothing that makes a sound is played
     And the same events with the sound on make the sounds a player expects
 
-  @US-02 @in-memory @edge @pending
+  @US-02 @in-memory @edge
   Scenario: Turning the sound back on brings back the Dream Home siren
     Given a game is running with sound off and music on
     And the Dream Home is on screen
     When the player switches the sound on
     Then the Dream Home siren is looping
 
-  @US-02 @in-memory @edge @pending
+  @US-02 @in-memory @edge
   Scenario: Turning the sound on while paused stays silent until play resumes
     Given a game is running with sound off and music on
     And the game is paused

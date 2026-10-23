@@ -35,6 +35,9 @@ function reachable(value, path = 'audio') {
   return [[path, value], ...Object.keys(value).flatMap(key => reachable(value[key], `${path}.${key}`))];
 }
 
+// What a reader sees through the handle right now.
+const readings = audio => ({ state: audio.state, journal: audio.journal, music: audio.music, voices: audio.voices, peakVoices: audio.peakVoices });
+
 // Tries every kind of write a careless reader might attempt. A rejected write (frozen object) and a
 // silently ignored one both count: only the later read matters.
 function scribbleOn(audio) {
@@ -70,10 +73,9 @@ test('the diagnostics handle is data only: no function anywhere, everything froz
 test('writes through the diagnostics handle never change what a later read returns', () => {
   fc.assert(fc.property(fc.array(cue, { minLength: 1, maxLength: 30 }), sounds => {
     const { diagnostics } = synthThatPlayed(sounds);
-    const before = structuredClone({ state: diagnostics.state, journal: diagnostics.journal, music: diagnostics.music, voices: diagnostics.voices, peakVoices: diagnostics.peakVoices });
+    const before = structuredClone(readings(diagnostics));
     scribbleOn(diagnostics);
-    const after = { state: diagnostics.state, journal: diagnostics.journal, music: diagnostics.music, voices: diagnostics.voices, peakVoices: diagnostics.peakVoices };
-    expect(after).toEqual(before);
+    expect(readings(diagnostics)).toEqual(before);
   }));
 });
 

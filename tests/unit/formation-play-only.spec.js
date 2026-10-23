@@ -38,7 +38,7 @@ async function freshGame() {
     const { state, respawn } = g;
     update(seconds, keyboard);
     const steps = takeEvents().filter(event => event.type === GameEvent.FORMATION_STEPPED).length;
-    const pinIsBack = state === 'dead' && respawn - seconds <= 0;
+    const pinIsBack = state === 'dead' && respawn - seconds <= 0;   // the respawn ends within this step, so the step counts as in play
     ticks.push({ steps, inPlay: state === 'play' || pinIsBack, began: state });
   }
 

@@ -1,12 +1,17 @@
 import { ladderName, pounds } from './theme.js';
 
+const SETTING_MESSAGES = {
+  sound: { on: 'Sound on.', off: 'Sound off. Press M to turn it on.' },
+  music: { on: 'Music on.', off: 'Music off. Press N to turn it on.' },
+};
+
 // Mirrors the canvas HUD and big moments into the DOM, so screen readers (and tests, which
 // can't read pixels) can follow the game. Only writes to the DOM when something changed.
 export function createStatus(root) {
   const fields = {};
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const shown = {};
-  let last = { state: null, paused: false, sound: null };
+  let last = { state: null, paused: false, settings: null };
 
   function set(name, value) {
     if (shown[name] === value) return;
@@ -29,10 +34,12 @@ export function createStatus(root) {
     }
   }
 
-  // Only a change is announced: the setting loaded at page load is shown but not spoken.
-  function soundAnnouncement(g) {
-    if (last.sound === null || g.settings.sound === last.sound) return '';
-    return g.settings.sound ? 'Sound on.' : 'Sound off. Press M to turn it on.';
+  // Only a change is announced: the settings loaded at page load are shown but not spoken.
+  function settingAnnouncements(g) {
+    if (!last.settings) return [];
+    return Object.keys(SETTING_MESSAGES)
+      .filter(name => g.settings[name] !== last.settings[name])
+      .map(name => SETTING_MESSAGES[name][g.settings[name] ? 'on' : 'off']);
   }
 
   return function sync(g) {
@@ -41,9 +48,10 @@ export function createStatus(root) {
     set('best', pounds(Math.max(g.best, g.score)));
     set('homes', String(g.lives));
     set('sound', g.settings.sound ? 'On' : 'Off');
+    set('music', g.settings.music ? 'On' : 'Off');
     const changed = g.state !== last.state || g.paused !== last.paused;
-    const message = [changed ? announcement(g) : '', soundAnnouncement(g)].filter(Boolean).join(' ');
+    const message = [changed ? announcement(g) : '', ...settingAnnouncements(g)].filter(Boolean).join(' ');
     if (message) set('announcement', message);
-    last = { state: g.state, paused: g.paused, sound: g.settings.sound };
+    last = { state: g.state, paused: g.paused, settings: { ...g.settings } };
   };
 }

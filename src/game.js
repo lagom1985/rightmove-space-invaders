@@ -21,7 +21,7 @@ const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
 
 // The whole game state. The renderer and the status mirror read it; only this module writes it.
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
-// settings: the player's sound choices, loaded by main.js (applySettings) and flipped by M.
+// settings: the player's sound and music choices, loaded by main.js (applySettings) and flipped by M and N.
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: loadBest(), newBest: false, lives: LIVES, level: 0,
@@ -54,12 +54,14 @@ export function handlePresses(pressed) {
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
-  if (pressed.has('KeyM')) toggleSound();   // on every screen, and never touches the game itself
+  // M and N work on every screen, and never touch the game itself.
+  if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);
+  if (pressed.has('KeyN')) toggleSetting('music', GameEvent.MUSIC_TOGGLED);
 }
 
-function toggleSound() {
-  g.settings.sound = !g.settings.sound;
-  emit(GameEvent.SOUND_TOGGLED, { on: g.settings.sound });
+function toggleSetting(name, event) {
+  g.settings[name] = !g.settings[name];
+  emit(event, { on: g.settings[name] });
 }
 
 export function pause() {

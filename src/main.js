@@ -26,9 +26,12 @@ addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 
 // A toggle is saved as it is taken, so the choice is there on the next visit.
+const SAVED_WHEN_TOGGLED = { [GameEvent.SOUND_TOGGLED]: 'sound', [GameEvent.MUSIC_TOGGLED]: 'music' };
+
 function playSounds() {
   for (const event of takeEvents()) {
-    if (event.type === GameEvent.SOUND_TOGGLED) saveSetting('sound', event.on);
+    const setting = SAVED_WHEN_TOGGLED[event.type];
+    if (setting) saveSetting(setting, event.on);
     for (const cue of director.handle(event)) synth.perform(cue);
   }
 }

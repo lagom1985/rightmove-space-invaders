@@ -16,6 +16,8 @@ Then open http://localhost:4173.
 | Space | Fire |
 | P or Esc | Pause |
 | Enter | Start / play again |
+| M | Sound on / off |
+| N | Music on / off |
 
 The game needs a physical keyboard. Phones and narrow windows get a "play on desktop" screen.
 
@@ -36,13 +38,16 @@ Plain Canvas2D and ES modules, with no runtime dependencies and no build step.
 | File | Job |
 |---|---|
 | `src/main.js` | Game loop: fixed 120 Hz simulation steps, one render per display frame |
-| `src/game.js` | Rules and state |
+| `src/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system |
 | `src/render.js` | Drawing |
 | `src/input.js` | Keyboard, including holding very quick taps so they aren't lost |
 | `src/shields.js` | Destructible house shields |
 | `src/status.js` | Mirrors the HUD into the page for screen readers |
-| `src/storage.js` | Best score in `localStorage` |
-| `src/theme.js` | Names, colours, values and pixel art |
+| `src/storage.js` | Best score and the sound and music settings in `localStorage` |
+| `src/events.js` | The sound system's vocabulary: game events, cue operations and sound names |
+| `src/sound.js` | Sound director: turns game events into cues (what should be heard, and when) |
+| `src/synth.js` | Web Audio synth: plays the cues, with the music on its own bus |
+| `src/theme.js` | Names, colours, values, pixel art and sound recipes |
 
 Design notes and the performance spike are in `docs/feature/rightmove-invaders/spike/`.
 

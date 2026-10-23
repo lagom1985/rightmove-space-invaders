@@ -4,6 +4,7 @@ import { SW, SH, BRICK, WINDOW } from './shields.js';
 import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from './game.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
+const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
 
 // Pixel art -> a tiny canvas at one canvas pixel per art pixel, scaled up when drawn.
 function sprite(rows, color) {
@@ -116,7 +117,8 @@ export function createRenderer(canvas) {
     text('Deposit saved', 24, 28, 8, COLORS.dim); text(pounds(g.score), 24, 52, 16, COLORS.text);
     text('Property ladder', W / 2, 28, 8, COLORS.dim, 'center'); text(ladderName(g.level), W / 2, 52, 16, COLORS.green, 'center');
     text('Best', W - 24, 28, 8, COLORS.dim, 'right'); text(pounds(Math.max(g.best, g.score)), W - 24, 52, 16, COLORS.text, 'right');
-    if (!g.settings.sound) text('Sound off', W - 24, H - 14, 8, COLORS.dim, 'right');
+    const switchedOff = Object.keys(OFF_LABELS).filter(name => !g.settings[name]);
+    switchedOff.forEach((name, i) => text(OFF_LABELS[name], W - 24, H - 14 - i * 16, 8, COLORS.dim, 'right'));
   }
 
   function drawTitle() {
@@ -132,7 +134,7 @@ export function createRenderer(canvas) {
     blit(dream, 290 + IW / 2 - dream.width * PX / 2, 508);
     text('Dream home', 350, 536, 16, COLORS.dream); text('£???', 670, 536, 16, COLORS.text, 'right');
     if (blink()) text('Press Enter to start', W / 2, 620, 16, COLORS.green, 'center');
-    text('Arrows / A D  move     Space  fire     P  pause     M  sound', W / 2, 660, 8, COLORS.dim, 'center');
+    text('Arrows / A D  move     Space  fire     P  pause     M  sound     N  music', W / 2, 660, 8, COLORS.dim, 'center');
   }
 
   function drawGameOver() {

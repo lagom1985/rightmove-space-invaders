@@ -177,14 +177,28 @@ function moveShot(dt) {
   const y0 = s.y;
   s.y -= SHOT_SPEED * dt;
   const hit = sweep(g.shields, s.x + 1, y0, s.y);
-  if (hit) { const p = erode(hit, 2.2); burst(p.x, p.y, COLORS.brick, 6, 90); g.shot = null; return; }
+  if (hit) { chipHouse(hit, 2.2, 'shot'); g.shot = null; return; }
   const b = g.bolts.findIndex(b => overlap(s.x, s.y, SHOT_W, SHOT_H, b.x - 2, b.y, 7, BOLT_H));
-  if (b >= 0) { burst(g.bolts[b].x, g.bolts[b].y, COLORS.green, 8); g.bolts.splice(b, 1); g.shot = null; return; }
+  if (b >= 0) { stopBolt(b); g.shot = null; return; }
   for (const v of g.invaders) {
     if (v.alive && overlap(s.x, s.y, SHOT_W, SHOT_H, invaderX(v), invaderY(v), IW, IH)) { killInvader(v); g.shot = null; return; }
   }
   if (g.dream && overlap(s.x, s.y, SHOT_W, SHOT_H, g.dream.x, g.dream.y, DW, DH)) { saveDream(); g.shot = null; return; }
   if (s.y < 64) { burst(s.x, 64, COLORS.green, 4, 60); g.shot = null; }
+}
+
+// A shot or a bolt chips a house; the sound system hears which of the two it was.
+function chipHouse(hit, radius, source) {
+  const p = erode(hit, radius);
+  burst(p.x, p.y, COLORS.brick, 6, 90);
+  emit(GameEvent.SHIELD_HIT, { source });
+}
+
+// The player's shot meets bolt number `index`: both are gone.
+function stopBolt(index) {
+  const bolt = g.bolts.splice(index, 1)[0];
+  burst(bolt.x, bolt.y, COLORS.green, 8);
+  emit(GameEvent.BOLT_STOPPED);
 }
 
 function killInvader(v) {
@@ -208,7 +222,7 @@ function moveBolts(dt) {
     const b = g.bolts[i], y0 = b.y + BOLT_H;
     b.y += b.vy * dt;
     const hit = sweep(g.shields, b.x + 1, y0, b.y + BOLT_H);
-    if (hit) { const p = erode(hit, 2.8); burst(p.x, p.y, COLORS.brick, 6, 90); g.bolts.splice(i, 1); continue; }
+    if (hit) { chipHouse(hit, 2.8, 'bolt'); g.bolts.splice(i, 1); continue; }
     if (g.state === 'play' && overlap(b.x, b.y, 3, BOLT_H, g.player.x + 4, g.player.y + 2, PW - 8, PH - 8)) { killPlayer(); return; }
     if (b.y + BOLT_H >= GROUND) { burst(b.x, GROUND, b.color, 5, 60); g.bolts.splice(i, 1); }
   }

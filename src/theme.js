@@ -45,6 +45,8 @@ export const pounds = n => '£' + n.toLocaleString('en-GB');
 
 // Sounds, as recipes the synth plays (src/synth.js): one short voice each, pitches in Hz, times in seconds.
 // `from` and `to` may be a function of the cue's detail (the hit pitch depends on the hurdle's value).
+// `wave: 'noise'` is filtered noise: `from` and `to` are then the filter's cut-off, and `level` is the gain
+// after the filter, so it runs above 1 to make up for what the filter takes out.
 // A hurdle hit is a "pop" whose start pitch rises with the hurdle's value.
 export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
 
@@ -56,6 +58,10 @@ export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
   [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },
   [Sound.MARCH]: { wave: 'square', from: marchPitch, to: marchPitch, duration: 0.08, level: 0.18 },
-  // Losing a home: a low saw that falls away, like something collapsing. First cut; tuned by ear later.
-  [Sound.HOME_LOST]: { wave: 'sawtooth', from: 330, to: 55, duration: 0.7, level: 0.25 },
+  // A shot or bolt into a house: a dull, short crunch of low-passed noise.
+  [Sound.SHIELD_HIT]: { wave: 'noise', from: 1100, to: 140, duration: 0.09, level: 1.3 },
+  // A shot meeting a bolt: a small bright ping, far above everything else.
+  [Sound.BOLT_STOPPED]: { wave: 'sine', from: 2600, to: 2100, duration: 0.07, level: 0.1 },
+  // Losing a home: an explosion whose noise falls from a bright crash to a rumble over about a second.
+  [Sound.HOME_LOST]: { wave: 'noise', from: 2400, to: 70, duration: 1, level: 0.9 },
 };

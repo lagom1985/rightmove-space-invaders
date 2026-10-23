@@ -18,6 +18,8 @@
 //   While state is 'locked', 'suspended' or 'unavailable', perform() changes nothing and writes no journal entry.
 //   The look-ahead scheduler never schedules a note before the audio clock's current time, so fast-forwarded
 //   timers (Playwright's fake clock) cannot build a backlog: the audio clock runs on real time.
+//   A recipe's `wave` is an oscillator type, or 'noise' (white noise through a low-pass filter; `from` and `to`
+//   are then the filter's cut-off pitches). One noise buffer is shared by every noise voice.
 //   So far the synth performs `play` and `silence` (every voice stops at once: `voices` is 0 when perform returns);
 //   cues for sounds and operations without a recipe are skipped, the timers and `music: 'playing'` arrive
 //   with the music slice.
@@ -26,12 +28,13 @@ import { SOUND_RECIPES } from './theme.js';
 
 const State = Object.freeze({ LOCKED: 'locked', RUNNING: 'running', SUSPENDED: 'suspended', UNAVAILABLE: 'unavailable' });
 const VOICE_CAP = 8, JOURNAL_SIZE = 100;
+const NOISE = 'noise', NOISE_SECONDS = 1;
 const ATTACK = 0.004, RELEASE = 0.03;   // seconds: short ramps at both ends of a voice, so it never clicks
 
 const valueOf = (pitch, detail) => (typeof pitch === 'function' ? pitch(detail) : pitch);
 
 export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}) {
-  let state = State.LOCKED, context = null, entries = 0, peakVoices = 0;
+  let state = State.LOCKED, context = null, noise = null, entries = 0, peakVoices = 0;
   const voices = [];
   const journal = [];
 
@@ -56,21 +59,54 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     resume();
   }
 
+  // A shared second of white noise, from a private generator so it never disturbs Math.random.
+  function noiseBuffer() {
+    if (noise) return noise;
+    noise = context.createBuffer(1, Math.round(context.sampleRate * NOISE_SECONDS), context.sampleRate);
+    const samples = noise.getChannelData(0);
+    let seed = 1;
+    for (let i = 0; i < samples.length; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      samples[i] = seed / 2147483648 - 1;
+    }
+    return noise;
+  }
+
+  // The pitch a voice starts at, gliding to where it ends: the oscillator's frequency or the noise filter's cut-off.
+  function glide(param, recipe, detail, start, end) {
+    param.setValueAtTime(valueOf(recipe.from, detail), start);
+    param.exponentialRampToValueAtTime(valueOf(recipe.to, detail), end);
+  }
+
+  // A sound source and the node its sound comes out of.
+  function makeSource(recipe, detail, start, end) {
+    if (recipe.wave === NOISE) {
+      const source = context.createBufferSource(), filter = context.createBiquadFilter();
+      source.buffer = noiseBuffer();
+      source.loop = true;
+      filter.type = 'lowpass';
+      glide(filter.frequency, recipe, detail, start, end);
+      source.connect(filter);
+      return { source, output: filter };
+    }
+    const source = context.createOscillator();
+    source.type = recipe.wave;
+    glide(source.frequency, recipe, detail, start, end);
+    return { source, output: source };
+  }
+
   function startVoice(recipe, detail) {
     const start = context.currentTime, end = start + recipe.duration;
-    const oscillator = context.createOscillator(), gain = context.createGain();
-    oscillator.type = recipe.wave;
-    oscillator.frequency.setValueAtTime(valueOf(recipe.from, detail), start);
-    oscillator.frequency.exponentialRampToValueAtTime(valueOf(recipe.to, detail), end);
+    const { source, output } = makeSource(recipe, detail, start, end), gain = context.createGain();
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(recipe.level, start + ATTACK);
     gain.gain.setValueAtTime(recipe.level, end - RELEASE);
     gain.gain.linearRampToValueAtTime(0, end);
-    oscillator.connect(gain).connect(context.destination);
+    output.connect(gain).connect(context.destination);
     const voice = { fadeOut: () => fadeOut(gain.gain) };
-    oscillator.onended = () => forget(voice);
-    oscillator.start(start);
-    oscillator.stop(end);
+    source.onended = () => forget(voice);
+    source.start(start);
+    source.stop(end);
     voices.push(voice);
     peakVoices = Math.max(peakVoices, voices.length);
   }

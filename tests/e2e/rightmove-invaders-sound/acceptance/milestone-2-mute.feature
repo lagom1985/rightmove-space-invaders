@@ -3,7 +3,7 @@ Feature: Silence it with M (US-02)
   When sound isn't welcome, I want to silence the game with one key,
   so I can keep playing without bothering anyone.
 
-  @US-02 @real-io @pending
+  @US-02 @real-io
   Scenario: M silences the game in the middle of a wave
     Given I am playing with sound on
     And I have heard a shot
@@ -12,7 +12,7 @@ Feature: Silence it with M (US-02)
     And the sound setting shows "Off"
     And the game announces "Sound off. Press M to turn it on."
 
-  @US-02 @real-io @pending
+  @US-02 @real-io
   Scenario: Shots make no sound while the sound is off
     Given I am playing with sound off
     When I fire at the hurdle above me
@@ -27,14 +27,14 @@ Feature: Silence it with M (US-02)
     And the game announces "Sound on."
     And I hear a beat note
 
-  @US-02 @real-io @pending
+  @US-02 @real-io
   Scenario: The game remembers that the sound was off
     Given I turned the sound off on an earlier visit
     When I start a game
     Then the sound setting shows "Off"
     And the game has made no sound
 
-  @US-02 @real-io @edge @pending
+  @US-02 @real-io @edge
   Scenario Outline: M switches the sound off on the <screen> screen
     Given I am on the <screen> screen
     When I press M
@@ -46,7 +46,7 @@ Feature: Silence it with M (US-02)
       | pause     |
       | game over |
 
-  @US-02 @real-io @error @pending
+  @US-02 @real-io @error
   Scenario: Sound still starts on when saved settings are unavailable
     Given I have just opened the game in a browser that blocks saved settings
     And the sound setting shows "On"

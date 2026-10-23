@@ -18,8 +18,9 @@
 //   While state is 'locked', 'suspended' or 'unavailable', perform() changes nothing and writes no journal entry.
 //   The look-ahead scheduler never schedules a note before the audio clock's current time, so fast-forwarded
 //   timers (Playwright's fake clock) cannot build a backlog: the audio clock runs on real time.
-//   Slice 01 plays the `play` operation only; cues for sounds and operations without a recipe are skipped,
-//   the timers and `music: 'playing'` arrive with the music slice.
+//   So far the synth performs `play` and `silence` (every voice stops at once: `voices` is 0 when perform returns);
+//   cues for sounds and operations without a recipe are skipped, the timers and `music: 'playing'` arrive
+//   with the music slice.
 import { CueOp } from './events.js';
 import { SOUND_RECIPES } from './theme.js';
 
@@ -84,9 +85,13 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     if (at >= 0) voices.splice(at, 1);
   }
 
-  function makeRoomForAVoice() {
-    while (voices.length >= VOICE_CAP) voices.shift().fadeOut();
+  // The oldest voices go first.
+  function cutVoicesDownTo(count) {
+    while (voices.length > count) voices.shift().fadeOut();
   }
+
+  const makeRoomForAVoice = () => cutVoicesDownTo(VOICE_CAP - 1);
+  const silence = () => cutVoicesDownTo(0);
 
   function play({ sound, detail = {}, t }) {
     const recipe = recipes[sound];
@@ -100,6 +105,7 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   function perform(cue) {
     if (state !== State.RUNNING) return;
     if (cue.op === CueOp.PLAY) play(cue);
+    if (cue.op === CueOp.SILENCE) silence();
   }
 
   const copyOfJournal = () => Object.freeze(journal.map(entry => Object.freeze({ ...entry, detail: Object.freeze({ ...entry.detail }) })));

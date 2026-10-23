@@ -6,7 +6,7 @@ export function createStatus(root) {
   const fields = {};
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const shown = {};
-  let last = { state: null, paused: false };
+  let last = { state: null, paused: false, sound: null };
 
   function set(name, value) {
     if (shown[name] === value) return;
@@ -29,15 +29,21 @@ export function createStatus(root) {
     }
   }
 
+  // Only a change is announced: the setting loaded at page load is shown but not spoken.
+  function soundAnnouncement(g) {
+    if (last.sound === null || g.settings.sound === last.sound) return '';
+    return g.settings.sound ? 'Sound on.' : 'Sound off. Press M to turn it on.';
+  }
+
   return function sync(g) {
     set('deposit', pounds(g.score));
     set('ladder', ladderName(g.level));
     set('best', pounds(Math.max(g.best, g.score)));
     set('homes', String(g.lives));
-    if (g.state !== last.state || g.paused !== last.paused) {
-      const message = announcement(g);
-      if (message) set('announcement', message);
-      last = { state: g.state, paused: g.paused };
-    }
+    set('sound', g.settings.sound ? 'On' : 'Off');
+    const changed = g.state !== last.state || g.paused !== last.paused;
+    const message = [changed ? announcement(g) : '', soundAnnouncement(g)].filter(Boolean).join(' ');
+    if (message) set('announcement', message);
+    last = { state: g.state, paused: g.paused, sound: g.settings.sound };
   };
 }

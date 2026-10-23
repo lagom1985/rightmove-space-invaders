@@ -19,8 +19,9 @@ const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
 
 // The whole game state. The renderer and the status mirror read it; only this module writes it.
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
+// settings: the player's sound choices, loaded by main.js (applySettings) and flipped by M.
 export const g = {
-  state: 'title', paused: false, t: 0,
+  state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: loadBest(), newBest: false, lives: LIVES, level: 0,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
@@ -33,6 +34,11 @@ const outbox = [];
 const emit = (type, detail) => outbox.push({ type, t: g.t, ...detail });
 export const takeEvents = () => outbox.splice(0);
 
+// The only way settings get in from outside: main.js applies what it loaded before the first frame.
+export function applySettings({ sound, music }) {
+  g.settings = { sound, music };
+}
+
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;
@@ -44,6 +50,12 @@ export function handlePresses(pressed) {
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
   else if (['play', 'dead', 'clear'].includes(g.state) && (pressed.has('KeyP') || pressed.has('Escape'))) g.paused = !g.paused;
+  if (pressed.has('KeyM')) toggleSound();   // on every screen, and never touches the game itself
+}
+
+function toggleSound() {
+  g.settings.sound = !g.settings.sound;
+  emit(GameEvent.SOUND_TOGGLED, { on: g.settings.sound });
 }
 
 export function pause() {

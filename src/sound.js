@@ -2,6 +2,8 @@
 //   createSoundDirector({ sound, music }) -> { handle(event) -> Cue[] }
 //   event: { type: GameEvent.*, t: simulation seconds, ...detail }   (src/events.js)
 //   Cue:   { op: CueOp.*, sound?: Sound.*, detail?: { value? | note? }, t: event.t }
+// The director learns the sound setting from `soundToggled { on }`: switching off yields a `silence` cue,
+// and while it is off no event yields anything audible.
 // Cues come out in the order the events go in. main.js passes each cue to synth.perform(cue).
 // The policy table is in docs/feature/rightmove-invaders-sound/feature-delta.md (DESIGN).
 import { CueOp, GameEvent, Sound } from './events.js';
@@ -15,8 +17,16 @@ const SOUNDS = {
 };
 
 export function createSoundDirector({ sound }) {
+  let soundOn = sound;
+
+  function switchSound({ on, t }) {
+    soundOn = on;
+    return on ? [] : [{ op: CueOp.SILENCE, t }];
+  }
+
   function handle(event) {
-    const cue = sound && SOUNDS[event.type]?.(event);
+    if (event.type === GameEvent.SOUND_TOGGLED) return switchSound(event);
+    const cue = soundOn && SOUNDS[event.type]?.(event);
     return cue ? [{ ...cue, t: event.t }] : [];
   }
 

@@ -1,10 +1,12 @@
 import { STEP, MAX_FRAME } from './config.js';
 import { createKeyboard } from './input.js';
-import { g, update, handlePresses, pause, takeEvents } from './game.js';
+import { g, update, handlePresses, pause, takeEvents, applySettings } from './game.js';
 import { createRenderer } from './render.js';
 import { createStatus } from './status.js';
 import { createSynth } from './synth.js';
 import { createSoundDirector } from './sound.js';
+import { loadSettings, saveSetting } from './storage.js';
+import { GameEvent } from './events.js';
 
 const keyboard = createKeyboard(window);
 const renderer = createRenderer(document.getElementById('game'));
@@ -18,12 +20,17 @@ const synth = createSynth({
   setInterval: (callback, ms) => window.setInterval(callback, ms),
   clearInterval: id => window.clearInterval(id),
 });
-const director = createSoundDirector({ sound: true, music: true });
+applySettings(loadSettings());   // before the first frame; g.settings is the one authority from here on
+const director = createSoundDirector({ ...g.settings });
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 
+// A toggle is saved as it is taken, so the choice is there on the next visit.
 function playSounds() {
-  for (const event of takeEvents()) for (const cue of director.handle(event)) synth.perform(cue);
+  for (const event of takeEvents()) {
+    if (event.type === GameEvent.SOUND_TOGGLED) saveSetting('sound', event.on);
+    for (const cue of director.handle(event)) synth.perform(cue);
+  }
 }
 
 // Desktop only: touch-first devices and narrow windows get a "needs a keyboard" screen.

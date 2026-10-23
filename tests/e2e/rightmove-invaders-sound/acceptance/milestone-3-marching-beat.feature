@@ -3,14 +3,14 @@ Feature: The marching beat (US-03)
   When the hurdles get fewer, faster and closer, I want to hear the pressure rising,
   so the game feels urgent.
 
-  @US-03 @real-io @pending
+  @US-03 @real-io
   Scenario: The formation marches to a four-note beat at its own pace
     Given I am playing with sound on
     When the formation marches 8 steps
     Then the beat notes go "1 2 3 4 1 2 3 4"
     And the beat notes are about 0.53 seconds apart
 
-  @US-03 @in-memory @property @pending
+  @US-03 @in-memory @property
   Scenario: Exactly one beat note per formation step, whatever the pace
     Given a game is running with sound on and music on
     When the formation takes any number of steps at any pace

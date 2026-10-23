@@ -48,7 +48,12 @@ export const pounds = n => '£' + n.toLocaleString('en-GB');
 // A hurdle hit is a "pop" whose start pitch rises with the hurdle's value.
 export const hitPitch = value => Math.round(300 * 2 ** (value / 300));
 
+// The marching beat: four descending bass notes (A2, G#2, G2, F#2), picked by the cue's detail.note (0 to 3).
+export const MARCH_NOTES = [110, 103.83, 98, 92.5];
+const marchPitch = ({ note }) => MARCH_NOTES[note];
+
 export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
   [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },
+  [Sound.MARCH]: { wave: 'square', from: marchPitch, to: marchPitch, duration: 0.08, level: 0.18 },
 };

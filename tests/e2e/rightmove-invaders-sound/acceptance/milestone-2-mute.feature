@@ -19,7 +19,7 @@ Feature: Silence it with M (US-02)
     Then the deposit saved shows £50
     And the game stays silent
 
-  @US-02 @real-io @pending
+  @US-02 @real-io
   Scenario: M turns the sound back on
     Given I am playing with sound off
     When I press M

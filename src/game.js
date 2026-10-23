@@ -12,6 +12,7 @@ export const GX = 50, GY = 40;   // formation column and row spacing
 export const SHOT_W = 3, SHOT_H = 12, BOLT_H = 12;
 
 const ROWS = HURDLES.length, COLS = 11;
+const FORMATION_SIZE = ROWS * COLS;
 const SHIELD_Y = H - 190;
 export const PLAYER_SPEED = 330;
 export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
@@ -124,6 +125,9 @@ function formationInfo() {
   return { minC, maxC, maxR, alive };
 }
 
+// Seconds between formation steps: shorter as hurdles fall, and shorter again with each wave.
+export const formationStepInterval = (hurdlesLeft, level) => (0.03 + 0.5 * hurdlesLeft / FORMATION_SIZE) / (1 + level * 0.12);
+
 // The formation moves in steps that get quicker as it thins out, dropping a row at each edge.
 function stepFormation(dt) {
   const f = g.formation;
@@ -131,10 +135,11 @@ function stepFormation(dt) {
   if (f.timer > 0) return;
   const { minC, maxC, maxR, alive } = formationInfo();
   if (!alive) return;
-  f.timer = (0.03 + 0.5 * alive / g.invaders.length) / (1 + g.level * 0.12);
+  f.timer = formationStepInterval(alive, g.level);
   f.frame ^= 1;
   const nx = f.x + f.dir * 9;
   if (nx + minC * GX < 16 || nx + maxC * GX + IW > W - 16) { f.y += 18; f.dir = -f.dir; } else f.x = nx;
+  emit(GameEvent.FORMATION_STEPPED, { alive });
   if (f.y + maxR * GY + IH >= SHIELD_Y) {
     for (const v of g.invaders) if (v.alive) clearRect(g.shields, invaderX(v), invaderY(v), IW, IH);
   }

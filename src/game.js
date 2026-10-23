@@ -138,7 +138,9 @@ function formationInfo() {
 }
 
 // Seconds between formation steps: shorter as hurdles fall, and shorter again with each wave.
-export const formationStepInterval = (hurdlesLeft, level) => (0.03 + 0.5 * hurdlesLeft / FORMATION_SIZE) / (1 + level * 0.12);
+const FASTEST_STEP = 0.03, EXTRA_STEP_WHEN_FULL = 0.5, WAVE_SPEEDUP = 0.12;
+export const formationStepInterval = (hurdlesLeft, level) =>
+  (FASTEST_STEP + EXTRA_STEP_WHEN_FULL * hurdlesLeft / FORMATION_SIZE) / (1 + level * WAVE_SPEEDUP);
 
 // The formation moves in steps that get quicker as it thins out, dropping a row at each edge.
 function stepFormation(dt) {
@@ -205,11 +207,12 @@ function stopBolt(index) {
 }
 
 function killInvader(v) {
+  const hurdle = HURDLES[v.type];
   v.alive = false;
-  g.score += HURDLES[v.type].value;
-  emit(GameEvent.HURDLE_HIT, { value: HURDLES[v.type].value });
-  burst(invaderX(v) + IW / 2, invaderY(v) + IH / 2, HURDLES[v.type].color, 14);
-  if (!g.invaders.some(v => v.alive)) clearWave();
+  g.score += hurdle.value;
+  emit(GameEvent.HURDLE_HIT, { value: hurdle.value });
+  burst(invaderX(v) + IW / 2, invaderY(v) + IH / 2, hurdle.color, 14);
+  if (!g.invaders.some(other => other.alive)) clearWave();
 }
 
 function clearWave() {

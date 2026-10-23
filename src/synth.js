@@ -3,7 +3,7 @@
 //     recipes,                        // optional: defaults to the sound recipes in theme.js
 //     createContext,                  // () => new AudioContext()  (webkitAudioContext fallback); may throw
 //     now,                            // () => performance.now()   (journal 'at')
-//     setInterval, clearInterval,     // timers for the music look-ahead scheduler
+//     setInterval, clearInterval,     // timers for the music look-ahead scheduler (needed once music starts)
 //   }) -> {
 //     unlock(),          // call only from a keydown handler: creates/resumes the AudioContext
 //     perform(cue),      // a cue from src/sound.js (see the per-operation table in the feature delta)
@@ -25,22 +25,26 @@
 //   between `from` and `to` once every `duration` seconds, until `stopLoop` or `silence`. A loop is not an effect
 //   voice: it is not counted in `voices` or `peakVoices` and the voice cap never cuts it; starting one writes a
 //   journal entry (detail {}), and starting a loop that is already running does nothing.
-//   So far the synth performs `play`, `startLoop`, `stopLoop` and `silence` (every voice and loop stops at once:
-//   `voices` is 0 when perform returns); cues for sounds and operations without a recipe are skipped, the timers
-//   and `music: 'playing'` arrive with the music slice.
+//   `startMusic` plays the tune in theme.js (MUSIC) round and round on its own bus, `stopMusic` stops it; both do
+//   nothing when already so, and neither writes a journal entry. Music voices are not effect voices: they are not
+//   counted in `voices` or `peakVoices`. Every effect plays on the effects bus, the music on a bus 6 dB or more
+//   below it (BUS_LEVELS in theme.js). `silence` stops every voice, loop and the music at once (`voices` is 0 and
+//   `music` is 'stopped' when perform returns); cues for sounds and operations without a recipe are skipped.
 import { CueOp } from './events.js';
-import { SOUND_RECIPES, partsOf } from './theme.js';
+import { SOUND_RECIPES, MUSIC, BUS_LEVELS, partsOf } from './theme.js';
 
 const State = Object.freeze({ LOCKED: 'locked', RUNNING: 'running', SUSPENDED: 'suspended', UNAVAILABLE: 'unavailable' });
 const VOICE_CAP = 8, JOURNAL_SIZE = 100;
 const NOISE = 'noise', NOISE_SECONDS = 1;
 const ATTACK = 0.004, RELEASE = 0.03;   // seconds: short ramps at both ends of a voice, so it never clicks
+const MUSIC_TICK_MS = 25, MUSIC_LOOK_AHEAD = 0.1;   // the music timer wakes this often and schedules this far ahead (seconds)
 
 const valueOf = (pitch, detail) => (typeof pitch === 'function' ? pitch(detail) : pitch);
 
-export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}) {
-  let state = State.LOCKED, context = null, noise = null, entries = 0, peakVoices = 0;
+export function createSynth({ recipes = SOUND_RECIPES, createContext, now, setInterval, clearInterval } = {}) {
+  let state = State.LOCKED, context = null, buses = null, noise = null, entries = 0, peakVoices = 0;
   const voices = [];
+  const music = { playing: false, timer: null, voices: [], index: 0, nextAt: 0 };
   const loops = new Map();   // sound -> a function that stops that loop
   const journal = [];
 
@@ -57,12 +61,20 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     if (state !== State.LOCKED) return;
     try {
       context = createContext();
+      buses = { effects: makeBus(BUS_LEVELS.effects), music: makeBus(BUS_LEVELS.music) };
     } catch {
       state = State.UNAVAILABLE;
       return;
     }
     context.addEventListener('statechange', followContext);
     resume();
+  }
+
+  function makeBus(level) {
+    const bus = context.createGain();
+    bus.gain.value = level;
+    bus.connect(context.destination);
+    return bus;
   }
 
   // A shared second of white noise, from a private generator so it never disturbs Math.random.
@@ -115,15 +127,24 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     return from;
   }
 
-  function startVoice(recipe, detail) {
-    const { source, output, pitch } = makeSource(recipe), gain = context.createGain(), start = context.currentTime;
+  // One voice of a recipe, laid out from `start` and sent to `bus`.
+  function launch(recipe, detail, start, bus) {
+    const { source, output, pitch } = makeSource(recipe), gain = context.createGain();
     const end = schedule(recipe, detail, pitch, gain.gain, start);
-    output.connect(gain).connect(context.destination);
-    const voice = { fadeOut: () => fadeOut(gain.gain) };
-    source.onended = () => forget(voice);
+    output.connect(gain).connect(bus);
     source.start(start);
     source.stop(end);
-    voices.push(voice);
+    return { source, fadeOut: () => fadeOut(gain.gain) };
+  }
+
+  // Keeps `voice` in `list` for as long as it sounds.
+  function track(list, voice) {
+    voice.source.onended = () => forget(list, voice);
+    list.push(voice);
+  }
+
+  function startVoice(recipe, detail) {
+    track(voices, launch(recipe, detail, context.currentTime, buses.effects));
     peakVoices = Math.max(peakVoices, voices.length);
   }
 
@@ -139,7 +160,7 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     swing.connect(swingDepth).connect(carrier.frequency);
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(recipe.level, start + ATTACK);
-    carrier.connect(gain).connect(context.destination);
+    carrier.connect(gain).connect(buses.effects);
     carrier.start(start);
     swing.start(start);
     loops.set(sound, () => {
@@ -156,9 +177,9 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
     level.setTargetAtTime(0, context.currentTime, RELEASE / 3);
   }
 
-  function forget(voice) {
-    const at = voices.indexOf(voice);
-    if (at >= 0) voices.splice(at, 1);
+  function forget(list, voice) {
+    const at = list.indexOf(voice);
+    if (at >= 0) list.splice(at, 1);
   }
 
   // The oldest voices go first.
@@ -167,6 +188,39 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   }
 
   const makeRoomForAVoice = () => cutVoicesDownTo(VOICE_CAP - 1);
+
+  // The tune, one recipe per eighth-note (a rest is null). A timer wakes often and lays out the notes that fall in
+  // the next fraction of a second on the audio clock: a late timer costs nothing, and a fast-forwarded one cannot
+  // pile notes up, because nothing is ever scheduled before the clock's current time.
+  const tune = MUSIC.notes.map(pitch => pitch && { wave: MUSIC.wave, level: MUSIC.level, from: pitch, to: pitch, duration: MUSIC.noteSeconds });
+
+  function playNote(note, start) {
+    if (note) track(music.voices, launch(note, {}, start, buses.music));
+  }
+
+  function scheduleMusic() {
+    const clock = context.currentTime;
+    music.nextAt = Math.max(music.nextAt, clock);   // behind the clock: carry on from now
+    while (music.nextAt < clock + MUSIC_LOOK_AHEAD) {
+      playNote(tune[music.index], music.nextAt);
+      music.nextAt += MUSIC.step;
+      music.index = (music.index + 1) % tune.length;
+    }
+  }
+
+  function startMusic() {
+    if (music.playing) return;
+    Object.assign(music, { playing: true, index: 0, nextAt: 0 });
+    scheduleMusic();   // the first notes at once, not after the first tick
+    music.timer = setInterval(scheduleMusic, MUSIC_TICK_MS);
+  }
+
+  function stopMusic() {
+    if (!music.playing) return;
+    clearInterval(music.timer);
+    music.playing = false;
+    music.voices.splice(0).forEach(voice => voice.fadeOut());
+  }
 
   function record(sound, detail, t) {
     journal.push({ seq: ++entries, sound, detail, t, at: now() });
@@ -189,9 +243,12 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   }
 
   const stopLoop = ({ sound }) => loops.get(sound)?.();
-  const silence = () => { cutVoicesDownTo(0); [...loops.values()].forEach(stop => stop()); };
+  const silence = () => { cutVoicesDownTo(0); [...loops.values()].forEach(stop => stop()); stopMusic(); };
 
-  const OPERATIONS = { [CueOp.PLAY]: play, [CueOp.START_LOOP]: startLoop, [CueOp.STOP_LOOP]: stopLoop, [CueOp.SILENCE]: silence };
+  const OPERATIONS = {
+    [CueOp.PLAY]: play, [CueOp.START_LOOP]: startLoop, [CueOp.STOP_LOOP]: stopLoop,
+    [CueOp.START_MUSIC]: startMusic, [CueOp.STOP_MUSIC]: stopMusic, [CueOp.SILENCE]: silence,
+  };
 
   function perform(cue) {
     if (state !== State.RUNNING) return;
@@ -203,7 +260,7 @@ export function createSynth({ recipes = SOUND_RECIPES, createContext, now } = {}
   const diagnostics = Object.freeze({
     get state() { return state; },
     get journal() { return copyOfJournal(); },
-    get music() { return 'stopped'; },
+    get music() { return music.playing ? 'playing' : 'stopped'; },
     get voices() { return voices.length; },
     get peakVoices() { return peakVoices; },
   });

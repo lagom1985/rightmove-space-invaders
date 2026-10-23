@@ -59,6 +59,31 @@ const marchPitch = ({ note }) => MARCH_NOTES[note];
 
 export const partsOf = recipe => recipe.parts ?? [recipe];
 
+// The mix: a voice's peak gain is its recipe's level times the level of the bus it plays on. The effects are
+// the foreground; the music bus keeps the tune at least 6 dB (a factor of two) under the quietest effect.
+export const BUS_LEVELS = { effects: 1, music: 0.25 };
+
+// Background music (US-06): one chiptune loop of 16 bars in A minor, a key that fits the beat's falling
+// A, G#, G, F#. Each bar is a chord and eight eighth-notes ('.' is a rest) that pick the chord's tones by
+// position, low to high. The notes stay above the beat's bass so the two never fight.
+const midiHz = note => 440 * 2 ** ((note - 69) / 12);
+const CHORDS = {
+  Am: [69, 72, 76, 81], F: [65, 69, 72, 77], C: [72, 76, 79, 84],
+  G: [67, 71, 74, 79], Dm: [74, 77, 81, 86], E: [64, 68, 71, 76],
+};
+const BARS = [
+  ['Am', '01232123'], ['F', '01232123'], ['C', '01232123'], ['G', '23.32.10'],
+  ['Am', '01232123'], ['F', '01232123'], ['G', '23232101'], ['E', '3.2.3.2.'],
+  ['Dm', '01232123'], ['Am', '01232123'], ['F', '01232123'], ['E', '01232123'],
+  ['Dm', '3.2.1.0.'], ['Am', '3.2.1.0.'], ['E', '23232323'], ['E', '3.2.1.0.'],
+];
+// `notes` are the loop's eighth-notes in order, each a pitch in Hz or null for a rest; every one starts `step`
+// seconds after the one before and sounds for `noteSeconds`, so the tune is crisp and the loop runs on for ever.
+export const MUSIC = {
+  wave: 'square', level: 0.12, step: 0.2, noteSeconds: 0.17,
+  notes: BARS.flatMap(([chord, pattern]) => [...pattern].map(tone => (tone === '.' ? null : midiHz(CHORDS[chord][tone])))),
+};
+
 export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
   [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },

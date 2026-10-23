@@ -33,6 +33,13 @@ function playSounds() {
   }
 }
 
+// Pausing a hidden or unfocused game must be heard at once: a hidden tab gets no more frames to carry the cues.
+function leaveGame() {
+  keyboard.releaseAll();   // keyups never arrive while the window is unfocused or hidden
+  pause();
+  playSounds();
+}
+
 // Desktop only: touch-first devices and narrow windows get a "needs a keyboard" screen.
 function checkDevice() {
   const noKeyboard = matchMedia('(hover: none) and (pointer: coarse)').matches || innerWidth < 640;
@@ -41,7 +48,8 @@ function checkDevice() {
 
 function onResize() { renderer.resize(); checkDevice(); }
 addEventListener('resize', onResize);
-addEventListener('blur', () => { keyboard.releaseAll(); pause(); });
+addEventListener('blur', leaveGame);
+document.addEventListener('visibilitychange', () => { if (document.hidden) leaveGame(); });
 onResize();
 
 // Fixed-step simulation, render once per display frame.

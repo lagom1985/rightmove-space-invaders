@@ -16,7 +16,7 @@ Feature: The marching beat (US-03)
     When the formation takes any number of steps at any pace
     Then one beat note plays per step, cycling through four notes
 
-  @US-03 @real-io @error @pending
+  @US-03 @real-io @error
   Scenario Outline: Pausing with <key> stops the beat
     Given I am playing with sound on
     When I pause with <key> for 5 seconds
@@ -27,7 +27,7 @@ Feature: The marching beat (US-03)
       | P      |
       | Escape |
 
-  @US-03 @real-io @pending
+  @US-03 @real-io
   Scenario: Resuming starts the beat again
     Given I am playing with sound on
     And I have paused the game
@@ -42,14 +42,14 @@ Feature: The marching beat (US-03)
     Then the beat stays silent while the pin respawns
     And the beat plays again once the pin is back
 
-  @US-03 @real-io @error @pending
+  @US-03 @real-io @error
   Scenario: Switching to another window silences the game without waiting for the next frame
     Given I am playing with sound on
     And the formation has marched 2 steps
     When I switch to another window
     Then all sound stops at once
 
-  @US-03 @real-io @error @pending
+  @US-03 @real-io @error
   Scenario: Hiding the game's tab silences the game without waiting for the next frame
     Given I am playing with sound on
     And the formation has marched 2 steps

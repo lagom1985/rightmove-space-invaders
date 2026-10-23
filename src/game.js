@@ -46,11 +46,13 @@ export const invaderY = v => g.formation.y + v.r * GY;
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
+
 // One-shot keys, handled once per frame.
 export function handlePresses(pressed) {
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
-  else if (['play', 'dead', 'clear'].includes(g.state) && (pressed.has('KeyP') || pressed.has('Escape'))) g.paused = !g.paused;
+  else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
   if (pressed.has('KeyM')) toggleSound();   // on every screen, and never touches the game itself
 }
 
@@ -60,7 +62,14 @@ function toggleSound() {
 }
 
 export function pause() {
-  if (['play', 'dead', 'clear'].includes(g.state)) g.paused = true;
+  if (isPausable()) setPaused(true);
+}
+
+// Publishes the change only when there is one, so the sound system never hears a pause twice.
+function setPaused(paused) {
+  if (g.paused === paused) return;
+  g.paused = paused;
+  emit(paused ? GameEvent.PAUSED : GameEvent.RESUMED);
 }
 
 function startGame() {

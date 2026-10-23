@@ -1,0 +1,349 @@
+{
+  "roadmap": {
+    "project_id": "rightmove-invaders-sound",
+    "created_at": "2026-10-23T18:35:54Z",
+    "total_steps": 11
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01: Hear your shots",
+      "description": "Walking skeleton from keyboard to audio output (US-01). Shots and hurdle hits sound through real Web Audio; silent until the first key; at most 8 voices; silent fallback when sound is unavailable or fails to start.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Walking skeleton: shot and hurdle hit heard end to end",
+          "criteria": [
+            "After Enter then Space, the page's audio journal shows a shot sound, then a hurdle-hit sound carrying the hit hurdle's value (\u00a350 for the Damp).",
+            "After the first key press the page's sound state reads running, and src/sound.js and src/synth.js no longer carry __SCAFFOLD__ markers.",
+            "The game plays exactly as before: the game's own walking-skeleton scenarios stay green."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/walking-skeleton.feature",
+          "scenario_name": "Alex hears their shot and the hurdle it hits",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "src/game.js",
+            "src/main.js",
+            "src/sound.js",
+            "src/synth.js",
+            "src/theme.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/walking-skeleton.feature"
+          ],
+          "implementation_notes": "Rules publish timed events to an outbox owned by game.js (gameStarted, shotFired, hurdleHit with value). main.js drains it each frame into the director, then the synth, and unlocks audio on keydown. Minimal director now; full policy in 02-02. Synth skips sounds and ops without a recipe. Shot and hit recipes in theme.js. Remove __SCAFFOLD__ markers from sound.js and synth.js. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        },
+        {
+          "id": "01-02",
+          "name": "Silent until first key, immediate shots, burst cap, fallbacks",
+          "criteria": [
+            "Before the first key press nothing sounds, sound state reads locked, and no errors or audio warnings appear on the title screen.",
+            "A shot sounds within one 60 Hz frame (17 ms) of the Space press; three shots a second apart sound three times.",
+            "Twenty sounds started at once are all journalled, and no more than 8 ever sound together; the oldest are cut first.",
+            "When Web Audio is missing or fails to start, sound state reads unavailable, firing raises the deposit to \u00a350 and no error appears.",
+            "Hit sound carries the hurdle's value, and pitch rises strictly with it: \u00a350 < \u00a3100 < \u00a3150 < \u00a3200 < \u00a3300."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-1-shots-and-hits.feature",
+          "scenario_name": "The game stays silent until the first key press | A shot is heard in the same frame it is fired | Every shot is heard | The hit sound knows which hurdle was hit | A burst of sounds never plays more than eight at once | The game plays silently when sound is unavailable | The game plays silently when sound fails to start",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/synth.js",
+            "src/main.js",
+            "src/theme.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-1-shots-and-hits.feature",
+            "tests/unit/hit-pitch.spec.js",
+            "tests/unit/diagnostics-handle.spec.js",
+            "playwright.config.js"
+          ],
+          "implementation_notes": "Several scenarios may already pass after 01-01: enable one at a time with RUN_PENDING=1, fix only real failures. Burst scenario hosts the synth alone (fixtures/synth-host.html). First unit tests: add a 'unit' project (testDir tests/unit) to playwright.config.js; specs for pitch rising with hurdle value (theme) and a read-only diagnostics handle (frozen copies, no functions). Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes. Owns the read-only handle check: tests/unit/diagnostics-handle.spec.js proves window.makeTheRightMove.audio is frozen and data-only (moved here from 01-01)."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02: Silence it with M",
+      "description": "M toggles all sound on every screen (US-02). HUD indicator and screen-reader announcements; the setting persists and defaults to on when storage is blocked. Director policy proven for every event sequence, including unmute while paused.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "M mutes on every screen, with HUD, announcement and persistence",
+          "criteria": [
+            "Pressing M on the title, play, pause or game-over screen switches sound off, and all voices stop before the next frame.",
+            "The HUD sound field reads Off after M and screen readers hear 'Sound off. Press M to turn it on.'; the second-press 'Sound on.' is verified in 03-01.",
+            "With sound off, firing still raises the deposit to \u00a350 and nothing is journalled.",
+            "A saved Off survives reload: the HUD shows Off and starting a game plays nothing.",
+            "With storage blocked, sound starts On, and M still switches it to Off without errors."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-2-mute.feature",
+          "scenario_name": "M silences the game in the middle of a wave | Shots make no sound while the sound is off | The game remembers that the sound was off | M switches the sound off on the <screen> screen | Sound still starts on when saved settings are unavailable",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/storage.js",
+            "src/main.js",
+            "src/sound.js",
+            "src/synth.js",
+            "src/status.js",
+            "src/render.js",
+            "index.html",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-2-mute.feature"
+          ],
+          "implementation_notes": "M is its own check in handlePresses beside P; it touches only the sound flag. main.js loads settings via applySettings before the first frame and saves on the toggle event; strict on/off parse, default on, guarded. Needs director mute gating and silence, and synth silence (full policy in 02-02). 'M turns the sound back on' needs the beat: enabled in 03-01. Canvas indicator and controls line: manual (D10). Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        },
+        {
+          "id": "02-02",
+          "name": "Director policy: mute, unmute and restore for any event sequence",
+          "criteria": [
+            "With sound off, no sequence of game events starts any sound, loop or music.",
+            "With sound on, the same sequences produce exactly the cues the policy table prescribes, in event order.",
+            "Switching sound on while the Dream Home is on screen and play is live restores the siren loop.",
+            "Switching sound on while paused plays nothing until play resumes."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-2-mute.feature",
+          "scenario_name": "While the sound is off, nothing the game does makes a sound | Turning the sound back on brings back the Dream Home siren | Turning the sound on while paused stays silent until play resumes",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/sound.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-2-mute.feature"
+          ],
+          "implementation_notes": "Complete the director policy table for every GameEvent: plans must equal referencePlan cue by cue, including times and the 1e-6 s rate-limit tolerance. Director holds no synth reference. From here on, later in-memory scenarios (milestones 3 to 7) should pass on enablement: confirm, then un-pend. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes. Keep the director's music rows in one clearly labelled block in sound.js, so dropping music (slices 06-07) means deleting that block."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03: The marching beat",
+      "description": "One bass note per formation step in a four-note cycle, at the formation's own pace (US-03). Silent while paused, respawning, on the banner and after game over; window blur and hidden tab silence everything at once.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Four-note marching beat at the formation's pace",
+          "criteria": [
+            "Eight formation steps at 55 hurdles play notes 1 2 3 4 1 2 3 4, about 0.53 s apart (\u00b110%).",
+            "Exactly one beat note plays per formation step, cycling four notes, at any pace.",
+            "Time between formation steps is 0.53 s \u00b110% with 55 hurdles and 0.12 s \u00b110% with 10 left (first wave), and never lengthens as hurdles fall.",
+            "Unmuting during play brings the beat back: HUD shows On, 'Sound on.' is announced, and a beat note plays."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature",
+          "scenario_name": "The formation marches to a four-note beat at its own pace | Exactly one beat note per formation step, whatever the pace",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/theme.js",
+            "src/synth.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-2-mute.feature",
+            "tests/unit/formation-step-interval.spec.js"
+          ],
+          "implementation_notes": "Emit formationStepped from the formation step, stamped with simulation time; march notes are theme data. Also remove @pending from 'M turns the sound back on' in milestone-2-mute.feature: it needs the beat. Unit test: step-interval property (55 and 10 hurdles, first wave). The one-beat-per-step property should pass on enablement. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes. Unit property (formation-step-interval.spec.js): for first-wave hurdle counts 10..55 the interval never increases as hurdles fall, with 0.53 s \u00b110% at 55 and 0.12 s \u00b110% at 10. Manual check owed by the PO (D10): same tempo on a 60 Hz and a 120 Hz display."
+        },
+        {
+          "id": "03-02",
+          "name": "Pause, resume, window blur and hidden tab silence the beat",
+          "criteria": [
+            "Pausing with P or Escape for 5 seconds produces no sound after the key press.",
+            "Resuming with P brings the beat back: a beat note plays after the press.",
+            "Switching to another window stops all sound at once: no voices and no music before any further frame runs.",
+            "Hiding the tab stops all sound at once, without waiting for the next frame."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature",
+          "scenario_name": "Pausing with <key> stops the beat | Resuming starts the beat again | Switching to another window silences the game without waiting for the next frame | Hiding the game's tab silences the game without waiting for the next frame",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/main.js",
+            "src/synth.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature"
+          ],
+          "implementation_notes": "Emit paused/resumed from P/Esc handling and from pause(), only when state changes. In main.js, blur and hidden visibilitychange pause, drain events and perform cues immediately, without waiting for a frame. Synth silence must update voices and music synchronously; tests run no frame after the action. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        },
+        {
+          "id": "03-03",
+          "name": "Silent beat during respawn and after game over",
+          "criteria": [
+            "After a bolt hits the pin, no beat note plays during the 1.4 s respawn.",
+            "Once the pin is back, the beat plays again.",
+            "After game over, no beat note plays for any event sequence until a new game starts.",
+            "The formation never steps outside play: not on the Wave cleared banner, while the pin respawns, or after game over."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature",
+          "scenario_name": "Losing a home stops the beat until the pin is back | No beat after game over until a new game starts",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/theme.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-3-marching-beat.feature",
+            "tests/unit/formation-play-only.spec.js"
+          ],
+          "implementation_notes": "Emit homeLost with lives left. The scenario reads the loss time from the journal, so a first home-lost recipe lands here; 04-01 tunes it. Unit test: property over state sequences, no formationStepped outside play (banner, respawn, over). The lifecycle property should pass on enablement. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Slice 04: Combat sounds",
+      "description": "Distinct sounds for a house hit, a home lost and a bolt stopped (US-04). House-hit thuds are at least 50 ms apart in game time; extra hits are dropped, not queued. All respect mute.",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "House-hit thud, home-lost explosion and bolt-stopped tink",
+          "criteria": [
+            "A shot into a house plays a thud; a bolt into a house plays the same thud.",
+            "Seven house hits 20 ms apart play exactly 3 thuds, at 0, 60 and 120 ms; the others are dropped, not queued.",
+            "Thuds are never closer than 50 ms of game time; a hit is dropped only if it lands less than 50 ms after the last played thud.",
+            "Losing a home plays a falling explosion; stopping a bolt with a shot plays a distinct tink.",
+            "With sound off, house hits, lost homes and stopped bolts play nothing."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-4-combat-sounds.feature",
+          "scenario_name": "A shot into a house makes a thud | A bolt hitting a house makes a thud | Losing a home is heard | Stopping a bolt with a shot makes a tink | Seven hits in 120 ms make three thuds | House hits never sound closer together than 50 ms",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-03"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/theme.js",
+            "src/synth.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-4-combat-sounds.feature"
+          ],
+          "implementation_notes": "Emit shieldHit with source for shot and bolt hits, and boltStopped when a shot meets a bolt. Thud, tink and explosion are theme recipes; the synth may need a noise voice. In-memory scenarios and 'Losing a home is heard' should pass on enablement; tune the explosion to fall over about 1 s. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes. Manual check owed by the PO (D10): 30 s listen under the stress scene on speakers and headphones. K6 is measured by the orchestrator at the integration gate, not in this step."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Slice 05: Big-moment jingles",
+      "description": "Five distinct jingles (US-05): doorbell on start, Dream Home siren loop, ka-ching when saved, wave-cleared fanfare of at most 2.4 s, game-over tune. All respect mute and pause.",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Doorbell, Dream Home siren, ka-ching, fanfare and game-over tune",
+          "criteria": [
+            "Enter on the title screen rings the doorbell; losing the game ('Offer rejected' or 'Gazumped!') plays the game-over tune and silences the siren.",
+            "A siren loops while the Dream Home is on screen, and stops when it leaves, is saved, the wave clears or play pauses.",
+            "Saving the Dream Home plays ka-ching and stops the siren; resuming while it is still on screen restarts the siren.",
+            "Clearing a wave stops the siren and plays a rising fanfare of at most 2.4 s.",
+            "With sound off, none of these jingles play."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-5-jingles.feature",
+          "scenario_name": "Starting a game rings the doorbell | The siren plays while the Dream Home is on screen | The siren stops when the Dream Home leaves | Saving the Dream Home stops the siren and plays ka-ching | Clearing a wave stops the siren and plays the fanfare | Losing the game plays the game-over tune | Game over silences the Dream Home siren | Pausing silences the Dream Home siren | Resuming brings the siren back while the Dream Home is still on screen",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/theme.js",
+            "src/synth.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-5-jingles.feature",
+            "tests/unit/fanfare-length.spec.js"
+          ],
+          "implementation_notes": "@sizing-review-needed: 9 scenarios, but 7 are in-memory and pass on enablement; real work is emit sites, recipes and the siren loop. Consider splitting rules/director from recipes. Emit dreamAppeared, dreamGone, dreamSaved, waveCleared, gameOver, including paths that clear the Dream Home silently (last hurdle, game over). Unit test: fanfare length property. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Slice 06: Background music",
+      "description": "A quiet chiptune loop plays under the game, at least 6 dB below effects (US-06). Pauses and resumes with the game, stops on game over, returns on unmute. Droppable as one unit with slice 07.",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Background music loop under the game",
+          "criteria": [
+            "Starting a game with music on starts a quiet chiptune loop; audio diagnostics read music playing.",
+            "Music stops on pause and on game over, and plays again on resume.",
+            "Switching sound off and on during a game brings the music back.",
+            "The music level is at least 6 dB below the effects level."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-6-music.feature",
+          "scenario_name": "Music plays under the game | Music pauses with the game | Music stops on game over | Turning the sound back on brings the music back | Music comes back when play resumes",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/main.js",
+            "src/synth.js",
+            "src/theme.js",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-6-music.feature",
+            "tests/unit/music-level.spec.js"
+          ],
+          "implementation_notes": "Music scheduler uses injected timers and never schedules before the audio clock (DDD-14), on its own bus. Bus levels are theme data so a unit test can assert the 6 dB gap. g.settings.music (default on) is added here, not yet saved or toggled. Loop seam: manual (D10). In-memory scenarios pass on enablement. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes."
+        }
+      ]
+    },
+    {
+      "id": "07",
+      "name": "Slice 07: Music toggle with N",
+      "description": "N turns only the music off or on, on every screen (US-07). Remembered across visits, shown in the HUD and announced; effects keep playing; unmuting with M restores music only if it is on.",
+      "steps": [
+        {
+          "id": "07-01",
+          "name": "N toggles music: HUD, announcement, persistence",
+          "criteria": [
+            "N switches music off on the title, play, pause and game-over screens; effects keep playing and the sound setting stays On.",
+            "The HUD music field reads Off, and 'Music off. Press N to turn it on.' is announced.",
+            "A saved music-off survives reload: starting a game plays no music and the HUD shows Off.",
+            "Unmuting with M restores music only if music is on.",
+            "With storage blocked, music starts On, and N still switches it Off without errors."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-sound/acceptance/milestone-7-music-toggle.feature",
+          "scenario_name": "N turns just the music off | The game remembers that the music was off | With the music off, effects still play | Unmuting brings the music back only if it was on | N switches the music off on the <screen> screen | Music still starts on when saved settings are unavailable",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "06-01"
+          ],
+          "files_to_modify": [
+            "src/game.js",
+            "src/storage.js",
+            "src/main.js",
+            "src/status.js",
+            "src/render.js",
+            "index.html",
+            "tests/e2e/rightmove-invaders-sound/acceptance/milestone-7-music-toggle.feature",
+            "README.md"
+          ],
+          "implementation_notes": "N is its own check in handlePresses beside M, emitting musicToggled. Load/save the ':music' key like sound; strict parse, default on, guarded. Add the music field and announcements to status.js and index.html; 'MUSIC OFF' indicator and 'N music' controls text in render.js (manual, D10). Two in-memory scenarios pass on enablement. Tests: unit = fast-check properties, single example only with `// bypass:` reason; acceptance example-based; state-delta matchers waived (DISTILL), cue plans compared with referencePlan. Keep game walking skeleton and enabled sound scenarios green; flag sound.js/synth.js header-contract changes. Also update the README controls table with M (sound) and N (music) (DoD 8). Manual checks owed by the PO (D10) after this step: real Safari dogfood, canvas HUD indicator and controls line."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/"
+    ],
+    "test_directories": [
+      "tests/e2e/rightmove-invaders-sound/",
+      "tests/unit/"
+    ],
+    "excluded_patterns": [
+      "__init__.py",
+      "__pycache__/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "approved_at": "2026-10-23T18:51:49Z",
+    "notes": "conditionally_approved (0 blockers, 2 high, 7 low); both highs and four lows fixed by the orchestrator before execution."
+  }
+}

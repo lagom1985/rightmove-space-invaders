@@ -19,6 +19,8 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:4173' },
   webServer: { command: 'npm start', url: 'http://localhost:4173', reuseExistingServer: !process.env.CI },
   projects: [
+    // Unit properties (fast-check) on pure modules: no browser, no @pending/@in-memory filtering.
+    { name: 'unit', testDir: 'tests/unit' },
     { name: 'in-memory', grep: /@in-memory/, grepInvert: pending },
     { name: 'chromium', ...browser('Desktop Chrome') },
     { name: 'firefox', ...browser('Desktop Firefox') },

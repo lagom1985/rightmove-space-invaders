@@ -2,7 +2,7 @@ Feature: Hear your shots (US-01)
   When I fire or hit something, I want to hear it straight away,
   so I know my action landed without taking my eyes off the formation.
 
-  @US-01 @real-io @error @kpi-K7 @pending
+  @US-01 @real-io @error @kpi-K7
   Scenario: The game stays silent until the first key press
     Given I have just opened the game
     When 5 seconds pass on the title screen
@@ -10,32 +10,32 @@ Feature: Hear your shots (US-01)
     And the game's sound is waiting for a key press
     And no errors or audio warnings are reported
 
-  @US-01 @real-io @kpi-K5 @pending
+  @US-01 @real-io @kpi-K5
   Scenario: A shot is heard in the same frame it is fired
     Given I am playing with sound on
     When I press Space
     Then I hear a shot within one frame
 
-  @US-01 @real-io @pending
+  @US-01 @real-io
   Scenario: Every shot is heard
     Given I am playing with sound on
     When I fire 3 shots a second apart
     Then I hear 3 shots
 
-  @US-01 @in-memory @pending
+  @US-01 @in-memory
   Scenario: The hit sound knows which hurdle was hit
     Given a game is running with sound on and music on
     When the game reports a hurdle worth £300 being hit
     Then a hit on a hurdle worth £300 is played
 
-  @US-01 @real-io @adapter-integration @edge @pending
+  @US-01 @real-io @adapter-integration @edge
   Scenario: A burst of sounds never plays more than eight at once
     Given the game's sound is ready on its own
     When 20 shots start at the same moment
     Then all 20 shots were started
     And no more than 8 sounds ever played at once
 
-  @US-01 @real-io @error @kpi-K7 @pending
+  @US-01 @real-io @error @kpi-K7
   Scenario: The game plays silently when sound is unavailable
     Given I have just opened the game in a browser without sound
     And I have started a game
@@ -44,7 +44,7 @@ Feature: Hear your shots (US-01)
     And the game's sound is unavailable
     And no errors or audio warnings are reported
 
-  @US-01 @real-io @error @kpi-K7 @pending
+  @US-01 @real-io @error @kpi-K7
   Scenario: The game plays silently when sound fails to start
     Given I have just opened the game in a browser where sound fails to start
     And I have started a game

@@ -2,23 +2,32 @@
 // in which case the game simply starts from £0 each time, with sound and music on.
 const PREFIX = 'make-the-right-move:';
 
+// A blocked storage throws: a read then gives `fallback` and a write is dropped.
+function read(name, fallback) {
+  try { return localStorage.getItem(PREFIX + name); } catch { return fallback; }
+}
+
+function write(name, value) {
+  try { localStorage.setItem(PREFIX + name, value); } catch { /* not persisted */ }
+}
+
 export function loadBest() {
-  try { return Number(localStorage.getItem(PREFIX + 'best')) || 0; } catch { return 0; }
+  return Number(read('best', null)) || 0;
 }
 
 export function saveBest(score) {
-  try { localStorage.setItem(PREFIX + 'best', String(score)); } catch { /* not persisted */ }
+  write('best', String(score));
 }
 
 // Only a saved 'off' turns a setting off: nothing saved, anything else, or no storage at all means on.
-const isOn = name => {
-  try { return localStorage.getItem(PREFIX + name) !== 'off'; } catch { return true; }
-};
+function isOn(name) {
+  return read(name, 'on') !== 'off';
+}
 
 export function loadSettings() {
   return { sound: isOn('sound'), music: isOn('music') };
 }
 
 export function saveSetting(name, on) {
-  try { localStorage.setItem(PREFIX + name, on ? 'on' : 'off'); } catch { /* not persisted */ }
+  write(name, on ? 'on' : 'off');
 }

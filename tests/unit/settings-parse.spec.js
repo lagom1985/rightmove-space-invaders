@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
+import './support/seed.js';
 import { loadSettings, saveSetting } from '../../src/storage.js';
 
 // The saved sound and music choices (US-02, US-07): only a saved "off" turns a setting off. Nothing saved,

@@ -1,5 +1,6 @@
 import { test } from '@playwright/test';
 import fc from 'fast-check';
+import './support/seed.js';
 import { HURDLES, hitPitch } from '../../src/theme.js';
 
 // The pure pitch function (hitPitch in theme.js) alone: synth-hit-pitch.spec.js covers the pitch the synth really plays.

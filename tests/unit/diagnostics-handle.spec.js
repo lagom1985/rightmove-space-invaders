@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
+import './support/seed.js';
 import { createSynth } from '../../src/synth.js';
 import { CueOp, Sound } from '../../src/events.js';
 import { HURDLES } from '../../src/theme.js';

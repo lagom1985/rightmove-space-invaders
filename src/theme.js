@@ -56,4 +56,6 @@ export const SOUND_RECIPES = {
   [Sound.SHOT]: { wave: 'square', from: 440, to: 1320, duration: 0.12, level: 0.12 },
   [Sound.HURDLE_HIT]: { wave: 'triangle', from: ({ value }) => hitPitch(value), to: 90, duration: 0.18, level: 0.3 },
   [Sound.MARCH]: { wave: 'square', from: marchPitch, to: marchPitch, duration: 0.08, level: 0.18 },
+  // Losing a home: a low saw that falls away, like something collapsing. First cut; tuned by ear later.
+  [Sound.HOME_LOST]: { wave: 'sawtooth', from: 330, to: 55, duration: 0.7, level: 0.25 },
 };

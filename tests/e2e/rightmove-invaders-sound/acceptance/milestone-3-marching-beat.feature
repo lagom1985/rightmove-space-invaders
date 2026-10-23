@@ -34,7 +34,7 @@ Feature: The marching beat (US-03)
     When I press P
     Then I hear a beat note
 
-  @US-03 @real-io @error @pending
+  @US-03 @real-io @error
   Scenario: Losing a home stops the beat until the pin is back
     Given I am playing with sound on
     And the formation has marched 2 steps
@@ -56,7 +56,7 @@ Feature: The marching beat (US-03)
     When I hide the game's tab
     Then all sound stops at once
 
-  @US-03 @in-memory @property @edge @pending
+  @US-03 @in-memory @property @edge
   Scenario: No beat after game over until a new game starts
     Given a game is running with sound on and music on
     When the game ends and any events follow, including new games

@@ -216,6 +216,7 @@ function moveBolts(dt) {
 
 function killPlayer() {
   g.lives--; g.state = 'dead'; g.respawn = RESPAWN_TIME; g.shot = null; g.bolts = [];
+  emit(GameEvent.HOME_LOST, { livesLeft: g.lives });
   burst(g.player.x + PW / 2, g.player.y + PH / 2, COLORS.green, 50, 240);
 }
 

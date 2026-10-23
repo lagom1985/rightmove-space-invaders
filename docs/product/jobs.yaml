@@ -1,0 +1,96 @@
+# Jobs-to-be-Done SSOT for Make the Right Move.
+# Evidence level: assumption. These come from the product owner's knowledge of the genre and the
+# persona, not from interviews (no DISCOVER wave was run). Validate them in the playtests that the
+# KPIs in docs/feature/rightmove-invaders-sound/feature-delta.md describe.
+# Opportunity score = importance + max(importance - satisfaction, 0), each rated 1-10.
+
+jobs:
+  - id: J-SOUND-FEEDBACK
+    job_story: >
+      When I fire or hit something, I want to hear it straight away,
+      so I know my action landed without taking my eyes off the formation.
+    dimensions:
+      functional: Confirm shots and hits instantly, even in a crowded screen.
+      emotional: The small hit of satisfaction every time a hurdle pops.
+      social: none
+    forces:
+      push: The game is silent; hits are easy to miss among particles and bolts.
+      pull: The crisp "pew" and "pop" of arcade shooters.
+      anxiety: Constant shooting noise could get grating.
+      habit: Players currently watch the score counter to confirm hits.
+    importance: 9
+    satisfaction: 1
+    opportunity: 17
+    introduced_by: rightmove-invaders-sound
+
+  - id: J-SOUND-TENSION
+    job_story: >
+      When the hurdles get fewer, faster and closer, I want to hear the pressure rising,
+      so the game feels urgent and my reactions sharpen.
+    dimensions:
+      functional: Sense the formation's speed without watching it.
+      emotional: Rising tension, then relief when a wave is cleared.
+      social: none
+    forces:
+      push: The speed-up is only visible; danger creeps up unnoticed.
+      pull: The classic four-note march that speeds up as invaders fall.
+      anxiety: A fast beat could become annoying or out of sync with the formation.
+      habit: Players glance at the formation height to judge danger.
+    importance: 8
+    satisfaction: 1
+    opportunity: 15
+    introduced_by: rightmove-invaders-sound
+
+  - id: J-SOUND-CONTROL
+    job_story: >
+      When sound isn't welcome (a call, a quiet train carriage), I want to silence the game with one key,
+      so I can keep playing without bothering anyone or reaching for the system volume.
+    dimensions:
+      functional: Mute or unmute instantly, and have the game remember it.
+      emotional: Feeling in control and not embarrassed.
+      social: Not disturbing the people around me.
+    forces:
+      push: Sound that starts on by default can surprise people nearby.
+      pull: One familiar key (M) that every game uses.
+      anxiety: Forgetting the game was muted and thinking sound is broken.
+      habit: Reaching for the laptop's mute key, which silences everything else too.
+    importance: 8
+    satisfaction: 1
+    opportunity: 15
+    introduced_by: rightmove-invaders-sound
+
+  - id: J-SOUND-CELEBRATION
+    job_story: >
+      When I save the Dream Home, clear a wave or lose, I want a distinctive jingle,
+      so the big moments feel rewarding and memorable.
+    dimensions:
+      functional: Notice the Dream Home arriving; know the outcome without reading.
+      emotional: Delight on a bonus, pride on a cleared wave, a wry smile at "Gazumped!".
+      social: People nearby notice the moment ("did you just get gazumped?").
+    forces:
+      push: The Dream Home is easy to miss; endings are silent.
+      pull: Arcade fanfares and the "ka-ching" of a bonus.
+      anxiety: Long jingles that delay getting back into the game.
+      habit: Players read the banners.
+    importance: 7
+    satisfaction: 2
+    opportunity: 12
+    introduced_by: rightmove-invaders-sound
+
+  - id: J-SOUND-ATMOSPHERE
+    job_story: >
+      When I settle in for a session, I want background music that sets the mood,
+      so it feels like a complete arcade game rather than a prototype.
+    dimensions:
+      functional: Fill the gaps between effects.
+      emotional: Immersion and a sense of polish.
+      social: none
+    forces:
+      push: Between effects the game feels empty.
+      pull: Chiptune loops of classic arcade and console games.
+      anxiety: Music clashing with the march or masking important effects.
+      habit: Some players play their own music instead.
+    importance: 5
+    satisfaction: 1
+    opportunity: 9
+    introduced_by: rightmove-invaders-sound

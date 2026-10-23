@@ -1,0 +1,59 @@
+# Journey SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23 (lightweight depth).
+id: play-a-session
+persona: casual-arcade-player
+jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE]
+
+steps:
+  - id: open
+    action: Open the game in a desktop browser.
+    sees: Title screen with the hurdle legend, best deposit and controls (including "M sound").
+    hears: Nothing yet. Browsers block audio until the first key press.
+    feels: curious
+  - id: start
+    action: Press Enter.
+    sees: The formation and four terraced-house shields.
+    hears: A "ding-dong" doorbell, then the marching beat (and music, if on).
+    feels: engaged
+  - id: fight
+    action: Move with the arrows or A/D and fire with Space.
+    hears: A "pew" per shot and a "pop" per hurdle hit (brighter for pricier hurdles), a thud when a house is hit, a "tink" when a shot meets a bolt.
+    feels: in control, satisfied
+  - id: pressure
+    action: Keep clearing hurdles.
+    hears: The beat speeds up as the formation thins and steps faster.
+    feels: tense, focused
+  - id: bonus
+    action: Shoot the Dream Home as it crosses the top.
+    hears: A warbling siren while it's on screen, then a "ka-ching" on the save.
+    feels: delighted
+  - id: lose-a-home
+    action: Get hit by a bolt.
+    hears: A falling explosion; the beat stops until the pin respawns.
+    feels: setback, resolve
+  - id: silence
+    action: Press M (or N for the music only) when sound isn't welcome; press P or Esc, or switch window, to pause.
+    sees: SOUND OFF (or MUSIC OFF) in the HUD; the setting is remembered next visit.
+    hears: All game sound stops at once (or just the music).
+    feels: in control
+  - id: outcome
+    action: Clear the wave, or lose.
+    hears: A rising fanfare for "Wave cleared!", or a descending tune for "Offer rejected" / "Gazumped!".
+    feels: proud, or wry and motivated to retry
+
+shared_artifacts:
+  sound_enabled: {source: "g.settings.sound (rules), persisted by main.js in localStorage 'make-the-right-move:sound'", default: true, toggled_by: M}
+  music_enabled: {source: "g.settings.music (rules), persisted by main.js in localStorage 'make-the-right-move:music'", default: true, toggled_by: N}
+  formation_step: {source: "formationStepped event from the rules (src/events.js)", drives: marching beat tempo}
+  game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/events.js", drives: effects and jingles}
+
+error_paths:
+  - when: No key pressed yet (autoplay policy).
+    then: The game is silent; the first key press unlocks audio. No console errors.
+  - when: The browser has no Web Audio support or it fails to start.
+    then: The game plays silently; nothing else changes.
+  - when: Many sounds at once (40 bolts hitting shields).
+    then: Overlapping voices are capped; the oldest is dropped; no clipping.
+  - when: The window loses focus, the tab is hidden or the game is paused.
+    then: All sound stops at once, without waiting for the next frame; it resumes when play resumes.
+  - when: localStorage is blocked.
+    then: Sound and music default to on for every visit.

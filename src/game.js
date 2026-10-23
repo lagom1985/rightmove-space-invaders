@@ -12,7 +12,9 @@ export const SHOT_W = 3, SHOT_H = 12, BOLT_H = 12;
 
 const ROWS = HURDLES.length, COLS = 11;
 const SHIELD_Y = H - 190;
-const PLAYER_SPEED = 330, SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
+export const PLAYER_SPEED = 330;
+export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
+const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
 
 // The whole game state. The renderer and the status mirror read it; only this module writes it.
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
@@ -26,6 +28,7 @@ export const g = {
 };
 
 export const invaderX = v => g.formation.x + v.c * GX;
+export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -51,7 +54,7 @@ function startWave(level) {
   g.invaders = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) g.invaders.push({ r, c, type: r, alive: true });
   g.formation = { x: (W - ((COLS - 1) * GX + IW)) / 2, y: 120 + Math.min(level, 4) * 18, dir: 1, timer: 0.6, frame: 0 };
-  g.shields = [0, 1, 2, 3].map(i => makeShield(Math.round(W / 4 * (i + 0.5) - SW * PX / 2), SHIELD_Y));
+  g.shields = [0, 1, 2, 3].map(i => makeShield(Math.round(houseCentreX(i) - SW * PX / 2), SHIELD_Y));
   g.player.x = W / 2 - PW / 2;
   g.shot = null; g.bolts = []; g.dream = null;
   g.dreamTimer = 12 + Math.random() * 10; g.fireTimer = 1;
@@ -175,7 +178,7 @@ function moveBolts(dt) {
 }
 
 function killPlayer() {
-  g.lives--; g.state = 'dead'; g.respawn = 1.4; g.shot = null; g.bolts = [];
+  g.lives--; g.state = 'dead'; g.respawn = RESPAWN_TIME; g.shot = null; g.bolts = [];
   burst(g.player.x + PW / 2, g.player.y + PH / 2, COLORS.green, 50, 240);
 }
 

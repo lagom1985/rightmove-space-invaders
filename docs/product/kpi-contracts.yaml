@@ -1,0 +1,63 @@
+# KPI contracts SSOT. Created by DISTILL for rightmove-invaders-sound, 2026-10-23 (revision 3).
+# DEVOPS was skipped, so DISTILL defines the contracts from DISCUSS's outcome KPIs.
+# gate: hard = must pass before the feature is done; soft = recorded and reviewed, not blocking.
+# Playtest protocol (K1-K4, K8, K9): 5 people matching casual-arcade-player, not on the team; three waves
+# each: waves 1-2 one muted and one with sound (order alternated between people), wave 3 with sound on and
+# M/N free to use; n recorded with every result.
+
+feature: rightmove-invaders-sound
+kpis:
+  - id: K1
+    name: Hits feel better with sound
+    target: ">= 4 of 5 playtesters prefer the wave with sound"
+    measured_by: playtest form
+    window: once, before closing the feature
+    gate: soft
+  - id: K2
+    name: The beat adds urgency
+    target: ">= 4 of 5 say the last 10 hurdles felt more urgent with the beat"
+    measured_by: playtest form
+    window: once, before closing the feature
+    gate: soft
+  - id: K3
+    name: Mute is discoverable
+    target: "5 of 5 find how to mute within 10 s, unaided"
+    measured_by: timed playtest task
+    window: once, before closing the feature
+    gate: soft
+  - id: K4
+    name: Music is wanted
+    target: ">= 60% have music on at the end of wave 3; 40-60%: re-tune once and repeat; still < 60% after the repeat, or < 40% at first: drop slices 06-07"
+    measured_by: "observing the N setting at the end of wave 3; the form also asks: could you hear the beat over the music?"
+    window: once after slice 07, plus one repeat if 40-60%
+    gate: soft
+  - id: K5
+    name: Sound is immediate
+    target: "the shot sound starts no more than 17 ms (one 60 Hz frame) after the key press (journal 'at' minus key-press time, both on the page clock)"
+    measured_by: "@kpi-K5 scenario 'A shot is heard in the same frame it is fired', every run in 3 engines"
+    window: every run
+    gate: hard
+  - id: K6
+    name: No performance cost
+    target: "sound adds <= 0.5 ms frame work over the same stress run without sound: p95 in Chromium; mean in Firefox and WebKit (1 ms timers)"
+    measured_by: "stress run with and without sound; tool = the spike script (git show 6801c46:.spike/measure/measure.js), adapted to the real game in slice 04"
+    window: once per slice that adds sounds
+    gate: soft
+  - id: K7
+    name: No errors
+    target: "0 page errors or audio warnings; silent fallback when sound is unavailable or fails to start"
+    measured_by: "@kpi-K7 scenarios, every run in 3 engines"
+    window: every run
+    gate: hard
+  - id: K8
+    name: Big moments land
+    target: ">= 4 of 5 name the outcome (bonus, wave cleared, game over) from the jingle alone, eyes closed"
+    measured_by: playtest task
+    window: once, after slice 05
+    gate: soft
+  - id: K9
+    name: Sound on by default is welcome
+    target: "<= 1 of 5 say the sound bothered them or muted it for that reason"
+    measured_by: post-session question
+    window: once, before closing the feature
+    gate: soft

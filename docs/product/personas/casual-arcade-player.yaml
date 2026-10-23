@@ -1,0 +1,27 @@
+# Persona SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23.
+id: casual-arcade-player
+name: Alex Morgan
+pronouns: they/them
+summary: >
+  Plays Make the Right Move for fun, wherever they are, in 5 to 10 minute sessions on a laptop.
+characteristics:
+  - Plays on a MacBook Air with a physical keyboard, through the laptop speakers or AirPods.
+  - Has rented and bought in the UK and browses Rightmove, so "gazumped", "stamp duty" and "chain" land as jokes.
+  - Grew up with arcade games; expects games to beep, boom and speed up when it gets tense.
+  - Sometimes plays where sound isn't welcome (on a train, while someone nearby is on a call).
+goals:
+  - Feel the arcade thrill: tension, near misses, the satisfaction of a hit.
+  - Beat their own best deposit.
+frustrations:
+  - Silent games feel unfinished and flat.
+  - Games that blast sound with no quick way to silence it.
+mental_model: >
+  Arcade games sound like 8-bit chips. Every shot and explosion makes a noise, the music speeds
+  up when danger gets close, and there is always one key to turn sound off.
+vocabulary: [shot, hurdle, house, home, dream home, deposit, wave, ladder, mute, sound on, sound off, music off, bolt, pin, formation]
+glossary:
+  pin: the player, a map pin with a house cut out of it
+  bolt: a shot fired by a hurdle
+  formation: the marching rows of hurdles
+  house: one of the four terraced-house shields
+  home: a life (the pins shown bottom left)

@@ -1,0 +1,104 @@
+schema_version: '0.1'
+outcomes:
+- id: OUT-1
+  kind: operation
+  summary: Sound director returns the sound cues for each game event
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: game event {type, t, ...detail}
+  output:
+    shape: 'Cue[] returned (no synth reference): {op: play|startLoop|stopLoop|startMusic|stopMusic|silence,
+      sound?, detail?, t}'
+  keywords:
+  - sound
+  - director
+  - game-event
+  - cue
+  - handle
+  artifact: src/sound.js
+  related: []
+  superseded_by: null
+- id: OUT-2
+  kind: operation
+  summary: Read-only audio diagnostics handle window.makeTheRightMove.audio
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: none (read-only)
+  output:
+    shape: '{state: locked|running|suspended|unavailable, journal: [{sound, detail,
+      t, at}], music: playing|stopped, voices, peakVoices}, frozen copies, no functions'
+  keywords:
+  - audio
+  - diagnostics
+  - journal
+  - sound-log
+  - state
+  artifact: src/synth.js
+  related: []
+  superseded_by: null
+- id: OUT-3
+  kind: invariant
+  summary: No sound while muted or paused
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: any game event sequence while sound is off or the game is paused
+  output:
+    shape: no sound started, no loop or music playing
+  keywords:
+  - mute
+  - pause
+  - silence
+  - sound-off
+  artifact: src/sound.js
+  related: []
+  superseded_by: null
+- id: OUT-4
+  kind: specification
+  summary: House-hit sound rate limit
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: shieldHit events at simulation times t1..tn
+  output:
+    shape: thuds at least 0.05 s apart, greedy (none dropped needlessly)
+  keywords:
+  - rate-limit
+  - shield-hit
+  - house-hit
+  - thud
+  artifact: src/sound.js
+  related: []
+  superseded_by: null
+- id: OUT-5
+  kind: invariant
+  summary: Voice cap
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: any burst of sounds
+  output:
+    shape: at most 8 effect voices sounding at once; oldest cut first
+  keywords:
+  - voice-cap
+  - polyphony
+  - overlap
+  artifact: src/synth.js
+  related: []
+  superseded_by: null
+- id: OUT-6
+  kind: operation
+  summary: Sound and music toggles
+  feature: rightmove-invaders-sound
+  inputs:
+  - shape: key M or N in any game state
+  output:
+    shape: sound/music setting toggled, persisted in localStorage, shown in HUD and
+      announced
+  keywords:
+  - mute-key
+  - m-key
+  - n-key
+  - music-toggle
+  - settings
+  - persist
+  artifact: src/game.js
+  related: []
+  superseded_by: null

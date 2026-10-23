@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Synth host</title>
+</head>
+<body>
+<p>Hosts src/synth.js on its own for adapter-level acceptance tests. window.synth is a test-only hook.</p>
+<script type="module">
+  import { createSynth } from '/src/synth.js';
+  window.synth = createSynth({
+    createContext: () => new (window.AudioContext || window.webkitAudioContext)(),
+    now: () => performance.now(),
+    setInterval: (f, ms) => window.setInterval(f, ms),
+    clearInterval: id => window.clearInterval(id),
+  });
+  window.makeTheRightMove = Object.freeze({ audio: window.synth.diagnostics });
+  addEventListener('keydown', () => window.synth.unlock());
+</script>
+</body>
+</html>

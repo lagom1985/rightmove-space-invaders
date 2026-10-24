@@ -1,5 +1,6 @@
-// The sound feature's vocabulary, declared once (ADR-001, ADR-003):
-// GameEvent: what the rules publish through the outbox.
+// The game's vocabulary, declared once (ADR-001, ADR-003):
+// GameEvent: what the rules publish through the outbox. Not every event has a sound: initialsEntered is for
+// main.js, which signs the high-score table with it.
 // CueOp / Sound: what the sound director asks the synth to do, and the names the synth's journal uses.
 
 export const GameEvent = Object.freeze({
@@ -7,7 +8,7 @@ export const GameEvent = Object.freeze({
   BOLT_STOPPED: 'boltStopped', HOME_LOST: 'homeLost', FORMATION_STEPPED: 'formationStepped',
   DREAM_APPEARED: 'dreamAppeared', DREAM_GONE: 'dreamGone', DREAM_SAVED: 'dreamSaved',
   WAVE_CLEARED: 'waveCleared', GAME_OVER: 'gameOver', PAUSED: 'paused', RESUMED: 'resumed',
-  SOUND_TOGGLED: 'soundToggled', MUSIC_TOGGLED: 'musicToggled',
+  SOUND_TOGGLED: 'soundToggled', MUSIC_TOGGLED: 'musicToggled', INITIALS_ENTERED: 'initialsEntered',
 });
 
 export const CueOp = Object.freeze({

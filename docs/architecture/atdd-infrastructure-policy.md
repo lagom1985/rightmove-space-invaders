@@ -13,6 +13,7 @@ Per `nw-distill` § Project Infrastructure Policy. One file per project: apply i
 | Port | Mechanism | Note |
 |---|---|---|
 | Persistence (localStorage) | Real browser storage, fresh BrowserContext per scenario | Blocked storage is simulated with an init script that makes `localStorage` throw |
+| High-score table (`/api/scores`) | The real Netlify Function and the real `@netlify/blobs` client, mounted by `scripts/serve.mjs` against the local `BlobsServer` emulator (fresh temp directory per server start) | Added 2026-10-24 (SPIKE, rightmove-invaders-leaderboard). One table per scenario through a `test-board` cookie, which only the local server reads; "another computer" is a second BrowserContext with the same cookie. The emulator is not production: it returns no etags on reads and is not atomic, so nothing etag-based is proven locally |
 | Accessibility tree (status mirror) | Real DOM, read via `role=status` and `[data-hud]` | |
 | Screen (canvas) | Real canvas, not asserted on | **Waiver (user, D10)**: HUD indicator and controls line are a manual check in DELIVER |
 

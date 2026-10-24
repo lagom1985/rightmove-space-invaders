@@ -13,11 +13,14 @@ const pending = process.env.RUN_PENDING ? [] : [/@pending/];
 // Desktop browsers only: the game needs a physical keyboard. @in-memory scenarios need no browser.
 const browser = device => ({ use: { ...devices[device] }, grepInvert: [/@in-memory/, ...pending] });
 
+// PORT moves the test server (scripts/serve.mjs reads it too), so two checkouts can run their suites side by side.
+const baseURL = `http://localhost:${Number(process.env.PORT) || 4173}`;
+
 export default defineConfig({
   testDir,
   reporter: 'list',
-  use: { baseURL: 'http://localhost:4173' },
-  webServer: { command: 'npm start', url: 'http://localhost:4173', reuseExistingServer: !process.env.CI },
+  use: { baseURL },
+  webServer: { command: 'npm start', url: baseURL, reuseExistingServer: !process.env.CI },
   projects: [
     // Unit properties (fast-check) on pure modules: no browser, no @pending/@in-memory filtering.
     { name: 'unit', testDir: 'tests/unit' },

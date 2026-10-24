@@ -7,6 +7,10 @@ const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
 const MAP_BLOCK = 48;   // side of one block of the backdrop's grid
 const ROADS = [[0, 180, 960, 260], [300, 0, 220, 720], [700, 0, 760, 720], [0, 600, 960, 560]];   // [x0, y0, x1, y1]
+const ATTRACT_SECONDS = 5;   // the title screen takes turns showing the hurdles and the high-score table
+const ROW_GAP = 26;          // between rows of the high-score table
+// Game over: the classic screen, or a compact one when the initials or the high-score table need the room below.
+const OVER_LAYOUTS = { classic: { top: 260, again: 500 }, compact: { top: 130, again: 640 } };
 
 // Pixel art -> a tiny canvas at one canvas pixel per art pixel, scaled up when drawn.
 function sprite(rows, color) {
@@ -129,10 +133,21 @@ function drawHud(ctx) {
   switchedOff.forEach((name, i) => text(ctx, OFF_LABELS[name], W - 24, H - 14 - i * 16, 8, COLORS.dim, 'right'));
 }
 
+const hasHighScores = () => g.highScores !== null && g.highScores.length > 0;
+
+// Arcade attract mode: while there is a table, every few seconds it takes the hurdles' place.
+const attractShowsTable = () => hasHighScores() && (g.t / ATTRACT_SECONDS | 0) % 2 === 1;
+
 function drawTitle(ctx, sprites) {
   text(ctx, 'Make the', W / 2, 150, 16, COLORS.text, 'center');
   text(ctx, 'Right Move', W / 2, 205, 40, COLORS.green, 'center');
   text(ctx, 'Defend your dream home from the hurdles', W / 2, 250, 8, COLORS.dim, 'center');
+  if (attractShowsTable()) drawHighScores(ctx, 300); else drawHurdleLegend(ctx, sprites);
+  if (blink()) text(ctx, 'Press Enter to start', W / 2, 620, 16, COLORS.green, 'center');
+  text(ctx, 'Arrows / A D  move     Space  fire     P  pause     M  sound     N  music', W / 2, 660, 8, COLORS.dim, 'center');
+}
+
+function drawHurdleLegend(ctx, sprites) {
   HURDLES.forEach((h, i) => {
     const y = 290 + i * 44;
     blit(ctx, sprites.hurdles[i][(g.t * 2 | 0) % 2], 290, y);
@@ -141,8 +156,27 @@ function drawTitle(ctx, sprites) {
   });
   blit(ctx, sprites.dream, 290 + IW / 2 - sprites.dream.width * PX / 2, 508);
   text(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
-  if (blink()) text(ctx, 'Press Enter to start', W / 2, 620, 16, COLORS.green, 'center');
-  text(ctx, 'Arrows / A D  move     Space  fire     P  pause     M  sound     N  music', W / 2, 660, 8, COLORS.dim, 'center');
+}
+
+// Rank, initials and deposit, a row each. The row this game signed is picked out in green.
+function drawHighScores(ctx, y) {
+  text(ctx, 'High scores', W / 2, y, 16, COLORS.green, 'center');
+  g.highScores.forEach((row, i) => {
+    const rowY = y + 40 + i * ROW_GAP, color = row.id === g.signed?.id ? COLORS.green : COLORS.text;
+    text(ctx, `${i + 1}.`, 350, rowY, 16, COLORS.dim, 'right');
+    text(ctx, row.initials, 380, rowY, 16, color);
+    text(ctx, pounds(row.score), 620, rowY, 16, color, 'right');
+  });
+}
+
+// The three letters, the one being chosen blinking, like on an arcade cabinet.
+function drawInitialsEntry(ctx, y) {
+  const { letters, index } = g.initials;
+  text(ctx, 'New high score!', W / 2, y, 24, COLORS.green, 'center');
+  letters.forEach((letter, i) => {
+    if (i !== index || blink()) text(ctx, letter, W / 2 + (i - 1) * 64, y + 80, 40, i === index ? COLORS.green : COLORS.text, 'center');
+  });
+  text(ctx, 'Up / Down  change the letter     Enter  take it', W / 2, y + 130, 8, COLORS.dim, 'center');
 }
 
 function drawWaveCleared(ctx) {
@@ -153,11 +187,14 @@ function drawWaveCleared(ctx) {
 
 function drawGameOver(ctx) {
   ctx.fillStyle = 'rgba(20,20,32,0.78)'; ctx.fillRect(0, 0, W, H);
-  text(ctx, g.overReason, W / 2, 260, 40, COLORS.danger, 'center');
-  text(ctx, 'Deposit saved  ' + pounds(g.score), W / 2, 330, 16, COLORS.text, 'center');
-  text(ctx, 'Reached  ' + ladderName(g.level), W / 2, 370, 16, COLORS.green, 'center');
-  if (g.newBest) text(ctx, 'New best!', W / 2, 420, 16, COLORS.dream, 'center');
-  if (g.overT > 0.6 && blink()) text(ctx, 'Press Enter to house-hunt again', W / 2, 500, 16, COLORS.green, 'center');
+  const { top, again } = OVER_LAYOUTS[g.initials || hasHighScores() ? 'compact' : 'classic'];
+  text(ctx, g.overReason, W / 2, top, 40, COLORS.danger, 'center');
+  text(ctx, 'Deposit saved  ' + pounds(g.score), W / 2, top + 70, 16, COLORS.text, 'center');
+  text(ctx, 'Reached  ' + ladderName(g.level), W / 2, top + 110, 16, COLORS.green, 'center');
+  if (g.newBest) text(ctx, 'New best!', W / 2, top + 160, 16, COLORS.dream, 'center');
+  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // Enter takes a letter until all three are in
+  if (hasHighScores()) drawHighScores(ctx, top + 200);
+  if (g.overT > 0.6 && blink()) text(ctx, 'Press Enter to house-hunt again', W / 2, again, 16, COLORS.green, 'center');
 }
 
 function drawPaused(ctx) {

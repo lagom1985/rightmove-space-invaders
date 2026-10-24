@@ -25,9 +25,14 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
 // settings: the player's sound and music choices, loaded by main.js (applySettings) and flipped by M and N.
 // best: the best score so far, loaded by main.js through the store it hands over (applyBestStore).
+// highScores: the shared high-score table, [{ initials, score, id }] best first, handed in by main.js
+//   (applyLeaderboard). null until it has loaded: while the table is unknown nobody is asked for initials.
+// initials: while a score that makes the table is being signed, { letters, index } (the letter being chosen).
+// signed: what this game signed, { initials, id }; id stays null until the table has the row.
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
+  highScores: null, initials: null, signed: null,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -54,6 +59,20 @@ export function applyBestStore(store) {
   g.best = store.load();
 }
 
+// The high-score table is behind main.js too: it hands over what the table says and, once a signing has
+// reached it, the id of the new row.
+export function applyLeaderboard(scores, signedId) {
+  g.highScores = scores;
+  if (signedId && g.signed) g.signed = { ...g.signed, id: signedId };
+}
+
+const TABLE_SIZE = 10;   // rows on the high-score table
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', INITIALS_LENGTH = 3;
+
+// A score makes the table when it is known to have room, or the score beats its last row (a tie ranks below).
+const makesTheTable = score => g.highScores !== null && score > 0 &&
+  (g.highScores.length < TABLE_SIZE || score > g.highScores[TABLE_SIZE - 1].score);
+
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;
@@ -65,11 +84,30 @@ const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
 // One-shot keys, handled once per frame.
 export function handlePresses(pressed) {
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
+  else if (g.initials) enterInitials(pressed);   // Enter takes a letter here: it can't start a game by mistake
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
   // M and N work on every screen, and never touch the game itself.
   if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);
   if (pressed.has('KeyN')) toggleSetting('music', GameEvent.MUSIC_TOGGLED);
+}
+
+// Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on.
+function enterInitials(pressed) {
+  const entry = g.initials;
+  const turn = pressed.has('ArrowUp') - pressed.has('ArrowDown');
+  const at = ALPHABET.indexOf(entry.letters[entry.index]);
+  entry.letters[entry.index] = ALPHABET[(at + turn + ALPHABET.length) % ALPHABET.length];
+  if (!pressed.has('Enter')) return;
+  entry.index++;
+  if (entry.index === INITIALS_LENGTH) sign(entry.letters.join(''));
+}
+
+// main.js takes the signature to the table, then hands the answer back (applyLeaderboard).
+function sign(initials) {
+  g.initials = null;
+  g.signed = { initials, id: null };
+  emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score });
 }
 
 function toggleSetting(name, event) {
@@ -89,7 +127,7 @@ function setPaused(paused) {
 }
 
 function startGame() {
-  g.score = 0; g.lives = LIVES; g.newBest = false;
+  g.score = 0; g.lives = LIVES; g.newBest = false; g.initials = null; g.signed = null;
   startWave(0);
   emit(GameEvent.GAME_STARTED);
 }
@@ -287,6 +325,7 @@ function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
+  if (makesTheTable(g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0 };
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

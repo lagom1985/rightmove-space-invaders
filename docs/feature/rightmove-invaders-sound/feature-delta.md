@@ -383,7 +383,7 @@ Universe: active voices, the named siren loop, the music scheduler and scheduled
 | `startMusic` | Start the scheduler; `music = 'playing'` | Already playing: no-op | none |
 | `stopMusic` | Stop the scheduler, cancel scheduled notes; `music = 'stopped'` | Already stopped: no-op | none |
 | `silence` | Stop every voice (`voices = 0`), the loop, the scheduler and its scheduled notes (`music = 'stopped'`) | Nothing sounding: no-op | none |
-| any `perform` while `locked`, `suspended` or `unavailable` | No change | — | none |
+| any `perform` while `locked`, `suspended` or `unavailable` (amended in DELIVER — see Changed assumptions) | No change | — | none |
 
 State transitions: `locked → running` (unlock succeeds) · `locked → unavailable` (no Web Audio, or `createContext` throws) · `running → suspended` (browser suspends the context) · `suspended → running` (`unlock()` on the next keydown).
 
@@ -657,3 +657,196 @@ Real (no scaffold needed): `src/events.js`; `PLAYER_SPEED`, `RESPAWN_TIME` and `
 | 2 | needs_revision (4 blockers) | rejected (2 blockers) | not run | rejected (4 blockers) |
 
 After cycle 2 (the nWave limit), the **PO (user) decided on 2026-10-23** to fix every cycle-2 finding and hand off to DELIVER without a third review, taking final approval. Revision 3 addresses all cycle-2 blockers and high findings; low findings are fixed or explicitly recorded above (for example the Dream Home announcement gap and the A/D scope). Nothing known is left open for DELIVER beyond the items marked "DELIVER unit test" or "manual (D10)" in the traceability table.
+
+---
+
+## Wave: DELIVER / [REF] Implementation summary
+
+Delivered 2026-10-23 → 2026-10-24 on `main`, from `48a5234` (the roadmap) to `8042e7d`: 11 roadmap steps, a K6 measurement script, an L1–L6 refactor and one review revision. The summary and lessons are in the [evolution document](../../evolution/rightmove-invaders-sound-evolution.md).
+
+The sound path follows the DESIGN (DDD-1…14), with one amendment (N1, under Changed assumptions):
+- **Rules** (`src/game.js`): every DESIGN emit site publishes into the outbox. M and N flip `g.settings`, which outside code sets only through `applySettings`, and emit `soundToggled` / `musicToggled`. P, Esc and `pause()` emit `paused` / `resumed`, only when the pause state changes.
+- **Wiring** (`src/main.js`):
+  - calls `synth.unlock()` on every keydown;
+  - drains `takeEvents()` once per frame, and at once on blur or when the tab is hidden;
+  - passes each cue to `synth.perform`;
+  - saves the settings on the toggle events;
+  - exposes the frozen, data-only `window.makeTheRightMove.audio`.
+- **Director** (`src/sound.js`, 114 lines): implements the whole policy table, complete since 02-02. The music rows are in one labelled `MUSIC` block. Dropping music means deleting the block, the two `startMusic` calls and the `...MUSIC_ROWS` line.
+- **Synth** (`src/synth.js`, 307 lines):
+  - a cap of 8 voices, with the oldest cut first;
+  - one shared noise buffer;
+  - the siren loop;
+  - a 25 ms timer that schedules music up to 100 ms ahead of the audio clock, on its own bus;
+  - the journal `{seq, sound, detail, t, at}` (the last 100 entries);
+  - the suspended-state and fail-safe rules of N1.
+- **Theme** holds every recipe, the jingles, the march notes, the tune and the bus levels.
+- **Storage** has `loadSettings()` and `saveSetting(name, on)`, with a strict `'off'` parse and a default of on, behind one guard.
+- **Status** and **render** show and announce both settings.
+
+| Slice | Story | Steps (commit) |
+|---|---|---|
+| 01 | US-01 | 01-01 walking skeleton (`db0a2b7`) · 01-02 (`dad1a56`; all 7 scenarios passed as soon as they were enabled) |
+| 02 | US-02 | 02-01 (`8098c87`) · 02-02 (`97c2861`) |
+| 03 | US-03 | 03-01 (`a58d841`) · 03-02 (`1da305b`) · 03-03 (`f2c87a4`) |
+| 04 | US-04 | 04-01 (`e2786cd`) |
+| 05 | US-05 | 05-01 (`765547c`; then `3bccdea` removed a test-only export) |
+| 06 | US-06 | 06-01 (`0a38c05`) |
+| 07 | US-07 | 07-01 (`6449d7e`) |
+| — | K6 | Measurement script (`76b7b4d`) |
+| — | L1–L6 refactor | `1dc514e` `565fbf4` `f94d18e` `1867699` `f9856fa` `681974e` |
+| — | Review revision | `11bff9a` `674ff59` `f436db0` `92d87e8` `7189e63` `e6fb575` `4b326b3` `aa9fa09` `8042e7d` |
+
+## Wave: DELIVER / [REF] Files modified
+
+`git diff --stat 48a5234..HEAD`: 36 files, +1,583 / −91.
+
+| File | Change | Commits |
+|---|---|---|
+| `src/synth.js` | From RED scaffold to the Web Audio adapter | `db0a2b7` `8098c87` `e2786cd` `765547c` `0a38c05` `1dc514e` `11bff9a` `7189e63` |
+| `src/sound.js` | From RED scaffold to the sound director | `db0a2b7` `8098c87` `97c2861` `565fbf4` |
+| `src/game.js` | Outbox and emit sites, M and N, `applySettings`, pause events | `db0a2b7` `8098c87` `a58d841` `1da305b` `f2c87a4` `e2786cd` `765547c` `6449d7e` `f94d18e` |
+| `src/main.js` | Unlock, per-frame drain, flush on blur or hidden tab, settings load and save, diagnostics handle | `db0a2b7` `8098c87` `1da305b` `6449d7e` |
+| `src/theme.js` | Recipes, jingles, march notes, tune, bus levels, pitch by value | `db0a2b7` `a58d841` `f2c87a4` `e2786cd` `765547c` `3bccdea` `0a38c05` `f9856fa` |
+| `src/storage.js` | `loadSettings` and `saveSetting`, strict parse, one guard | `8098c87` `1867699` |
+| `src/status.js` | Sound and music fields and announcements | `8098c87` `6449d7e` |
+| `src/render.js` | "SOUND OFF" and "MUSIC OFF" indicators; "M sound" and "N music" in the title controls line | `8098c87` `6449d7e` |
+| `index.html` | `data-hud="sound"` and `data-hud="music"` | `8098c87` `6449d7e` |
+| `README.md` | M and N in the controls table; the new modules in the file table | `6449d7e` |
+| `playwright.config.js` | A `unit` project (`tests/unit`) | `dad1a56` |
+| `scripts/measure-performance.mjs` | K6 stress measurement (dev tooling, not shipped) | `76b7b4d` |
+| `tests/e2e/rightmove-invaders-sound/acceptance/*.feature` (8 files) | `@pending` tags removed, nothing else | One per step |
+| `tests/unit/support/fake-audio.js`, `fresh-game.js`, `seed.js` | A recording fake of the Web Audio graph for the synth properties; game setups that check each write as it is made; `FC_SEED` replay | `11bff9a` `7189e63` `e6fb575` |
+
+The unit specs are fast-check properties: 13 files, 23 tests, each replayable with `FC_SEED`.
+
+| Spec | Proves | Added in |
+|---|---|---|
+| `hit-pitch.spec.js` | The pitch function rises with the hurdle's value | `dad1a56` |
+| `synth-hit-pitch.spec.js` | The synth starts a hurdle hit at that pitch (F3) | `674ff59` |
+| `diagnostics-handle.spec.js` | The handle is data only, frozen and can't be written through; journal reads are snapshots (DDD-10) | `dad1a56` |
+| `formation-step-interval.spec.js` | Steps are 0.53 s apart at 55 hurdles and 0.12 s at 10 (first wave), and never slower as hurdles fall | `a58d841` |
+| `formation-play-only.spec.js` | No formation step on the banner, while the pin respawns or after game over. The test checks that its setups really reach those states (F9) and that the formation does step in play (N2) | `f2c87a4` |
+| `fanfare-length.spec.js` | The fanfare fits within the 2.4 s banner and rises | `765547c` |
+| `music-level.spec.js` | The theme data puts the music at least 6 dB below every effect | `0a38c05` |
+| `synth-mix.spec.js` | The mix the synth builds keeps that 6 dB gap (F4) | `f436db0` |
+| `synth-voice-cap.spec.js` | Past 8 effects, the oldest are the ones cut (F7) | `92d87e8` |
+| `synth-suspended.spec.js` | Stops act while the context is suspended; nothing starts while it is suspended (F2, N1) | `11bff9a` |
+| `synth-fail-safe.spec.js` | An audio-graph failure leaves the synth unavailable and silent, with no console output, including a failure inside the music timer (F8, N1) | `7189e63` |
+| `pause-events.spec.js` | Every pause change from P, Escape and focus loss is published exactly once (F1, DELIVER part) | `4b326b3` |
+| `settings-parse.spec.js` | A setting is off exactly when `'off'` was saved for it; with storage blocked both are on; saving never fails | `6449d7e` |
+
+**Unchanged in DELIVER**: `src/events.js` (created in DISTILL), `src/input.js`, `src/shields.js`, the DISTILL step definitions, `steps/game-driver.js`, `steps/director-harness.js`, the fixtures, `package.json` and `package-lock.json`.
+
+## Wave: DELIVER / [REF] Scenarios green count
+
+Result of `npx bddgen && npx playwright test`:
+
+| Project | Tests | Green |
+|---|---|---|
+| unit | 23 (13 specs) | 23 |
+| in-memory | 23 | 23 |
+| chromium | 34 (33 sound examples + the game's walking skeleton) | 34 |
+| firefox | 34 | 34 |
+| webkit | 34 | 34 |
+| **Total** | **148** | **148** |
+
+All 51 sound scenarios (56 runnable examples) are enabled. No `@pending` tags remain, and a `RUN_PENDING=1` run gives the same result. The DISTILL RED baseline had 3 of 125 passing ([red-classification.md](distill/red-classification.md)); now all 125 pass, plus the 23 unit tests.
+
+## Wave: DELIVER / [REF] DoD check
+
+Checked against "DISCUSS / [REF] Definition of Done".
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | Every AC verified the way its traceability row says; automated rows green in Chromium, Firefox and WebKit | **Met** for every automated row · **Owed by the PO** for the manual rows (item 5) | Browser rows are green in all three engines (148/148). Every "DELIVER unit test" row exists: pitch by value (`hit-pitch`, `synth-hit-pitch`), 0.12 s (`formation-step-interval`), banner (`formation-play-only`), fanfare ≤ 2.4 s (`fanfare-length`), 6 dB (`music-level`, `synth-mix`), DDD-10 (`diagnostics-handle`). One caveat: for the US-03 pause row, the M3 pause outline does not itself check "all sound stops at once" (the scenario part of F1, a DISTILL follow-up). The behaviour is covered by `pause-events`, the window and tab scenarios and the in-memory pause scenarios |
+| 2 | All sound scenarios and the game's walking skeleton green; no `@pending` left | **Met** | No `@pending` tags; the `RUN_PENDING=1` run is identical; the game's walking skeleton is green in 3 engines |
+| 3 | K5 and K7 pass (hard gates) | **Met** | `@kpi-K5` ("A shot is heard in the same frame it is fired") and the `@kpi-K7` scenarios (silent until the first key; sound unavailable; sound fails to start) are green in 3 engines |
+| 4 | K6 measured and recorded (soft gate) | **Met** | `node scripts/measure-performance.mjs`: Chromium p95 0.4 → 0.5 ms (+0.1), Firefox mean 2.707 → 2.746 ms (+0.039), WebKit mean 0.682 → 0.712 ms (+0.030), against a 0.5 ms budget; 0 page errors. Caveats are under Quality gates |
+| 5 | Manual checks (D10): real Safari, listening under stress, the music loop seam, 120 Hz, the canvas HUD indicator and controls line | **Owed by the PO** | Nothing was checked by ear or in real Safari during DELIVER. The list and how to do each check are under Pre-requisites |
+| 6 | Playtest run per the protocol; K1–K4, K8, K9 recorded with n | **Owed by the PO** | Not run yet. D12 decides whether the music stays |
+| 7 | Settings persistence verified, including blocked storage | **Met** | The M2 and M7 "remembers" and "unavailable" scenarios in 3 engines; `settings-parse.spec.js`; the 05-01 check that the scenario can fail: skipping `applySettings(loadSettings())` made "The game remembers that the sound was off" fail in all 3 browsers (HUD On, journal `["doorbell"]`) |
+| 8 | README controls table updated (M, N) | **Met** | `README.md` (`6449d7e`) has rows "M · Sound on / off" and "N · Music on / off" |
+| 9 | Committed to `main`, with no new runtime dependencies | **Met** for the code | All step, refactor and revision commits are on `main` (not pushed). `package.json` and `package-lock.json` are unchanged since `48a5234`; there are only devDependencies (`@playwright/test`, `fast-check`, `playwright-bdd`). The orchestrator commits this DELIVER record |
+
+## Wave: DELIVER / [REF] Demo evidence
+
+One scenario per story plus the walking skeleton, run with `--reporter=list`: **24 passed in 8.7 s**, each green in Chromium, Firefox and WebKit.
+
+| Story | Scenario | Chromium | Firefox | WebKit |
+|---|---|---|---|---|
+| WS | Alex hears their shot and the hurdle it hits | ✓ | ✓ | ✓ |
+| US-01 | A shot is heard in the same frame it is fired | ✓ | ✓ | ✓ |
+| US-02 | M silences the game in the middle of a wave | ✓ | ✓ | ✓ |
+| US-03 | The formation marches to a four-note beat at its own pace | ✓ | ✓ | ✓ |
+| US-04 | A shot into a house makes a thud | ✓ | ✓ | ✓ |
+| US-05 | Starting a game rings the doorbell | ✓ | ✓ | ✓ |
+| US-06 | Music plays under the game | ✓ | ✓ | ✓ |
+| US-07 | N turns just the music off | ✓ | ✓ | ✓ |
+
+The raw list output was captured in the delivery session and is not committed. To re-run: `npx bddgen && npx playwright test --reporter=list -g "<title>"`. Here, "heard" means the synth started that sound (a journal entry, ADR-003). Whether it reached the speakers is a manual check.
+
+## Wave: DELIVER / [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| Per-step TDD (DES RED → GREEN → COMMIT) | 11 of 11 steps. 01-02 GREEN is `SKIPPED` (NOT_APPLICABLE: all 7 scenarios passed as soon as they were enabled) |
+| Full suite before each commit and at the integration gate | 148/148 green; the `RUN_PENDING=1` run is identical |
+| Checks that tests can fail (planned in the roadmap) | 05-01: the persistence scenario fails without `applySettings(loadSettings())`, in 3 of 3 browsers. 06-01: with the synth's `silence` turned into a no-op, "M silences the game in the middle of a wave", "Switching to another window…" and "Hiding the game's tab…" fail in all 9 runs (music still `playing`) |
+| Design compliance | No production file outside the DESIGN component table. The director holds no synth reference. The rules' only new import is `events.js`. `scripts/measure-performance.mjs` is dev tooling (F11, low) |
+| Refactor L1–L6 | 6 commits, behaviour unchanged, suite green after each module |
+| Adversarial review | Iteration 1 **rejected** (high findings F1–F4). The revision fixed F1 (DELIVER part), F2, F3, F4, F7, F8, F9, F12 and N2. Iteration 2 **approved**. Open items are under Changed assumptions |
+| Mutation testing (Phase 5) | **Skipped**: the project's mutation strategy is nightly-delta |
+| DES integrity | `des-verify-integrity` exits 0: "All 11 steps have complete DES traces" |
+| K5 and K7 (hard) | Pass in 3 engines |
+| K6 (soft) | Pass in 3 engines: +0.1, +0.039 and +0.030 ms against 0.5 ms. Caveats below |
+| No new runtime dependencies | Pass |
+| Not run | CI (none exists: the DEVOPS wave was skipped, so the deliverer runs `npm test`); anything by ear; real Safari |
+
+K6 caveats:
+- Each figure comes from one headless 12 s run per mode per engine. Frame work is the duration of the rAF callback.
+- Timer resolution is coarse (0.1 ms in Chromium, about 1 ms in Firefox and WebKit), so the deltas are close to the resolution.
+- The "without sound" run removes Web Audio. The synth then takes its silent fallback while the rules and the director still run, so **the director's cost is not in the delta**.
+- The load is a play-stress run (hold Space, sweep, restart), not the spike's 40-bolt, 3,000-particle scene, which the real game does not have.
+
+## Wave: DELIVER / [REF] Pre-requisites
+
+For whoever playtests or ships next:
+- **Run it**: Node 22; `npm install`; `npx playwright install` for the test browsers; `npm start`, then open http://localhost:4173. `npm test` must show 148 passed. For K6, run `node scripts/measure-performance.mjs`. It starts its own server on port 4181; `PORT` and `WINDOW_MS` override the port and the run length.
+- **Debug in the browser**: `window.makeTheRightMove.audio` shows:
+  - `state`: `locked` until the first key; `unavailable` means the silent fallback;
+  - `journal`, `music`, `voices` and `peakVoices`.
+
+  Settings live in the localStorage keys `make-the-right-move:sound` and `make-the-right-move:music`; only `'off'` turns one off.
+- **PO manual checks owed (D10)**, to be recorded in this file:
+  - Real Safari: play one full wave with sound, mute and unmute, pause and resume.
+  - A 30 s listen under stress, on laptop speakers and on headphones: no clicks, crackle or distortion. The thud, tink and explosion levels were set by measurement, not by ear. The real game has no stress mode: use a Country pile wave (slice 04's load case), or hold Space while sweeping, as the K6 script does.
+  - Music: listen for a gap at the loop point over about 5 minutes; judge the tune and whether the beat can still be heard over it.
+  - Tempo: the same beat on a 60 Hz and on a 120 Hz display.
+  - Canvas HUD: "SOUND OFF" and "MUSIC OFF" at the bottom right, shown only when off (the DOM HUD shows On/Off). "M sound" and "N music" in the title controls line.
+- **Playtest owed**: K1–K4, K8 and K9 per the DISCUSS protocol (5 people, three waves), with n recorded. If K4 is below 40%, or still below 60% after one re-tune and repeat (D12), drop slices 06–07 as one unit. What to remove: the list in DESIGN "Music as one removable unit", plus the `music` flag in `storage.js`'s `loadSettings()`, the N row in `README.md`, the `milestone-6` and `milestone-7` features, and the `music-level` and `synth-mix` specs.
+- **Before the next audio feature**: the DISTILL follow-ups and open low findings under Changed assumptions.
+- **Known gap** (from DISCUSS): screen readers aren't told when the Dream Home arrives.
+- Not part of the record: the uncommitted DES working files `deliver/.develop-progress.json` and `deliver/orchestrator-brief.md`.
+
+## Wave: DELIVER / [REF] Changed assumptions
+
+- **N1: the synth operation table is amended** (review findings F2 and F8; commits `11bff9a` and `7189e63`; header contract in `src/synth.js`). The DESIGN row "any `perform` while `locked`, `suspended` or `unavailable`: No change" now reads:
+  - `stopLoop`, `stopMusic` and `silence` act when the state is `running` **or** `suspended`. A suspended context still holds what it was playing, and the director has already forgotten those sounds, so a dropped stop would be heard again on resume.
+  - `play`, `startLoop` and `startMusic` act only when the state is `running`.
+  - Nothing acts when the state is `locked` or `unavailable`.
+  - On any exception from the audio graph inside `perform()` or the music timer, the synth stops what it can, goes `unavailable` for good and prints nothing. The game loop is unaffected. This adds a state transition: `running` or `suspended` → `unavailable`.
+  - The journal rule is unchanged: nothing writes an entry while the context is suspended, because stops never write one and starts don't act. ADR-003 still holds. ADR-002's sentence "While `locked`, `suspended` or `unavailable`, `perform()` changes nothing" is superseded by an amendment section appended to ADR-002 in DELIVER (the original text is kept).
+- **K6 was measured once, at the integration gate**, not once per slice from slice 04 on. `scripts/measure-performance.mjs` adapts the spike's script to the real game. Its "without sound" baseline keeps the director running (only Web Audio is removed), and its load is a play-stress run rather than the spike's 40-bolt, 3,000-particle scene (see Quality gates).
+- **Settings storage was generic from 02-01**: `loadSettings()` returns both flags and `saveSetting(name, on)` serves both keys. So `g.settings.music` and the `:music` key existed before slice 06, and 07-01 only wired N, the HUD field and the README.
+- **More unit specs than the roadmap planned**: the review added `synth-hit-pitch`, `synth-mix`, `synth-voice-cap`, `synth-suspended`, `synth-fail-safe` and `pause-events`. `hit-pitch` and `music-level` are now named for the pure data they check.
+- **DISTILL follow-ups** (owner: nw-acceptance-designer). The orchestrator deferred these; review iteration 2 approved without them.
+  - F1, scenario part: add "all sound stops at once" to the milestone-3 pause outline, and music checks to the silent-since-press steps.
+  - F5: `expectAllSoundStopped` uses `expect.poll`, so it also passes when the voices reach 0 because they ended on their own. It should read once instead.
+  - F6: `referencePlan` in `steps/director-harness.js` re-codes the policy table, so it can't catch a misreading of the table. Add literal cue sequences or independent invariants.
+  - F10: `game.js` exports `PLAYER_SPEED`, `RESPAWN_TIME` and `houseCentreX` only for the test driver.
+- **Open, low**:
+  - N3: a voice's nodes leak if the audio graph fails part-way through starting it.
+  - N4: `unlock()` is not under the fail-safe.
+  - N5: the unit tests' fake audio never fires `onended`.
+  - F11: 01-02's RED phase has no recorded failing run, because its scenarios passed as soon as they were enabled. DISTILL's RED run had shown them failing for MISSING_FUNCTIONALITY.

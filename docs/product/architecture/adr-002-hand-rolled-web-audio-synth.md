@@ -23,3 +23,8 @@ DISCUSS locked synthesised chiptune (D1) and no new runtime dependencies (DoD 9)
 ## Consequences
 - A small module we own (an estimate, not a measurement: a few hundred lines). Sound design lives next to the other theme data.
 - We own the quality risks: clicks (avoided with short attack and release ramps), voice limits, scheduling. Slice 01's learning hypothesis checks them in all three engines; listening under stress is a manual check (D10).
+
+## Amendment (DELIVER, 2026-10-24)
+- While `suspended`, the stop operations (`stopLoop`, `stopMusic`, `silence`) now act as they do when running; `play`, `startLoop` and `startMusic` still do nothing. Dropping stops while suspended left a stale siren or music to return on resume, because the director had already forgotten them. Nothing acts while `locked` or `unavailable`.
+- If the audio graph throws inside `perform()` or the music timer, the synth stops what it can and goes `unavailable` for good, silently, so the failure never reaches the game loop.
+- See `docs/feature/rightmove-invaders-sound/feature-delta.md`, "Wave: DELIVER / [REF] Changed assumptions".

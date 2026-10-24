@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { BANNER_TIME } from '../../src/game.js';
-import { Sound } from '../../src/events.js';
-import { SOUND_RECIPES, partsOf } from '../../src/theme.js';
+import { BANNER_TIME } from '../../src/game/game.js';
+import { Sound } from '../../src/game/events.js';
+import { SOUND_RECIPES, partsOf } from '../../src/theme/theme.js';
 
 // The fanfare plays when a wave is cleared, while the "Wave cleared!" banner shows (US-05): it must be over
 // before the next wave starts, and it must sound like going up.

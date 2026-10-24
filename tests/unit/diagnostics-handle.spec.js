@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { createSynth } from '../../src/synth.js';
-import { CueOp, Sound } from '../../src/events.js';
-import { HURDLES } from '../../src/theme.js';
+import { createSynth } from '../../src/sound/synth.js';
+import { CueOp, Sound } from '../../src/game/events.js';
+import { HURDLES } from '../../src/theme/theme.js';
 
 // Contract of the read-only handle (ADR-003, DDD-10): window.makeTheRightMove.audio is plain data.
 // Nothing reachable through it is a function, everything is frozen, reads are snapshots, and no

@@ -1,12 +1,12 @@
-import { STEP, MAX_FRAME } from './config.js';
-import { createKeyboard } from './input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings } from './game.js';
-import { createRenderer } from './render.js';
-import { createStatus } from './status.js';
-import { createSynth } from './synth.js';
-import { createSoundDirector } from './sound.js';
-import { loadSettings, saveSetting } from './storage.js';
-import { GameEvent } from './events.js';
+import { STEP, MAX_FRAME } from './game/config.js';
+import { createKeyboard } from './platform/input.js';
+import { g, update, handlePresses, pause, takeEvents, applySettings } from './game/game.js';
+import { createRenderer } from './view/render.js';
+import { createStatus } from './view/status.js';
+import { createSynth } from './sound/synth.js';
+import { createSoundDirector } from './sound/director.js';
+import { loadSettings, saveSetting } from './platform/storage.js';
+import { GameEvent } from './game/events.js';
 
 const keyboard = createKeyboard(window);
 const renderer = createRenderer(document.getElementById('game'));

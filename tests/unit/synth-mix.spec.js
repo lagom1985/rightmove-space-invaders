@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { unlockedSynth } from './support/fake-audio.js';
-import { CueOp, Sound } from '../../src/events.js';
-import { SOUND_RECIPES } from '../../src/theme.js';
+import { CueOp, Sound } from '../../src/game/events.js';
+import { SOUND_RECIPES } from '../../src/theme/theme.js';
 
 // US-06: the music sits at least 6 dB below every effect. music-level.spec.js checks the numbers in the theme;
 // this one checks the mix the synth really builds: how loud each voice can get at the speakers, which is its

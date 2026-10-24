@@ -6,7 +6,9 @@ Rightmove-themed Space Invaders-style browser game. Vanilla Canvas2D + ES module
 
 This project follows the **object-oriented** paradigm. Use @nw-software-crafter for implementation.
 
-In this codebase that means small ES modules exposing factory functions (`createKeyboard`, `createRenderer`, …) that return objects with private state, with game rules in `src/game.js` acting on one state object. Game rules never import browser adapters (canvas, Web Audio, storage UI); adapters are wired together in `src/main.js`.
+In this codebase that means small ES modules exposing factory functions (`createKeyboard`, `createRenderer`, …) that return objects with private state, with game rules in `src/game/game.js` acting on one state object. Game rules never import browser adapters (canvas, Web Audio, storage UI); adapters are wired together in `src/main.js`.
+
+`src/` is organised by layer: `main.js` (composition root), `game/` (rules and state, no browser APIs), `sound/` (director and synth), `view/` (canvas and DOM status mirror), `platform/` (keyboard and `localStorage`) and `theme/` (data: hurdles, colours, art, sound recipes). The one accepted import from `game/` into an adapter folder is `game/game.js` → `platform/storage.js` (best score).
 
 ## Docs
 

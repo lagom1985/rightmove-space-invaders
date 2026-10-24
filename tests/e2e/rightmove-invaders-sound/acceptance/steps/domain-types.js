@@ -1,6 +1,6 @@
 // The sound feature's test vocabulary. Event, cue and sound names come from the game's own
-// single declaration (src/events.js); the rest are test-side domain values.
-export { GameEvent, CueOp, Sound } from '../../../../../src/events.js';
+// single declaration (src/game/events.js); the rest are test-side domain values.
+export { GameEvent, CueOp, Sound } from '../../../../../src/game/events.js';
 
 export const Key = Object.freeze({ ENTER: 'Enter', SPACE: 'Space', M: 'KeyM', N: 'KeyN', P: 'KeyP', ESCAPE: 'Escape', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight' });
 

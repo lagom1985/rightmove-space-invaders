@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { unlockedSynth } from './support/fake-audio.js';
-import { CueOp, Sound } from '../../src/events.js';
-import { HURDLES, hitPitch } from '../../src/theme.js';
+import { CueOp, Sound } from '../../src/game/events.js';
+import { HURDLES, hitPitch } from '../../src/theme/theme.js';
 
 // Hitting a more valuable hurdle sounds higher (US-01). hit-pitch.spec.js covers the pitch function on its own;
 // this one covers the wiring: the pitch the synth really starts the voice at, for the value the cue carries.

@@ -43,8 +43,8 @@ steps:
 shared_artifacts:
   sound_enabled: {source: "g.settings.sound (rules), persisted by main.js in localStorage 'make-the-right-move:sound'", default: true, toggled_by: M}
   music_enabled: {source: "g.settings.music (rules), persisted by main.js in localStorage 'make-the-right-move:music'", default: true, toggled_by: N}
-  formation_step: {source: "formationStepped event from the rules (src/events.js)", drives: marching beat tempo}
-  game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/events.js", drives: effects and jingles}
+  formation_step: {source: "formationStepped event from the rules (src/game/events.js)", drives: marching beat tempo}
+  game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/game/events.js", drives: effects and jingles}
 
 error_paths:
   - when: No key pressed yet (autoplay policy).

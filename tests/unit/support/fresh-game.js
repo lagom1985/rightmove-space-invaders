@@ -1,8 +1,8 @@
 import { expect } from '@playwright/test';
 
-// The rules module (src/game.js) keeps one game's state, so every property run plays a fresh copy of it.
+// The rules module (src/game/game.js) keeps one game's state, so every property run plays a fresh copy of it.
 let copies = 0;
-export const loadFreshGame = () => import(`../../../src/game.js?copy=${++copies}`);
+export const loadFreshGame = () => import(`../../../src/game/game.js?copy=${++copies}`);
 
 // Plays with a deterministic Math.random (enemy fire, Dream Home timing), so a failing run can be replayed.
 export async function withDeterministicChance(play) {

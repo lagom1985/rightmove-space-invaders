@@ -1,4 +1,4 @@
-import { createSynth } from '../../../src/synth.js';
+import { createSynth } from '../../../src/sound/synth.js';
 
 // A recording stand-in for the slice of the browser's audio the synth drives (its one driven port, ADR-002).
 // It keeps every node the synth creates, what was scheduled on each parameter and where each node was

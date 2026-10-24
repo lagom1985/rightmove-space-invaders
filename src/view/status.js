@@ -1,4 +1,4 @@
-import { ladderName, pounds } from './theme.js';
+import { ladderName, pounds } from '../theme/theme.js';
 
 const SETTING_MESSAGES = {
   sound: { on: 'Sound on.', off: 'Sound off. Press M to turn it on.' },

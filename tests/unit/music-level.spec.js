@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import * as theme from '../../src/theme.js';
+import * as theme from '../../src/theme/theme.js';
 
 // US-06: the music sits under the effects, at least 6 dB below them. The mix is theme data: a voice's peak
 // gain is its recipe's level times the level of the bus it plays on. This reads the theme data only:

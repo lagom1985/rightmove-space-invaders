@@ -1,7 +1,7 @@
-import { W, H, PX, GROUND } from './config.js';
-import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from './theme.js';
-import { SW, SH, BRICK, WINDOW } from './shields.js';
-import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from './game.js';
+import { W, H, PX, GROUND } from '../game/config.js';
+import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
+import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
+import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right

@@ -5,9 +5,9 @@
 <title>Synth host</title>
 </head>
 <body>
-<p>Hosts src/synth.js on its own for adapter-level acceptance tests. window.synth is a test-only hook.</p>
+<p>Hosts src/sound/synth.js on its own for adapter-level acceptance tests. window.synth is a test-only hook.</p>
 <script type="module">
-  import { createSynth } from '/src/synth.js';
+  import { createSynth } from '/src/sound/synth.js';
   window.synth = createSynth({
     createContext: () => new (window.AudioContext || window.webkitAudioContext)(),
     now: () => performance.now(),

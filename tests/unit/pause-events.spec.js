@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { GameEvent } from '../../src/events.js';
+import { GameEvent } from '../../src/game/events.js';
 import { loadFreshGame, withDeterministicChance, arrange } from './support/fresh-game.js';
 
 // The sound system learns of a pause only from the rules' outbox (US-04): `paused` when the game stops,

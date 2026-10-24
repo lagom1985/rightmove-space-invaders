@@ -1,5 +1,7 @@
 # Feature delta: rightmove-invaders-sound
 
+Note (2026-10-24): src/ was reorganised into game/, sound/, view/, platform/, theme/; paths below are as they were at the time.
+
 Sound for *Make the Right Move*: synthesised chiptune effects, a marching beat, jingles for big moments, background music, one-key mute (M) and a music toggle (N).
 
 - **Type**: user-facing, new functionality, brownfield (builds on the game walking skeleton, commit `57d9c21`).

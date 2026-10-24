@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { GameEvent } from '../../src/events.js';
+import { GameEvent } from '../../src/game/events.js';
 import { loadFreshGame, withDeterministicChance, arrange } from './support/fresh-game.js';
 
 // The marching beat follows the formation's steps (US-03), so the formation may only step while the game

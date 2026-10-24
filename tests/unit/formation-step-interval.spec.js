@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { formationStepInterval } from '../../src/game.js';
+import { formationStepInterval } from '../../src/game/game.js';
 
 // How long the formation waits between steps (US-03): the beat follows this pace, so it must only
 // ever get quicker as hurdles fall. First wave only; later waves speed the formation up further.

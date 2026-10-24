@@ -45,22 +45,24 @@ Every push to `main` deploys to https://maketherightmove.fabiodamico.xyz; pull r
 
 Plain Canvas2D and ES modules, with no runtime dependencies and no bundler (`npm run build` only copies the files to publish).
 
+`src/` is organised by layer, matching the ports and adapters in `docs/product/architecture/brief.md`: `game/` holds the rules and state with no browser APIs, and the other folders plug into it from `main.js`.
+
 | File | Job |
 |---|---|
-| `src/main.js` | Game loop: fixed 120 Hz simulation steps, one render per display frame |
-| `src/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system |
-| `src/render.js` | Drawing |
-| `src/input.js` | Keyboard, including holding very quick taps so they aren't lost |
-| `src/shields.js` | Destructible house shields |
-| `src/status.js` | Mirrors the HUD into the page for screen readers |
-| `src/storage.js` | Best score and the sound and music settings in `localStorage` |
-| `src/events.js` | The sound system's vocabulary: game events, cue operations and sound names |
-| `src/sound.js` | Sound director: turns game events into cues (what should be heard, and when) |
-| `src/synth.js` | Web Audio synth: plays the cues, with the music on its own bus |
-| `src/theme.js` | Names, colours, values, pixel art and sound recipes |
+| `src/main.js` | Composition root and game loop: fixed 120 Hz simulation steps, one render per display frame |
+| `src/game/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system |
+| `src/game/shields.js` | Destructible house shields |
+| `src/game/events.js` | The sound system's vocabulary: game events, cue operations and sound names |
+| `src/sound/director.js` | Sound director: turns game events into cues (what should be heard, and when) |
+| `src/sound/synth.js` | Web Audio synth: plays the cues, with the music on its own bus |
+| `src/view/render.js` | Drawing |
+| `src/view/status.js` | Mirrors the HUD into the page for screen readers |
+| `src/platform/input.js` | Keyboard, including holding very quick taps so they aren't lost |
+| `src/platform/storage.js` | Best score and the sound and music settings in `localStorage` |
+| `src/theme/theme.js` | Names, colours, values, pixel art and sound recipes |
 
 Design notes and the performance spike are in `docs/feature/rightmove-invaders/spike/`.
 
 ## Brand
 
-All artwork is original pixel art; neither the Rightmove logo nor the original Space Invaders sprites are used. The colours in `src/theme.js` approximate the Rightmove brand and should come from the official brand kit. Using the Rightmove name outside an internal context needs brand-team approval.
+All artwork is original pixel art; neither the Rightmove logo nor the original Space Invaders sprites are used. The colours in `src/theme/theme.js` approximate the Rightmove brand and should come from the official brand kit. Using the Rightmove name outside an internal context needs brand-team approval.

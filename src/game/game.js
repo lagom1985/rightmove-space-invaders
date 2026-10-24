@@ -1,7 +1,7 @@
 import { W, H, PX, GROUND } from './config.js';
-import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from './theme.js';
+import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
-import { loadBest, saveBest } from './storage.js';
+import { loadBest, saveBest } from '../platform/storage.js';
 import { GameEvent } from './events.js';
 
 // Sizes in logical units, derived from the pixel art.

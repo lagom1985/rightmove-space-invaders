@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { unlockedSynth } from './support/fake-audio.js';
-import { CueOp } from '../../src/events.js';
-import { SOUND_RECIPES } from '../../src/theme.js';
+import { CueOp } from '../../src/game/events.js';
+import { SOUND_RECIPES } from '../../src/theme/theme.js';
 
 // At most eight effects sound at once; when a ninth arrives the oldest are cut first, so the sound a player
 // has just caused is always heard. A cut voice fades out; one that is still sounding is not touched.

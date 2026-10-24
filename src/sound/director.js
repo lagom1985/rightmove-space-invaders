@@ -1,6 +1,6 @@
 // Sound director (DDD-4): the sound policy. It holds no reference to the synth.
 //   createSoundDirector({ sound, music }) -> { handle(event) -> Cue[] }
-//   event: { type: GameEvent.*, t: simulation seconds, ...detail }   (src/events.js)
+//   event: { type: GameEvent.*, t: simulation seconds, ...detail }   (src/game/events.js)
 //   Cue:   { op: CueOp.*, sound?: Sound.*, detail?: { value? | note? }, t: event.t }
 // The director learns the settings from `soundToggled { on }` and `musicToggled { on }`: switching the sound
 // off yields a `silence` cue, and while it is off no event yields anything audible.
@@ -8,7 +8,7 @@
 // took away, started again: the music if it is on, then the Dream Home siren if the Dream Home is on screen.
 // Cues come out in the order the events go in. main.js passes each cue to synth.perform(cue).
 // The policy table is in docs/feature/rightmove-invaders-sound/feature-delta.md (DESIGN).
-import { CueOp, GameEvent, Sound } from './events.js';
+import { CueOp, GameEvent, Sound } from '../game/events.js';
 
 const THUD_GAP = 0.05;     // seconds of game time between two house thuds (DDD-7)
 const TOLERANCE = 1e-6;    // seconds: a gap this close to the limit counts as reached, so no float flakiness

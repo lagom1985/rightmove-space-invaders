@@ -6,12 +6,14 @@ SSOT for the game's architecture. Each architect owns one section. Decisions are
 
 *Owner: nw-solution-architect · Last updated: 2026-10-23 (rightmove-invaders-sound, revision 3)*
 
-**Style**: a single-page browser game built as a small modular monolith with ports and adapters. The game rules (`game.js`) are the core; output adapters (canvas, DOM status mirror, sound) read state or consume events, and `main.js` wires everything together. Accepted exceptions in the rules' imports: `storage.js` for the best score (pre-existing) and `events.js` (pure constants) (ADR-001). New persistence goes through `main.js`, which hands settings to the rules with `applySettings`, so only `game.js` writes `g`. Paradigm: object-oriented (factory functions returning objects with private state; see `CLAUDE.md`).
+*File layout note (2026-10-24): `src/` was reorganised into `game/`, `sound/`, `view/`, `platform/` and `theme/`; paths below are the current ones, while ADRs and wave records keep the paths they had at the time.*
+
+**Style**: a single-page browser game built as a small modular monolith with ports and adapters. The game rules (`game/game.js`) are the core; output adapters (canvas, DOM status mirror, sound) read state or consume events, and `main.js` wires everything together. Accepted exceptions in the rules' imports: `platform/storage.js` for the best score (pre-existing) and `game/events.js` (pure constants) (ADR-001). New persistence goes through `main.js`, which hands settings to the rules with `applySettings`, so only `game.js` writes `g`. Paradigm: object-oriented (factory functions returning objects with private state; see `CLAUDE.md`).
 
 **Quality attributes, in priority order**
 1. **Responsiveness**: input and sound within one frame. The game's p95 frame work was ≤ 4 ms under stress in the spike (ADR-000); sound may add at most 0.5 ms (ADR-002, DDD-12, D11).
 2. **Testability**: deterministic, fast-forwardable acceptance tests through real keyboard input (fake clock, seeded randomness, the status mirror, the sound journal).
-3. **Maintainability**: theme, art and sound recipes are data; one module per concern; one event vocabulary (`events.js`); no runtime dependencies.
+3. **Maintainability**: theme, art and sound recipes are data; one module per concern; one event vocabulary (`game/events.js`); no runtime dependencies.
 4. **Portability**: desktop Chrome/Edge, Firefox and Safari, with no bundler or transpile step.
 
 **Security and exposure**: client-only, with no personal data and no network calls besides the font. The only global is the frozen, data-only `window.makeTheRightMove` diagnostics handle (ADR-003). Settings are strictly parsed `'on'`/`'off'` strings that default to on.
@@ -53,18 +55,18 @@ C4Container
 
 ```mermaid
 flowchart LR
-  kb["input.js<br/>Keyboard (driving adapter)"] --> main
-  main["main.js<br/>Loop + wiring + settings load/save"] -->|update / handlePresses / takeEvents| game["game.js<br/>Rules + state + outbox"]
-  game --> shields["shields.js<br/>House shields"]
-  game --> events["events.js<br/>Event / cue / sound names"]
-  game -. best score only .-> storage["storage.js<br/>Guarded localStorage"]
+  kb["platform/input.js<br/>Keyboard (driving adapter)"] --> main
+  main["main.js<br/>Loop + wiring + settings load/save"] -->|update / handlePresses / takeEvents| game["game/game.js<br/>Rules + state + outbox"]
+  game --> shields["game/shields.js<br/>House shields"]
+  game --> events["game/events.js<br/>Event / cue / sound names"]
+  game -. best score only .-> storage["platform/storage.js<br/>Guarded localStorage"]
   main --> storage
-  main -->|draw state| render["render.js<br/>Canvas2D adapter"]
-  main -->|sync state| status["status.js<br/>DOM status mirror"]
-  main -->|events → cues| director["sound.js<br/>Sound director (policy)"]
+  main -->|draw state| render["view/render.js<br/>Canvas2D adapter"]
+  main -->|sync state| status["view/status.js<br/>DOM status mirror"]
+  main -->|events → cues| director["sound/director.js<br/>Sound director (policy)"]
   director --> events
-  main -->|perform cues, unlock, diagnostics| synth["synth.js<br/>Web Audio adapter + journal"]
-  synth -. recipes .-> theme["theme.js<br/>Names, colours, art, sound recipes"]
+  main -->|perform cues, unlock, diagnostics| synth["sound/synth.js<br/>Web Audio adapter + journal"]
+  synth -. recipes .-> theme["theme/theme.js<br/>Names, colours, art, sound recipes"]
   render -. data .-> theme
 ```
 
@@ -82,22 +84,22 @@ On `blur` or a hidden tab: `pause()`, then step 3 immediately (DDD-9).
 | Component | Path | Responsibility |
 |---|---|---|
 | Loop and wiring | `src/main.js` | Composition root: fixed-step loop, adapter wiring, synth capabilities (context factory, clock, timers), settings load/`applySettings`/save, audio unlock on keydown, immediate flush on blur/hidden, `window.makeTheRightMove` |
-| Rules and state | `src/game.js` | Game state `g` (including `g.settings`, set via `applySettings`), rules, M/N/P handling, event outbox (`emit`, `takeEvents`) |
-| Vocabulary | `src/events.js` | `GameEvent`, `CueOp`, `Sound` |
-| Keyboard | `src/input.js` | Held and latched keys |
-| Rendering | `src/render.js` | Canvas drawing, HUD (including the sound and music indicators) |
-| Status mirror | `src/status.js` | Accessible DOM HUD and announcements |
-| Storage | `src/storage.js` | Guarded localStorage (best score, settings) |
-| Theme | `src/theme.js` | Data: hurdles, colours, art, sound recipes, music, plus pure derivations |
-| Shields | `src/shields.js` | Destructible shield grids |
-| Sound director | `src/sound.js` | Sound policy: event → cue plan (mute, pause, rate limits, march cycle, siren, music) |
-| Synth | `src/synth.js` | Web Audio adapter: performs cues, voice cap, loop, music scheduler, journal, state |
+| Rules and state | `src/game/game.js` | Game state `g` (including `g.settings`, set via `applySettings`), rules, M/N/P handling, event outbox (`emit`, `takeEvents`) |
+| Vocabulary | `src/game/events.js` | `GameEvent`, `CueOp`, `Sound` |
+| Keyboard | `src/platform/input.js` | Held and latched keys |
+| Rendering | `src/view/render.js` | Canvas drawing, HUD (including the sound and music indicators) |
+| Status mirror | `src/view/status.js` | Accessible DOM HUD and announcements |
+| Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) |
+| Theme | `src/theme/theme.js` | Data: hurdles, colours, art, sound recipes, music, plus pure derivations |
+| Shields | `src/game/shields.js` | Destructible shield grids |
+| Sound director | `src/sound/director.js` | Sound policy: event → cue plan (mute, pause, rate limits, march cycle, siren, music) |
+| Synth | `src/sound/synth.js` | Web Audio adapter: performs cues, voice cap, loop, music scheduler, journal, state |
 
 ### Ports
 
-- **Driving**: browser keyboard (`input.js`); window `blur` and document `visibilitychange`; page load.
-- **Driven**: screen (`render.js`); accessibility tree (`status.js`); audio output (`synth.js`, with injected context factory, page clock and timers; the audio clock is real time); persistence (`storage.js`).
-- **Internal**: the event outbox (`game.js` → `main.js` → `sound.js`), ADR-001.
+- **Driving**: browser keyboard (`platform/input.js`); window `blur` and document `visibilitychange`; page load.
+- **Driven**: screen (`view/render.js`); accessibility tree (`view/status.js`); audio output (`sound/synth.js`, with injected context factory, page clock and timers; the audio clock is real time); persistence (`platform/storage.js`).
+- **Internal**: the event outbox (`game/game.js` → `main.js` → `sound/director.js`), ADR-001.
 
 ### Decisions
 - [ADR-000](adr-000-vanilla-canvas-fixed-step.md): vanilla Canvas2D, fixed-step loop.

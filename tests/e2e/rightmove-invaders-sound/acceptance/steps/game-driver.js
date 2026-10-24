@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
-import { W } from '../../../../../src/config.js';
-import { PLAYER_SPEED, RESPAWN_TIME, houseCentreX } from '../../../../../src/game.js';
-import { pounds } from '../../../../../src/theme.js';
+import { W } from '../../../../../src/game/config.js';
+import { PLAYER_SPEED, RESPAWN_TIME, houseCentreX } from '../../../../../src/game/game.js';
+import { pounds } from '../../../../../src/theme/theme.js';
 import { Sound, Key, Screen, Setting, AudioState, Announcement } from './domain-types.js';
 
 // Drives the real game page with real key presses (see docs/architecture/atdd-infrastructure-policy.md):
@@ -78,7 +78,7 @@ export class GameDriver {
     await this.expectHeard(Sound.SHOT);
   }
 
-  // A page that hosts only the synth (src/synth.js), for adapter-level checks. Real time, no fake clock.
+  // A page that hosts only the synth (src/sound/synth.js), for adapter-level checks. Real time, no fake clock.
   // window.synth there is a test-only hook (see the infrastructure policy).
   async openSoundSystemOnly() {
     await this.page.goto(SYNTH_HOST);

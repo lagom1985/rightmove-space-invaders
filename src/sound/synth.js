@@ -6,7 +6,7 @@
 //     setInterval, clearInterval,     // timers for the music look-ahead scheduler (needed once music starts)
 //   }) -> {
 //     unlock(),          // call only from a keydown handler: creates/resumes the AudioContext
-//     perform(cue),      // a cue from src/sound.js (see the per-operation table in the feature delta)
+//     perform(cue),      // a cue from src/sound/director.js (see the per-operation table in the feature delta)
 //     diagnostics,       // read-only view, exposed as window.makeTheRightMove.audio (ADR-003)
 //   }
 //   diagnostics (getters returning frozen copies, no functions):
@@ -36,8 +36,8 @@
 //   counted in `voices` or `peakVoices`. Every effect plays on the effects bus, the music on a bus 6 dB or more
 //   below it (BUS_LEVELS in theme.js). `silence` stops every voice, loop and the music at once (`voices` is 0 and
 //   `music` is 'stopped' when perform returns); cues for sounds and operations without a recipe are skipped.
-import { CueOp } from './events.js';
-import { SOUND_RECIPES, MUSIC, BUS_LEVELS, partsOf } from './theme.js';
+import { CueOp } from '../game/events.js';
+import { SOUND_RECIPES, MUSIC, BUS_LEVELS, partsOf } from '../theme/theme.js';
 
 const State = Object.freeze({ LOCKED: 'locked', RUNNING: 'running', SUSPENDED: 'suspended', UNAVAILABLE: 'unavailable' });
 const VOICE_CAP = 8, JOURNAL_SIZE = 100;

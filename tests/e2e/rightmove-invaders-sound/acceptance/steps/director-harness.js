@@ -1,9 +1,9 @@
 import fc from 'fast-check';
 import { expect } from '@playwright/test';
-import { createSoundDirector } from '../../../../../src/sound.js';
+import { createSoundDirector } from '../../../../../src/sound/director.js';
 import { GameEvent, CueOp, Sound } from './domain-types.js';
 
-// In-memory composition for layer-2 acceptance: the real sound director (src/sound.js), whose output
+// In-memory composition for layer-2 acceptance: the real sound director (src/sound/director.js), whose output
 // is a list of cues (DDD-4). The CueModel applies those cues the way the synth would and is the only
 // thing the example Then steps query. The properties compare the director's whole cue plan, cue by
 // cue (op, sound, value, note, t), against referencePlan(): the DESIGN policy table written as code.

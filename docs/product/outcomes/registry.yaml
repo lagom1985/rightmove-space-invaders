@@ -15,7 +15,7 @@ outcomes:
   - game-event
   - cue
   - handle
-  artifact: src/sound.js
+  artifact: src/sound/director.js
   related: []
   superseded_by: null
 - id: OUT-2
@@ -33,7 +33,7 @@ outcomes:
   - journal
   - sound-log
   - state
-  artifact: src/synth.js
+  artifact: src/sound/synth.js
   related: []
   superseded_by: null
 - id: OUT-3
@@ -49,7 +49,7 @@ outcomes:
   - pause
   - silence
   - sound-off
-  artifact: src/sound.js
+  artifact: src/sound/director.js
   related: []
   superseded_by: null
 - id: OUT-4
@@ -65,7 +65,7 @@ outcomes:
   - shield-hit
   - house-hit
   - thud
-  artifact: src/sound.js
+  artifact: src/sound/director.js
   related: []
   superseded_by: null
 - id: OUT-5
@@ -80,7 +80,7 @@ outcomes:
   - voice-cap
   - polyphony
   - overlap
-  artifact: src/synth.js
+  artifact: src/sound/synth.js
   related: []
   superseded_by: null
 - id: OUT-6
@@ -99,6 +99,6 @@ outcomes:
   - music-toggle
   - settings
   - persist
-  artifact: src/game.js
+  artifact: src/game/game.js
   related: []
   superseded_by: null

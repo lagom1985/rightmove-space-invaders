@@ -1,0 +1,38 @@
+# Netlify static hosting for Make the Right Move (docs/feature/rightmove-invaders-sound/feature-delta.md, DEVOPS).
+# Production: pushes to main. Deploy previews: pull requests and branch deploys. Same build for all.
+# `npm run build` = unit + in-memory Playwright projects (no browsers needed), then scripts/build.mjs.
+# A failing test fails the build, so Netlify keeps serving the previous deploy.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Security headers on every response. No Content-Security-Policy on purpose: it would have to
+# allow Google Fonts (styles and fonts) and Web Audio, and the game has no user-supplied content.
+# microphone=() does not affect Web Audio playback.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Files are not content-hashed, so the browser must revalidate on every load (Netlify answers
+# 304 when nothing changed). A new deploy is therefore picked up on the next page load.
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/src/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

@@ -31,9 +31,19 @@ npm test
 
 The acceptance test lives in `tests/e2e/rightmove-invaders/acceptance/`. It drives the real page with keyboard events in Chromium, Firefox and WebKit, and uses Playwright's fake clock to fast-forward game time.
 
+## Deploy
+
+The game is a static site on Netlify, built from this repo. `netlify.toml` holds the build settings, so the only manual work is a one-time setup in the Netlify UI:
+
+1. Netlify → **Add new site** → **Import from GitHub** → `lagom1985/rightmove-space-invaders`. Leave the build settings as they are; they come from `netlify.toml`.
+2. **Domain management** → **Add domain** → `maketherightmove.fabiodamico.xyz`. Netlify DNS adds the record, and the HTTPS certificate is issued automatically.
+3. **Roll back** a bad release: **Deploys** → a previous deploy → **Publish deploy**. Click **Start auto publishing** again once the fix is on `main`.
+
+Every push to `main` deploys to https://maketherightmove.fabiodamico.xyz; pull requests and branches get deploy previews. `npm run build` is what Netlify runs: it executes the unit and in-memory tests (no browsers needed) and then writes `dist/` (just `index.html` and `src/`). If a test fails, nothing is published. The browser tests are not part of that build, so run `npm test` before pushing to `main`.
+
 ## How it's built
 
-Plain Canvas2D and ES modules, with no runtime dependencies and no build step.
+Plain Canvas2D and ES modules, with no runtime dependencies and no bundler (`npm run build` only copies the files to publish).
 
 | File | Job |
 |---|---|

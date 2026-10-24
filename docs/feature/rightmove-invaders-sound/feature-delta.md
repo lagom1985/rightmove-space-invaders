@@ -502,6 +502,103 @@ Edge rows: M while respawning → normal toggle and restore. Resume while muted 
 
 ---
 
+## Wave: DEVOPS / [REF] Environment matrix
+
+Run on 2026-10-24, after DELIVER (the wave was skipped before DISTILL). It sits here by wave order and changes no earlier decision. Machine-readable version: [environments.yaml](environments.yaml). Config: [netlify.toml](../../../netlify.toml), [scripts/build.mjs](../../../scripts/build.mjs).
+
+| Environment | URL | Platform | Deploy trigger | Preconditions |
+|---|---|---|---|---|
+| production | https://maketherightmove.fabiodamico.xyz | Netlify static hosting | push to `main` | Site linked to `lagom1985/rightmove-space-invaders`; custom domain added in Netlify (the apex already uses Netlify DNS, so the record and the Let's Encrypt certificate are automatic) |
+| deploy-preview | generated per deploy by Netlify | Netlify static hosting | pull request or branch push | Same site and same `netlify.toml` |
+| local | http://localhost:4173 | Node 22, `npm start` | manual | `npm install`; `npx playwright install` for the browser projects |
+
+Platform coverage: desktop Chrome and Edge, Firefox and Safari, current versions. Tested with Playwright's desktop Chrome, Firefox and WebKit devices; real Safari stays a manual check (D10). Phones and narrow windows get the "play on desktop" screen.
+
+DISTILL's player-state variants apply to every environment: `clean` (first visit), `with-stale-config` (saved sound and music settings); `with-pre-commit` is not applicable.
+
+## Wave: DEVOPS / [REF] CI/CD pipeline outline
+
+Platform: Netlify builds from the GitHub repo. No GitHub Actions, no containers. Nothing is pushed by the delivery tooling: the owner links the site once (see Pre-requisites).
+
+| Stage | Command | Gate type | What it checks |
+|---|---|---|---|
+| Install | `npm install` (Netlify, automatic) | blocking | Dependencies from `package-lock.json`; Playwright browsers are not downloaded |
+| Test gate | `bddgen && playwright test --project=unit --project=in-memory` | blocking | 46 tests, about 2 s: the unit properties (fast-check) and the 23 director scenarios, with no browser. `bddgen` generates the specs first |
+| Build | `node scripts/build.mjs` | blocking | Cleans `dist/`, copies `index.html` and `src/` only (14 files). No tests, docs or `node_modules` are published |
+| Publish | Netlify | atomic | Serves `dist/` with the headers from `netlify.toml`, only if every stage above passed |
+
+Single command: `npm run build` (Netlify runs it from `netlify.toml`, with `NODE_VERSION = "22"`).
+
+| Trigger | Result |
+|---|---|
+| Push to `main` | Full pipeline, then publish to production |
+| Pull request, branch push | Same pipeline, then a deploy preview (never the production URL) |
+| Failing test or build | Build fails, nothing is published, the previous deploy keeps serving |
+
+Checked locally: with `PLAYWRIGHT_BROWSERS_PATH` pointing at an empty folder the gate passes (46 passed), so no browser is needed. With `CI=true` (as on Netlify) Playwright starts its own `npm start` and stops it again. A throwaway failing unit spec made `npm run build` exit 1 and left no `dist/`. Serving `dist/` in Chromium loaded all 12 modules and the stylesheet with no 404 and no page error, and audio unlocked on the first key press.
+
+Headers (all responses): `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`. Cache: `/` and `/index.html` `no-cache`; `/src/*` `public, max-age=0, must-revalidate`, because the files are not content-hashed. No `Content-Security-Policy`: a policy would have to allow Google Fonts and Web Audio, and the game takes no user-supplied content.
+
+Local gates: none added (no hooks). `npm test` before pushing to `main` is the only way to run K5 and K7, because a push to `main` deploys.
+
+## Wave: DEVOPS / [REF] Monitoring contracts
+
+No runtime monitoring: there is no server, and the game collects nothing. Each KPI in [kpi-contracts.yaml](../../product/kpi-contracts.yaml) keeps its existing instrument. This table says where each one runs now that a deploy exists.
+
+| KPI | Gate | Instrument | Runs in the Netlify build? |
+|---|---|---|---|
+| K1 Hits feel better | soft | Playtest form | No: manual, once. Playtesters can use the production URL or a deploy preview |
+| K2 Beat adds urgency | soft | Playtest form | No: manual, once |
+| K3 Mute is discoverable | soft | Timed playtest task | No: manual, once |
+| K4 Music is wanted | soft | Observing the N setting at the end of wave 3 | No: manual, once (plus one repeat if 40-60%) |
+| K5 Sound is immediate | **hard** | `@kpi-K5` scenario, `@real-io`, 3 engines | **No**: browser scenario. Runs in `npm test` on the developer's machine |
+| K6 No performance cost | soft | `node scripts/measure-performance.mjs` (own server on port 4181; browsers) | No: run by hand once per slice that adds sounds |
+| K7 No errors | **hard** | Three `@kpi-K7` scenarios (`@real-io`, 3 engines) | **Partly**: the browser scenarios run locally only. The unit specs `synth-fail-safe`, `synth-suspended` and `settings-parse`, which cover the silent fallback and blocked storage without a browser, do run in the gate |
+| K8 Big moments land | soft | Playtest task | No: manual, once, after slice 05 |
+| K9 Sound on by default is welcome | soft | Post-session question | No: manual, once |
+
+Consequence: the two hard gates are only fully enforced locally. Netlify stops a regression in the director, the synth's fail-safe and the pure rules, but a browser-only break (K5 timing, a page error) reaches production unless `npm test` was run first. Accepted for now: the user chose the light gate so that Netlify needs no browsers. If this bites, the next step is a GitHub Actions job running the browser projects on pull requests, not browsers in the Netlify build.
+
+## Wave: DEVOPS / [REF] Deployment strategy
+
+**Netlify atomic deploys.** Every build produces an immutable deploy; Netlify switches production to a new deploy only when the build succeeds, so there is no half-deployed state and no downtime. Canary, blue-green and rolling were rejected: one static site with no server, no state and no migrations has nothing to shift gradually, and Netlify already gives the instant switch.
+
+**Rollback (designed first):** Netlify → Deploys → pick a previous deploy → Publish deploy. No rebuild and no code change; it takes seconds. Netlify then stops auto-publishing (the Deploys page offers "Start auto publishing"), so a later push does not undo the rollback unnoticed. The code fix goes to `main` as a normal commit (or `git revert`); then click "Start auto publishing" again. Browsers pick up the rollback on the next page load because `index.html` and `src/*` revalidate on every request.
+
+Release check before a push to `main`: `npm test` green (148 tests, includes K5 and K7), then `npm run build`.
+
+## Wave: DEVOPS / [REF] Mutation testing strategy
+
+**Disabled** (user, 2026-10-24). Test quality is validated through code review and the test suite. Persisted in `CLAUDE.md` under `## Mutation Testing Strategy`. This supersedes the "nightly-delta" strategy named in DELIVER's Quality gates and in the evolution record; no nightly job was ever set up.
+
+## Wave: DEVOPS / [REF] Observability stack
+
+**None** (user, 2026-10-24). No logs, metrics, traces, analytics or error tracking. Rationale: the game is static, has no server and handles no personal data, and the KPIs come from the playtest (K1-K4, K8, K9) or from the test suite and the K6 script (K5, K6, K7). Netlify's own deploy log and the deploy list are the only operational record. SLOs are not defined: with no users to page, an availability target would measure Netlify, not this game.
+
+## Wave: DEVOPS / [REF] Branching strategy
+
+**Trunk-based on `main`** (current practice). Commits go to `main`; short-lived branches, if used, get a deploy preview. Every push to `main` is a production deploy, so `main` must stay releasable: run `npm test` first. No branch protection or required checks are configured; the Netlify build gate is the only automated check.
+
+## Wave: DEVOPS / [REF] Coexistence matrix
+
+| Tool | Must keep working | How |
+|---|---|---|
+| `@playwright/test` 1.62.1 | yes | `dist/` is separate from `tests/`; `npm start` still serves the repo root; `npm test` is unchanged |
+| `playwright-bdd` 9.2.1 | yes | The gate runs `bddgen` first; `.features-gen/` stays git-ignored |
+| `fast-check` 4.10.2 | yes | Unit properties run in the gate |
+
+Nothing else is present: no husky, pre-commit, GitHub Actions or containers.
+
+## Wave: DEVOPS / [REF] Pre-requisites
+
+- **Owner, once, in Netlify** (nothing in the repo can do this): (a) Add new site → Import from GitHub → `lagom1985/rightmove-space-invaders` (build settings come from `netlify.toml`); (b) Domain management → Add domain → `maketherightmove.fabiodamico.xyz` (Netlify DNS adds the record; the HTTPS certificate is automatic); (c) rollback is Deploys → a previous deploy → Publish deploy.
+- Check the first deploy log: the test gate starts `npm start` on port 4173 inside the Netlify build. If the port or `localhost` resolution is a problem there, that is where it shows.
+- DESIGN constraints held: no runtime dependencies and no bundler (the build only copies files); the frozen diagnostics handle and the sound journal are untouched (ADR-003); Google Fonts remains the only third-party request.
+- Still owed from DELIVER and unchanged by this wave: the D10 manual checks (real Safari, listening tests) and the playtest for K1-K4, K8, K9.
+- Not done here: pushing, creating the Netlify site, DNS. The `docs/feature/.../devops/wave-decisions.md` of the legacy layout is not produced; this section is the record.
+
+---
+
 ## Wave: DISTILL / [REF] Scenario list with tags
 
 51 scenarios (56 runnable examples, counting three outlines) in [tests/e2e/rightmove-invaders-sound/acceptance/](../../../tests/e2e/rightmove-invaders-sound/acceptance/), all `@pending`. The 28 `@real-io` scenarios (33 browser examples) run in Chromium, Firefox and WebKit; the 23 `@in-memory` ones run once, with no browser. Error paths: 13 (25%). Edge cases: 11 (22%). Together 24 of 51 (47%). Edge cases count toward the 40% target because each is a boundary of a failure mode: overload, unmuting while paused, the rate-limit window, settings on every screen. Every scenario has exactly one When.

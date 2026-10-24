@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node scripts/serve.mjs",
-    "test": "bddgen && playwright test"
+    "test": "bddgen && playwright test",
+    "build": "bddgen && playwright test --project=unit --project=in-memory && node scripts/build.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

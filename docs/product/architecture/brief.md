@@ -12,7 +12,7 @@ SSOT for the game's architecture. Each architect owns one section. Decisions are
 1. **Responsiveness**: input and sound within one frame. The game's p95 frame work was ≤ 4 ms under stress in the spike (ADR-000); sound may add at most 0.5 ms (ADR-002, DDD-12, D11).
 2. **Testability**: deterministic, fast-forwardable acceptance tests through real keyboard input (fake clock, seeded randomness, the status mirror, the sound journal).
 3. **Maintainability**: theme, art and sound recipes are data; one module per concern; one event vocabulary (`events.js`); no runtime dependencies.
-4. **Portability**: desktop Chrome/Edge, Firefox and Safari, with no build step.
+4. **Portability**: desktop Chrome/Edge, Firefox and Safari, with no bundler or transpile step.
 
 **Security and exposure**: client-only, with no personal data and no network calls besides the font. The only global is the frozen, data-only `window.makeTheRightMove` diagnostics handle (ADR-003). Settings are strictly parsed `'on'`/`'off'` strings that default to on.
 
@@ -104,3 +104,19 @@ On `blur` or a hidden tab: `pause()`, then step 3 immediately (DDD-9).
 - [ADR-001](adr-001-game-events-outbox.md): the rules publish events through an outbox they own.
 - [ADR-002](adr-002-hand-rolled-web-audio-synth.md): a hand-rolled Web Audio synth with data recipes.
 - [ADR-003](adr-003-sound-journal-for-tests.md): tests observe sound through the synth's read-only journal.
+
+## Platform and Delivery
+
+*Owner: nw-platform-architect · Last updated: 2026-10-24 (rightmove-invaders-sound, DEVOPS)*
+
+### Deployment
+
+The game is published as static files on **Netlify**, from the GitHub repo `lagom1985/rightmove-space-invaders`. Production is https://maketherightmove.fabiodamico.xyz (a custom domain on a Netlify site; the apex `fabiodamico.xyz` already uses Netlify DNS, so the DNS record and the Let's Encrypt certificate are automatic). `scripts/serve.mjs` remains the local and test server only; it is not deployed.
+
+- **Build gate**: `npm run build` runs `bddgen`, the Playwright `unit` and `in-memory` projects (46 tests, no browser needed), then `scripts/build.mjs`, which copies `index.html` and `src/` into `dist/`. A failing test fails the build and Netlify keeps serving the previous deploy. The browser projects (and the hard KPIs K5 and K7) run locally with `npm test`.
+- **Triggers**: a push to `main` deploys to production; pull requests and branches get deploy previews. Trunk-based, no GitHub Actions, no containers.
+- **Headers** (`netlify.toml`): `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`; `index.html` is `no-cache` and `/src/*` is `max-age=0, must-revalidate` (files are not hashed). No CSP, so Google Fonts and Web Audio keep working.
+- **Rollback**: Netlify → Deploys → a previous deploy → Publish deploy.
+- **Observability**: none. There is no server and no personal data; KPIs come from the playtest, the test suite and `scripts/measure-performance.mjs`.
+
+Details and the checks run: [feature-delta.md](../../feature/rightmove-invaders-sound/feature-delta.md) (Wave: DEVOPS) and [environments.yaml](../../feature/rightmove-invaders-sound/environments.yaml).

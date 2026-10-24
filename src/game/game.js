@@ -1,7 +1,6 @@
 import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
-import { loadBest, saveBest } from '../platform/storage.js';
 import { GameEvent } from './events.js';
 
 // Sizes in logical units, derived from the pixel art.
@@ -18,13 +17,17 @@ export const PLAYER_SPEED = 330;
 export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
 export const BANNER_TIME = 2.4;    // seconds the "Wave cleared!" banner shows; the fanfare must fit inside it
 const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
+const EDGE_MARGIN = 16;   // the gap the pin and the formation keep from the sides of the screen
+const FORMATION_STRIDE = 9, FORMATION_DROP = 18;   // how far the formation steps sideways, and drops at an edge
+const CEILING = 64;   // the top of the playfield, under the HUD
 
 // The whole game state. The renderer and the status mirror read it; only this module writes it.
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
 // settings: the player's sound and music choices, loaded by main.js (applySettings) and flipped by M and N.
+// best: the best score so far, loaded by main.js through the store it hands over (applyBestStore).
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
-  score: 0, best: loadBest(), newBest: false, lives: LIVES, level: 0,
+  score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -39,6 +42,16 @@ export const takeEvents = () => outbox.splice(0);
 // The only way settings get in from outside: main.js applies what it loaded before the first frame.
 export function applySettings({ sound, music }) {
   g.settings = { sound, music };
+}
+
+// The best score lives in a store main.js hands over ({ load() -> score, save(score) }), so the rules never touch
+// storage. Until then nothing is kept, which is how the rules run on their own.
+const NO_STORE = Object.freeze({ load: () => 0, save() {} });
+let bestStore = NO_STORE;
+
+export function applyBestStore(store) {
+  bestStore = store;
+  g.best = store.load();
 }
 
 export const invaderX = v => g.formation.x + v.c * GX;
@@ -121,7 +134,7 @@ export function update(dt, keyboard) {
 function movePlayer(dt, keyboard) {
   const right = keyboard.isDown('ArrowRight') || keyboard.isDown('KeyD');
   const left = keyboard.isDown('ArrowLeft') || keyboard.isDown('KeyA');
-  g.player.x = clamp(g.player.x + (right - left) * PLAYER_SPEED * dt, 16, W - 16 - PW);
+  g.player.x = clamp(g.player.x + (right - left) * PLAYER_SPEED * dt, EDGE_MARGIN, W - EDGE_MARGIN - PW);
   if (keyboard.isDown('Space') && !g.shot) {
     g.shot = { x: g.player.x + PW / 2 - SHOT_W / 2, y: g.player.y - 10 };
     emit(GameEvent.SHOT_FIRED);
@@ -151,8 +164,8 @@ function stepFormation(dt) {
   if (!alive) return;
   f.timer = formationStepInterval(alive, g.level);
   f.frame ^= 1;
-  const nx = f.x + f.dir * 9;
-  if (nx + minC * GX < 16 || nx + maxC * GX + IW > W - 16) { f.y += 18; f.dir = -f.dir; } else f.x = nx;
+  const nx = f.x + f.dir * FORMATION_STRIDE;
+  if (nx + minC * GX < EDGE_MARGIN || nx + maxC * GX + IW > W - EDGE_MARGIN) { f.y += FORMATION_DROP; f.dir = -f.dir; } else f.x = nx;
   emit(GameEvent.FORMATION_STEPPED, { alive });
   if (f.y + maxR * GY + IH >= SHIELD_Y) {
     for (const v of g.invaders) if (v.alive) clearRect(g.shields, invaderX(v), invaderY(v), IW, IH);
@@ -189,7 +202,7 @@ function moveShot(dt) {
     if (v.alive && overlap(s.x, s.y, SHOT_W, SHOT_H, invaderX(v), invaderY(v), IW, IH)) { killInvader(v); g.shot = null; return; }
   }
   if (g.dream && overlap(s.x, s.y, SHOT_W, SHOT_H, g.dream.x, g.dream.y, DW, DH)) { saveDream(); g.shot = null; return; }
-  if (s.y < 64) { burst(s.x, 64, COLORS.green, 4, 60); g.shot = null; }
+  if (s.y < CEILING) { burst(s.x, CEILING, COLORS.green, 4, 60); g.shot = null; }
 }
 
 // A shot or a bolt chips a house; the sound system hears which of the two it was.
@@ -273,7 +286,7 @@ function moveDream(dt) {
 function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
-  if (g.newBest) { g.best = g.score; saveBest(g.best); }
+  if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

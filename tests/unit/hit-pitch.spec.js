@@ -1,9 +1,10 @@
 import { test } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { HURDLES, hitPitch } from '../../src/theme/theme.js';
+import { HURDLES } from '../../src/theme/theme.js';
+import { hitPitch } from '../../src/sound/recipes.js';
 
-// The pure pitch function (hitPitch in theme.js) alone: synth-hit-pitch.spec.js covers the pitch the synth really plays.
+// The pure pitch function (hitPitch in sound/recipes.js) alone: synth-hit-pitch.spec.js covers the pitch the synth really plays.
 const HURDLE_VALUES = HURDLES.map(hurdle => hurdle.value);   // £300, £200, £150, £100, £50
 
 // Any two different hurdle values: the lower one first, the higher one second.

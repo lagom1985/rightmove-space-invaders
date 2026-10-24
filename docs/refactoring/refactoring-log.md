@@ -76,3 +76,78 @@ Five mentions of old paths remain in tests, all in comments or fixture text rath
 - `tests/e2e/rightmove-invaders-sound/acceptance/steps/game-driver.js:81` (comment: `src/synth.js`)
 - `tests/e2e/rightmove-invaders-sound/acceptance/steps/domain-types.js:2` (comment: `src/events.js`)
 - `tests/e2e/rightmove-invaders-sound/acceptance/fixtures/synth-host.html:8` (page text: `src/synth.js`)
+
+## 2026-10-24: move sound recipes to `sound/`, inject the best-score store, split the synth and the renderer
+
+- **Level**: RPP L1 to L3 (readability, complexity, responsibilities). **Scope**: project `src/`.
+- **Method**: planned in cascade order (L3, L2, L1), applied as one batch, suite run once at the end.
+- **Behaviour**: unchanged. Gameplay, difficulty and the public surface of every module are as before; `game.js` keeps its module-level state `g` (out of scope).
+- **Commit**: `refactor: move sound recipes to sound/, inject best-score store, split synth and renderer`.
+
+### What was done
+
+| # | Item | Result |
+|---|---|---|
+| 1 | Break the `game/` and `theme/` cycle | Done. The sound data (`hitPitch`, `MARCH_NOTES`, `partsOf`, `BUS_LEVELS`, `MUSIC`, `SOUND_RECIPES` and the private helpers `marchPitch`, `midiHz`, `CHORDS`, `BARS`) moved from `theme/theme.js` to the new `sound/recipes.js`. `theme/theme.js` now has no imports (125 to 42 lines). The synth imports its defaults from `./recipes.js`. |
+| 2 | Remove `game/game.js` to `platform/storage.js` | Done. `game.js` exports `applyBestStore(store)` with `store = { load() -> score, save(score) }`; until it is called the rules use a store that keeps nothing (`g.best` is 0). `main.js` calls `applyBestStore({ load: loadBest, save: saveBest })` right after `applySettings`, before the first frame. The best score is still read once before play and saved at the same point as before (in `gameOver`, only on a new best). No test needed more than an import path, so the item went ahead. |
+| 3 | Split `createSynth` (253 lines) | Done, public surface unchanged (see below). |
+| 4 | Split `createRenderer` (133 lines) | Done: one named function per element (see below). |
+| 5 | L1 names | A few magic numbers named (see below). |
+
+### Synth split (`sound/`)
+
+`createSynth({ recipes, createContext, now, setInterval, clearInterval }) -> { unlock, perform, diagnostics }` is unchanged, as are the journal entries `{ seq, sound, detail, t, at }`, the voice cap of 8, the frozen `window.makeTheRightMove.audio` and every scheduled time.
+
+| Module | Job | Lines |
+|---|---|---|
+| `synth.js` | Lifecycle (locked, running, suspended, unavailable), cue routing, fail-safe, diagnostics; keeps the long header contract | 139 (was 307) |
+| `voices.js` | `createVoiceBuilder(context)`: buses, one voice from a recipe, the shared noise buffer, the siren; `track(list, voice)` | 127 |
+| `effects.js` | `createEffects({ builder, bus })`: effect voices with the cap of 8 (oldest cut first), the loops, `voices` and `peakVoices` | 48 |
+| `music.js` | `createMusic({ builder, bus, setInterval, clearInterval, guard })`: the tune and its look-ahead scheduler | 49 |
+| `journal.js` | `createJournal(now)`: the last 100 sounds and their frozen snapshot | 20 |
+| `recipes.js` | Data only | 84 |
+
+`createSynth` is now 89 lines (comments and blank lines included) and holds nine named functions of at most 14 lines each, plus the operations table and the diagnostics. `effects` and `music` exist once the audio context is open, so the diagnostics read them with `?.` and give `0` / `'stopped'` before that, exactly as before.
+
+### Renderer split (`view/render.js`)
+
+`createRenderer` went from 133 to 45 lines. It now builds the sprites, owns `resize` and a 20-line `draw`. The per-element code is module-level functions that take the 2D context: `drawShields`, `drawFormation`, `drawDreamHome`, `drawPlayer`, `drawShot`, `drawBolts`, `drawParticles`, `drawFloatingTexts`, `drawLives`, `drawHud`, `drawTitle`, `drawWaveCleared`, `drawGameOver`, `drawPaused`, plus `drawBackground` (split into `drawMapGrid`, `drawRoads`, `drawRiver`), `createShieldCache`, `blit` and `text`. Draw order and canvas state are as before (including the single `globalAlpha = 1` reset after the particles and floating texts). The file grew from 151 to 213 lines because `ctx` is now passed explicitly and each function has its own header.
+
+### L1 names
+
+- `game/game.js`: `EDGE_MARGIN` (16, shared by the pin and the formation), `FORMATION_STRIDE` (9) and `FORMATION_DROP` (18), `CEILING` (64, top of the playfield).
+- `view/render.js`: `MAP_BLOCK` (48) and `ROADS`.
+- `main.js`: `MIN_DESKTOP_WIDTH` (640).
+- Other numbers in `game.js` were left alone: they are tuning values with one use each, and naming them would be churn.
+
+### Tests
+
+Only import specifiers changed, in 8 files (10 lines added, 8 removed): `fanfare-length`, `music-level`, `synth-fail-safe`, `synth-mix`, `synth-suspended` and `synth-voice-cap` now import `SOUND_RECIPES`, `partsOf`, `BUS_LEVELS` or `MUSIC` from `src/sound/recipes.js`; `hit-pitch` and `synth-hit-pitch` split one import into `HURDLES` from `theme.js` and `hitPitch` from `recipes.js`. No assertion, step, scenario or fixture changed. `fixtures/synth-host.html` and the step files needed nothing (they import `sound/synth.js`, `game/` and `theme/pounds`, which did not move).
+
+### Verification
+
+- `npx bddgen && npx playwright test`: **148 passed** (Chromium, Firefox, WebKit), run once after the batch.
+- `npm run build`: passed (46 unit and in-memory tests); `dist/` has 21 files, the 16 from before plus `sound/recipes.js`, `voices.js`, `effects.js`, `music.js` and `journal.js`.
+- Extra checks, run on throwaway copies of the previous commit and the new tree (nothing added to the repo):
+  - **Synth differential**: 400 random sequences of 80 steps (all cue operations, bogus ones, clock jumps, timer ticks, context suspend/resume, a broken audio graph), recorded on the unit tests' fake audio. After every step the whole node graph (kinds, wiring, every parameter call with its time and value, starts and stops), the noise buffer, the timers and the diagnostics were identical between old and new: 32,000 comparisons. A deliberate 0.1 ms change to the music step made 238 sequences fail, so the check does bite.
+  - **Renderer and game**: the same seeded game on Playwright's paused fake clock in Chromium, old against new: SHA-256 of the canvas identical in 9 screenshots (title, play, firing, paused, paused with sound and music off, mid-game, game over), and the audio diagnostics identical, including journal `at` times. Best score saved identically (2550).
+
+### Dependency-direction check
+
+Rule: `game/` imports only from `game/` and `theme/`; `theme/` imports nothing.
+
+```
+src/game/game.js:2:import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
+```
+
+That is the only import that leaves `game/`. `grep -c "^import" src/theme/theme.js` gives 0. No browser API is used in `game/` (the only grep hit is a comment in `config.js`). The folder cycle is gone and so is the storage exception.
+
+### Left as they were (flagged)
+
+Test comments and a test title still say "theme" for the sound data. The brief was to change import paths only in tests, so they are stale but harmless:
+
+- `tests/unit/hit-pitch.spec.js:7` (comment: `hitPitch in theme.js`)
+- `tests/unit/music-level.spec.js:6-7` and the title of its test (the namespace import is still named `theme`)
+- `tests/unit/synth-mix.spec.js:8` (comment: "the numbers in the theme")
+
+Earlier flagged stale comments from the folder move (`fresh-game.js`, `director-harness.js`, `game-driver.js`, `domain-types.js`, `synth-host.html`) are also still there.

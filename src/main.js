@@ -1,11 +1,11 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings } from './game/game.js';
+import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore } from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';
 import { createSoundDirector } from './sound/director.js';
-import { loadSettings, saveSetting } from './platform/storage.js';
+import { loadSettings, saveSetting, loadBest, saveBest } from './platform/storage.js';
 import { GameEvent } from './game/events.js';
 
 const keyboard = createKeyboard(window);
@@ -21,6 +21,7 @@ const synth = createSynth({
   clearInterval: id => window.clearInterval(id),
 });
 applySettings(loadSettings());   // before the first frame; g.settings is the one authority from here on
+applyBestStore({ load: loadBest, save: saveBest });   // the best score is read now and written when a game ends on a new best
 const director = createSoundDirector({ ...g.settings });
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
@@ -43,9 +44,11 @@ function leaveGame() {
   playSounds();
 }
 
+const MIN_DESKTOP_WIDTH = 640;   // px
+
 // Desktop only: touch-first devices and narrow windows get a "needs a keyboard" screen.
 function checkDevice() {
-  const noKeyboard = matchMedia('(hover: none) and (pointer: coarse)').matches || innerWidth < 640;
+  const noKeyboard = matchMedia('(hover: none) and (pointer: coarse)').matches || innerWidth < MIN_DESKTOP_WIDTH;
   document.body.classList.toggle('no-keyboard', noKeyboard);
 }
 

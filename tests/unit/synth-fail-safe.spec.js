@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { unlockedSynth } from './support/fake-audio.js';
 import { CueOp, Sound } from '../../src/game/events.js';
-import { SOUND_RECIPES } from '../../src/theme/theme.js';
+import { SOUND_RECIPES } from '../../src/sound/recipes.js';
 
 // The audio graph is the browser's, and it can fail whenever it likes (out of resources, a closed context).
 // A failure must never reach the game loop, which would freeze the game: the synth goes silent and

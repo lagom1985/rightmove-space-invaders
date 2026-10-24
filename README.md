@@ -50,16 +50,17 @@ Plain Canvas2D and ES modules, with no runtime dependencies and no bundler (`npm
 | File | Job |
 |---|---|
 | `src/main.js` | Composition root and game loop: fixed 120 Hz simulation steps, one render per display frame |
-| `src/game/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system |
+| `src/game/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system. Settings and the best-score store are handed in from `main.js` |
 | `src/game/shields.js` | Destructible house shields |
 | `src/game/events.js` | The sound system's vocabulary: game events, cue operations and sound names |
 | `src/sound/director.js` | Sound director: turns game events into cues (what should be heard, and when) |
-| `src/sound/synth.js` | Web Audio synth: plays the cues, with the music on its own bus |
+| `src/sound/synth.js` | Web Audio synth: plays the cues, with the music on its own bus. Built from `voices.js` (voices from recipes), `effects.js` (voice cap and loops), `music.js` (music scheduler) and `journal.js` |
+| `src/sound/recipes.js` | Sound data: pitches, the mix, the tune and each sound's recipe |
 | `src/view/render.js` | Drawing |
 | `src/view/status.js` | Mirrors the HUD into the page for screen readers |
 | `src/platform/input.js` | Keyboard, including holding very quick taps so they aren't lost |
 | `src/platform/storage.js` | Best score and the sound and music settings in `localStorage` |
-| `src/theme/theme.js` | Names, colours, values, pixel art and sound recipes |
+| `src/theme/theme.js` | Names, colours, values, pixel art and the property ladder (data only, no imports) |
 
 Design notes and the performance spike are in `docs/feature/rightmove-invaders/spike/`.
 

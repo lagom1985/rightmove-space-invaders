@@ -33,6 +33,10 @@ const command = fc.oneof(
 // this property is about.
 const seen = new Set();
 
+// How many time steps that began in play published a formationStepped, over all the runs: the witness that the
+// rules still publish the step at all, which the property above could not tell from a formation that never steps.
+let steppedInPlay = 0;
+
 // A game of its own, driven the way the page drives it.
 async function freshGame() {
   const rules = await loadFreshGame();
@@ -44,8 +48,10 @@ async function freshGame() {
     update(seconds, keyboard);
     const steps = takeEvents().filter(event => event.type === GameEvent.FORMATION_STEPPED).length;
     const pinIsBack = state === 'dead' && respawn - seconds <= 0;   // the respawn ends within this step, so the step counts as in play
-    ticks.push({ steps, inPlay: state === 'play' || pinIsBack, began: state });
+    const inPlay = state === 'play' || pinIsBack;
+    ticks.push({ steps, inPlay, began: state });
     seen.add(state).add(g.state);
+    if (inPlay && steps > 0) steppedInPlay++;
   }
 
   return {
@@ -79,4 +85,5 @@ test('the formation never steps on the banner, while the pin respawns, or after 
     expect(steppedOutOfPlay, 'time steps that began out of play and still stepped the formation').toEqual([]);
   }));
   for (const state of OUT_OF_PLAY) expect(seen.has(state), `no run reached the "${state}" state`).toBe(true);
+  expect(steppedInPlay, 'no time step in play published formationStepped').toBeGreaterThan(0);
 });

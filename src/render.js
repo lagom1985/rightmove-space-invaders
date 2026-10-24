@@ -25,7 +25,8 @@ export function createRenderer(canvas) {
 
   // Size the backing store to the window at device resolution and keep drawing in logical units.
   function resize() {
-    const dpr = devicePixelRatio || 1, scale = Math.min(innerWidth / W, innerHeight / H);
+    const footer = document.querySelector('.site-footer')?.offsetHeight ?? 0;   // the canvas fits above the footer
+    const dpr = devicePixelRatio || 1, scale = Math.min(innerWidth / W, (innerHeight - footer) / H);
     const cssW = Math.floor(W * scale), cssH = Math.floor(H * scale);
     canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
     canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssH * dpr);

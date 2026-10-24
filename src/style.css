@@ -1,6 +1,11 @@
 html, body { margin: 0; height: 100%; background: #1c1c2b; overflow: hidden; }
-body { display: grid; place-items: center; font-family: "Press Start 2P", ui-monospace, monospace; }
+body { display: grid; grid-template-rows: 1fr auto; place-items: center; font-family: "Press Start 2P", ui-monospace, monospace; }
 canvas { display: block; }
+
+.site-footer { justify-self: stretch; padding: 6px 16px 10px; text-align: center; font: 12px/1.4 system-ui, sans-serif; color: #a9a9c8; }
+.site-footer p { margin: 0; }
+.site-footer a { color: inherit; text-decoration: underline; }
+.site-footer a:hover, .site-footer a:focus-visible { color: #fff; }
 
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;

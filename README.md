@@ -43,7 +43,7 @@ Every push to `main` deploys to https://maketherightmove.fabiodamico.xyz; pull r
 
 ## How it's built
 
-Plain Canvas2D and ES modules, with no runtime dependencies and no bundler (`npm run build` only copies the files to publish).
+Plain Canvas2D and ES modules, with no runtime dependencies in the browser and no bundler (`npm run build` only copies the files to publish). The shared high-score table is a Netlify Function (`netlify/functions/scores.mjs`), whose only dependency is `@netlify/blobs`.
 
 `src/` is organised by layer, matching the ports and adapters in `docs/product/architecture/brief.md`: `game/` holds the rules and state with no browser APIs, and the other folders plug into it from `main.js`.
 

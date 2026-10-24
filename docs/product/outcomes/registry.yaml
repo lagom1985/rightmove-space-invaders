@@ -102,3 +102,166 @@ outcomes:
   artifact: src/game/game.js
   related: []
   superseded_by: null
+- id: OUT-7
+  kind: operation
+  summary: Score API reads the shared high-score table
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'GET /api/scores, no body'
+  output:
+    shape: '200 {scores: [{initials, score, id}], listedAt}, best first, at most 10, listedAt
+      = the function''s Date.now() in ms taken right after its list call returns; Cache-Control
+      no-store; a failed listing gives 500 unexpected; the read path receives only the
+      list operation of the restricted table-store port, so the store is unchanged'
+  keywords:
+  - high-score-table
+  - leaderboard
+  - score-api
+  - read-table
+  - top-ten
+  artifact: netlify/functions/scores.mjs
+  related: [OUT-10, OUT-13]
+  superseded_by: null
+- id: OUT-8
+  kind: operation
+  summary: Score API signs the shared high-score table
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'POST /api/scores, content-type application/json, body read with a 1 KB byte
+      cap, exactly {initials, score}'
+  output:
+    shape: '200 {scores, id, listedAt} with id = the new row and listedAt = the function''s
+      Date.now() in ms taken right after the listing that follows the write (also when
+      best-effort pruning failed); function errors are JSON {error}: 415 json-required
+      (content type), 413 payload-too-large (over 1 KB), 400 invalid-signature (any other
+      shape error) or initials-not-allowed, 405 with Allow, 503 not-saved, 500 unexpected
+      (including a port refusal of a key that is not well-formed); every answer from
+      the function is no-store. 429 comes from Netlify only (its body and headers, no
+      no-store guarantee). If the ADR-007 fallback is adopted: 503 signing-paused'
+  keywords:
+  - sign-table
+  - signature
+  - submit-score
+  - score-api-errors
+  - initials
+  artifact: netlify/functions/scores.mjs
+  related: [OUT-9, OUT-10, OUT-13]
+  superseded_by: null
+- id: OUT-9
+  kind: invariant
+  summary: No signature is lost when players sign at the same moment
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: N valid signatures posted at once (verified up to N = 100 on the emulator)
+  output:
+    shape: 'every saved signature that belongs in the true top 10 is in the table; through
+      the restricted table-store port (list, putIfNew, remove of well-formed keys only,
+      no deleteAll) each POST adds one well-formed key under s/ and deletes, best-effort,
+      at most 5 well-formed keys ranked 11th or lower, only when more than 20 exist;
+      other keys are never touched'
+  keywords:
+  - no-lost-score
+  - concurrent-signing
+  - one-key-per-score
+  - bounded-prune
+  artifact: netlify/functions/scores.mjs
+  related: [OUT-8]
+  superseded_by: null
+- id: OUT-10
+  kind: specification
+  summary: Shared signature validity (browser and function) and browser-side qualification
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'table state {status: unknown|available|unavailable, rows: [{initials, score,
+      id}] best first}, deposit; signature {initials, score}'
+  output:
+    shape: 'makesTheTable (browser only) = status available and deposit > 0 and (fewer
+      than 10 rows or deposit above the 10th; a tie misses). Valid signature (browser
+      and function) = initials of 3 letters A-Z not on the word filter, score a positive
+      integer multiple of 50 up to 9999999. The function never decides qualification'
+  keywords:
+  - qualification
+  - makes-the-table
+  - signature-validity
+  - word-filter
+  - high-score-rules
+  artifact: src/game/high-scores.js
+  related: [OUT-8, OUT-11]
+  superseded_by: null
+- id: OUT-11
+  kind: specification
+  summary: Signing outcome lifecycle
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'third Enter on the initials entry; the answer (with its rows and listedAt),
+      failure or 5000 ms timeout of signing n; Enter'
+  output:
+    shape: 'blocked initials keep the entry open; allowed initials -> pending (signing
+      n, replacing any earlier signing as the current one) -> confirmed (rank from the
+      answer''s own rows; row highlighted wherever the table is shown until the next
+      signing or until the row leaves the shown table, pruned or pushed down, while
+      the signing stays confirmed) | off-table | unconfirmed ("Couldn''t confirm FAB''s
+      signing": it may have been saved) | paused (only with the ADR-007 fallback: "High-score
+      signing is paused; FAB wasn''t saved"); a new game keeps the signing and an outcome
+      arriving during play is announced by the status mirror only; the answer or failure
+      of a replaced signing is announced once through the status mirror, its rows apply
+      under the listedAt rule, and it changes neither the current signing nor its highlight;
+      no POST retry; Enter starts a new game from any settled or pending status'
+  keywords:
+  - signing-outcome
+  - signing-lifecycle
+  - pending-signature
+  - late-answer
+  - initials-refused
+  artifact: src/game/game.js
+  related: [OUT-10, OUT-12]
+  superseded_by: null
+- id: OUT-12
+  kind: specification
+  summary: High-score table status and degradation
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'loads on page load and on every game start, plus POST answers, each answer
+      with rows carrying listedAt (server listing time, ms); each succeeds or fails (non-OK,
+      network error, 5000 ms timeout)'
+  output:
+    shape: 'one table state {status, rows}: unknown until the first answer; available
+      after a successful load or POST answer, whose rows apply only if listedAt >= the
+      last applied listedAt (otherwise ignored; accepted edge: clock skew of a few ms
+      between function instances can misorder two nearly identical listings); unavailable
+      only while no table has ever loaded (a failed refresh keeps the last good table;
+      a late failed load after a success changes nothing); the table is as old as the
+      last successful refresh; initials asked only when makesTheTable (status available);
+      game over shows the list (available), "High-score table unavailable" (unavailable),
+      or no prompt, no list and no table line (unknown); the frame never waits on the
+      network'
+  keywords:
+  - table-status
+  - table-unavailable
+  - degradation
+  - refresh-on-start
+  - offline-play
+  artifact: src/game/game.js
+  related: [OUT-10, OUT-11]
+  superseded_by: null
+- id: OUT-13
+  kind: invariant
+  summary: Only production deploys use the production high-score store
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: any request to /api/scores in deploy context c
+  output:
+    shape: 'chooseStore(context) = site only when context?.deploy?.context === production
+      (case-sensitive), else deploy (deploy-preview, branch-deploy, dev, missing deploy,
+      missing context, Production); site -> getStore leaderboard, deploy -> getDeployStore
+      leaderboard; a deploy store without a deploy ID (MissingBlobsEnvironmentError)
+      -> 500 unexpected, never the site store; locally (scripts/serve.mjs) one store
+      per test-board cookie, scope local; every log line carries scope and the raw context'
+  keywords:
+  - deploy-context
+  - deploy-store
+  - preview-isolation
+  - production-table
+  artifact: netlify/functions/scores.mjs
+  related: [OUT-7, OUT-8]
+  superseded_by: null

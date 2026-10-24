@@ -1,0 +1,226 @@
+# environments.yaml: machine artifact of the DEVOPS wave for rightmove-invaders-leaderboard (2026-10-24; revised after
+# the platform review, iteration 2). Netlify static hosting plus one function (the Score API) over Netlify Blobs. The
+# narrative is in feature-delta.md under "Wave: DEVOPS". This file supersedes
+# docs/feature/rightmove-invaders-sound/environments.yaml for deployment assumptions; the sound file stays as that
+# wave's record.
+
+plan:
+  provider: netlify
+  tier: legacy-free   # user, 2026-10-24
+  quotas:             # Netlify legacy pricing and billing FAQ (checked 2026-10-24)
+    function_invocations: "125k per site per month, counted per request whatever the runtime"
+    bandwidth: "100 GB per month, hard limit"
+    build_minutes: "300 per month, hard limit; 1 concurrent build"
+    edge_function_invocations: "1M per month (unused)"
+    blobs: "not listed on the legacy pricing page, which doesn't mean there is no limit; the owner checks the account's billing and usage pages before the merge and records the result in feature-delta.md (Quota and outage risk); if nothing is visible, Blobs operations are an unmonitored residual risk"
+    reset: "first day of each month"
+  at_limit:
+    function_invocations: "new builds disabled and every site on the account paused until a payment method is added and the account upgraded; deleting the site doesn't restore it; no automatic upgrade on Free"
+    build_minutes: "sites keep serving; builds stop"
+  usage_emails: "at 50%, 75%, 90% and 100%"
+  deploy_retention: "deploys deleted after 30 days, except the published deploy, the latest production deploy and the latest deploy of each branch"
+  credit_based_note: "if the account is ever migrated to a credit-based Free plan: 300 credits a month, and all projects pause when they run out"
+  open_for_the_user: "before the merge: move the game to a Netlify team or account of its own, so that a quota pause can't take down the other sites (transfer and terms unverified)"
+
+target_environments:
+  - name: production
+    description: "Live game and the shared high-score table. Netlify builds and publishes every push to main."
+    url: https://maketherightmove.fabiodamico.xyz
+    also_served_at: "<site>.netlify.app (the same published deploy)"
+    platform: [netlify-static, netlify-functions-v2]
+    runtime: "Node 22 (NODE_VERSION in netlify.toml)"
+    deploy_trigger: "push to main"
+    high_score_store:
+      kind: site-wide
+      opened_with: "getStore({ name: 'leaderboard', consistency: 'strong' })"
+      chosen_when: "context.deploy.context === 'production' and context.deploy.published === true (user, 2026-10-24)"
+      region: "us-east-2 (the default for site-wide stores; the function passes no region)"
+      lifetime: "shared by every production deploy and written only by the published one; survives deploys and rollbacks; kept until pruned or deleted by the owner; no backup (accepted loss)"
+      older_production_deploys: "reached through their permalinks, they get their own deploy store (published false)"
+      log_scope: site
+      log_published: true
+    preconditions:
+      - "ADR-005 implemented (chooseStore); until then worktree-leaderboard-spike is not pushed"
+      - "go on the smoke test: K10-K14 in docs/product/kpi-contracts.yaml"
+      - "Blobs limits checked on the account and recorded"
+      - "the user's decision on the account (a team or account of its own)"
+      - "kill switch armed on the merge day: deploy recorded, checked to have no function, expiry date in a calendar"
+      - "Netlify site linked to github.com/lagom1985/rightmove-space-invaders, custom domain added (existing, from the sound feature)"
+  - name: deploy-preview
+    description: "Deploy preview per pull request, same netlify.toml. Each has its own empty table."
+    url: "https://deploy-preview-<n>--<site>.netlify.app"
+    platform: [netlify-static, netlify-functions-v2]
+    runtime: "Node 22"
+    deploy_trigger: "pull request"
+    high_score_store:
+      kind: deploy-specific
+      opened_with: "getDeployStore({ name: 'leaderboard', consistency: 'strong' })"
+      region: "the functions region (the default for deploy-specific stores)"
+      lifetime: "empty at each deploy; follows its deploy on rollback; deleted with the deploy"
+      log_scope: deploy
+      log_published: false   # read by hand from the smoke test's first request: confirms the field arrives from the v2 Context
+    preconditions:
+      - "ADR-005 implemented"
+      - "the user's OK to push the branch"
+      - "on the kill switch's list of live function hostnames while it exists; the smoke-test previews are deleted after the merge"
+  - name: branch-deploy
+    description: "Branch deploys, where they are switched on for the branch. Same as a deploy preview. The throwaway burst preview (branch smoke/no-rate-limit, the rate-limit rule removed) is a branch deploy or a pull-request preview, deleted right after the burst run."
+    url: "https://<branch>--<site>.netlify.app"
+    platform: [netlify-static, netlify-functions-v2]
+    runtime: "Node 22"
+    deploy_trigger: "branch push (only if branch deploys are on for that branch)"
+    high_score_store:
+      kind: deploy-specific
+      opened_with: "getDeployStore({ name: 'leaderboard', consistency: 'strong' })"
+      lifetime: "empty at each deploy; deleted with the deploy"
+      log_scope: deploy
+      log_published: false
+    preconditions:
+      - "as deploy-preview"
+  - name: deploy-permalink
+    description: "Every successful deploy also answers at its permalink, with its own copy of the function and its own rate-limit counter, until the deploy is deleted."
+    url: "https://<deploy ID>--<site>.netlify.app"
+    platform: [netlify-static, netlify-functions-v2]
+    runtime: "Node 22"
+    deploy_trigger: "every successful deploy"
+    high_score_store:
+      kind: "whatever its deploy chooses"
+      chosen_when: "the published production deploy's permalink is the published deploy, so it writes the site store; every other permalink writes its own deploy's store"
+      lifetime: "deleted with the deploy: after 30 days on Free, except the published deploy, the latest production deploy and the latest deploy of each branch"
+    preconditions:
+      - "listed on the kill switch's list of live function hostnames once used or handed out"
+      - "the smoke test's write guard refuses a POST to any permalink, except the unpublished check's, whose ID must differ from the published deploy's ID (from the Netlify API, or typed back by the owner)"
+  - name: local
+    description: "Developer machine: npm start serves the files and mounts the real handler on the Blobs emulator; npm test runs the full suite."
+    url: "http://localhost:4173 (PORT moves it)"
+    platform: [macos, linux]
+    runtime: "Node 22, scripts/serve.mjs"
+    deploy_trigger: manual
+    high_score_store:
+      kind: emulator
+      opened_with: "BlobsServer (@netlify/blobs/server 11.1.6) in a temporary directory, deleted on exit, SIGINT and SIGTERM"
+      lifetime: "one store per test-board cookie (leaderboard-<board>, else leaderboard-local); empty at every start"
+      log_scope: local
+    preconditions:
+      - "Node 22 and npm install"
+      - "npx playwright install (first time, for the chromium, firefox and webkit projects)"
+  - name: netlify-dev
+    description: "Unsupported. Under netlify dev the context is 'dev', so chooseStore gives 'deploy'; getDeployStore then either throws without a deploy ID (500 unexpected) or opens the CLI's local sandbox store. Either way no production data is reachable (Blobs docs: you cannot read production data during local development)."
+    url: "the Netlify CLI's local server"
+    platform: [netlify-cli]
+    deploy_trigger: manual
+    supported: false
+    use_instead: "npm start (scripts/serve.mjs)"
+
+# DISTILL's player-state variants (sound feature) still apply. For the table: each scenario gets an empty table
+# of its own through a test-board cookie (local only); faults come from page.route on /api/scores.
+distill_environment_mapping:
+  clean: "first visit: no localStorage settings; an empty table for the scenario's test-board cookie"
+  with-stale-config: "saved sound and music settings in localStorage"
+  with-pre-commit: "not applicable: no install step and no git hooks"
+  not_reproducible_locally: "Netlify's 429 (rate limit) and the CDN cache: checked only by the smoke test on a preview"
+
+platform_coverage:
+  desktop_browsers:
+    Chrome: [current]
+    Edge: [current]
+    Firefox: [current]
+    Safari: [current]
+  tested_by: "Playwright 1.62.1 desktop Chrome, Firefox and Safari (WebKit) devices; real Safari is a manual check (D10)"
+  not_supported: "phones and narrow windows (the game needs a physical keyboard; they get a 'play on desktop' screen)"
+  runtime:
+    Node: ["22 (local, the build, and the function; NODE_VERSION in netlify.toml)"]
+    build: "Netlify build image"
+    functions_bundler: "esbuild (node_bundler in netlify.toml): the bundler family is pinned, not the esbuild version, which is whatever Netlify's build image ships"
+
+function:
+  file: netlify/functions/scores.mjs
+  path: /api/scores
+  rate_limit:   # user, 2026-10-24; set in the function's config (Netlify doesn't accept function rate limits in netlify.toml)
+    config: "{ windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] }"
+    action: "429 from Netlify (default); the function doesn't run"
+    rules_used: "1 of the 2 code rules per project on Free"
+    enforcement_lag: "up to 10 s; assumed to repeat every window, so one IP at r requests/s gets about 10 + 10r a minute per hostname until K14 step 8b measures the real cap"
+    counted_per: "IP and hostname (every live hostname that serves the function has its own counter); no total cap on Free (per-domain aggregation is Enterprise only)"
+    invalid_rule: "doesn't fail the deploy: the site deploys without the limit; only the deploy log and K14 show it; a unit contract test of the exported config catches a typo in its shape"
+  headers:      # DDD-6, amended in DEVOPS (user, 2026-10-24)
+    get_200:
+      Netlify-CDN-Cache-Control: "public, s-maxage=15, durable"
+      Cache-Control: "public, max-age=0, must-revalidate"
+    every_other_answer:
+      Cache-Control: "no-store"
+    every_answer:
+      Netlify-Vary: "query=table"
+      Content-Type: "application/json"
+  errors: "nothing escapes the handler: a catch-all around the request handler logs only scores.error with the reason unexpected and answers 500 unexpected (DDD-17); module-load errors and runtime timeouts sit outside it, with no key on that path"
+  secrets: none
+  environment_variables: none   # the ADR-007 fallback (an owner switch) was rejected (user, 2026-10-24)
+  client_contract: "OK or not OK only; a 429 is a not-OK answer like any other"
+
+coexistence_matrix:
+  - tool: playwright
+    version: "@playwright/test 1.62.1"
+    must_not_break: true
+    note: "build gate unchanged (unit + in-memory); PORT keeps side-by-side checkouts apart"
+  - tool: playwright-bdd
+    version: "9.2.1"
+    must_not_break: true
+    note: "the build gate runs bddgen first; .features-gen/ stays ignored by git"
+  - tool: fast-check
+    version: "4.10.2"
+    must_not_break: true
+    note: "unit properties run in the build gate (project unit)"
+  - tool: "@netlify/blobs"
+    version: "11.1.6 (exact; the only runtime dependency)"
+    must_not_break: true
+    note: "the function's client on Netlify (inlined by esbuild); BlobsServer for npm start and the tests"
+  - tool: netlify-functions-bundler
+    version: "esbuild family, set in netlify.toml [functions]; the esbuild version is Netlify's, not pinned"
+    must_not_break: true
+    note: "follows the static import of src/game/high-scores.js; no included_files"
+  - tool: netlify-cli
+    version: "27.14.2 via npx (owner only; not a project dependency)"
+    must_not_break: false
+    note: "row deletion (blobs:list, blobs:delete) and logs; the syntax is unverified until each command is checked with --help; link writes .netlify/state.json, so .netlify/ must be git-ignored first"
+  # Nothing else: no husky, pre-commit, GitHub Actions or containers in this repo.
+
+deployment_assumptions:
+  - "Static files plus one function and one Blobs store; no database, no secrets, no environment variables beyond NODE_VERSION"
+  - "Atomic: the files, the function and its rate-limit rule publish together, only after the build, the bundling and the post-processing; a failed build leaves the previous deploy live"
+  - "An invalid rate-limit rule does not fail the deploy: the site deploys without the limit; read the deploy log's post-processing stage, and K14 shows it"
+  - "Idempotent: building the same commit twice gives the same dist/ and, with the same build image, the same function bundle"
+  - "Rollback: Netlify Deploys > a previous deploy > Publish deploy. It moves the code, not the production table (the site store persists); deploy stores follow their deploy"
+  - "A rollback publishes the chosen deploy, which then writes the site store (published true); check the log line after every rollback (K13)"
+  - "Every deploy keeps its own callable copy of the function at its permalink until it is deleted; only the published production deploy writes the site store, so old copies write their own deploy stores"
+  - "The GET cache is invalidated per deploy context by each new deploy; otherwise an answer is at most 15 s old"
+  - "Build gate: bddgen + Playwright projects unit and in-memory (no browsers); browser projects and K5/K7 run locally with npm test"
+  - "Release-check triggers: a change to scores.mjs, the @netlify/blobs version, the bundler settings, config.rateLimit or the cache headers re-runs K10, K11 and K14"
+  - "Data: 3 initials, a score and a time per signature, kept until pruned or deleted by the owner, with no backup; Netlify processes client IPs for rate limiting; the function logs none; production sets no cookies"
+
+kill_switch:
+  how: "Netlify Deploys > the kill-switch deploy (the last pre-leaderboard commit on main) > Publish deploy; zero code, instant"
+  armed: "on the merge day: Trigger deploy of main at the last pre-leaderboard commit, check its deploy summary lists no functions and its permalink /api/scores answers 404, record ID, commit, date and expiry (date + 30 days), put the expiry in a calendar"
+  covers: "only the production hostnames (the custom domain and <site>.netlify.app); previews, branch deploys and permalinks keep their copies"
+  live_function_hostnames: "a list kept in feature-delta.md (Deployment strategy), checked in step 3 of pulling the switch; the smoke-test previews are deleted after the merge"
+  check: "a GET (not HEAD) on /api/scores answers 404 within about 15 s"
+  resume: "publish the latest production deploy, then Unlock to start auto publishing; then K13"
+  after_expiry: "the only route is a revert build on main (one build; needs build minutes); changing the production branch is not documented to give a function-free deploy and is not relied on"
+
+observability:
+  logs: "one JSON line per request (DDD-17) in Netlify > Cloud compute > Functions > scores, or netlify logs --function scores"
+  log_retention: "unverified for legacy Free; the docs say at least 24 hours, and 7 days on some plans they don't name. On day 1 after the first production deploy, try to read a line older than 24 hours and record the result. Until then, do log checks the same day"
+  usage: "Cloud compute > Functions > Usage (project; a cumulative count for the billing period, its legacy Free display recorded on day 1); Billing > Account usage insights (team)"
+  daily_check: "record the cumulative Usage total daily and at every email; the day's rate is the difference; pull the kill switch if 100% would come before the 1st; scan the last 24 h for scores.error over more than an hour or scope=deploy on production, and roll back; look for a Blobs figure; every few hours while abuse is suspected"
+  alerts: "Netlify usage emails at 50/75/90/100%; at 20 requests/s from one IP the 90% email leaves about an hour"
+  third_party: none
+
+smoke_test:
+  script: scripts/smoke-leaderboard.mjs   # spec in feature-delta.md (CI/CD pipeline outline); DELIVER implements and runs it
+  modes:
+    preview_run: "the shipped config on a fresh preview: steps 1, 4-10 (K10, K12, K14)"
+    burst_run: "a throwaway preview whose only change removes the rate-limit rule: steps 1-3 (K11); deleted right after"
+    production_mode: "GET only, after every production deploy and every rollback (K13)"
+    unpublished_check: "once, after the second production deploy with the function; the published deploy's ID comes from the Netlify API or an interactive confirmation (K13)"
+  write_guard: "before any POST: the host must be deploy-preview-<n>--<site> or <branch>--<site> (never the custom domain, <site>.netlify.app, main--<site> or a permalink), except the unpublished check, whose permalink ID must differ from the published deploy's ID (read from the Netlify API's published_deploy.id with the owner's NETLIFY_AUTH_TOKEN, or typed back by the owner after the script prints the target's ID; never a command-line flag); and the first GET must have answered 200 with an empty table"
+  runs_on: "previews only, with the user's OK to push"
+  cost: "about 20 minutes plus 2; at most about 1,600 invocations (1.3% of the month) if the rule didn't hold, about 400 expected"

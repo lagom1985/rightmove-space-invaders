@@ -17,7 +17,7 @@ The shared high-score table adds one thin server-side adapter, the **Score API**
 
 **Quality attributes, in priority order**
 1. **Responsiveness**: input and sound within one frame. The game's p95 frame work was ≤ 4 ms under stress in the spike (ADR-000); sound may add at most 0.5 ms (ADR-002, sound DDD-12 and D11). No frame waits on the network.
-2. **Integrity of the high-score table**: no signature is lost or overwritten when players sign at the same moment (0 lost with up to 100 at once on the emulator, ADR-004). The handler can only add or remove well-formed score keys. The browser and the function apply one signature-validity rule (ADR-006). Deploy previews never write the production table (ADR-005).
+2. **Integrity of the high-score table**: no signature is lost or overwritten when players sign at the same moment (0 lost with up to 100 at once on the emulator, ADR-004). The handler can only add or remove well-formed score keys. The browser and the function apply one signature-validity rule (ADR-006). Only the published production deploy writes the production table: previews and older production deploys never do (ADR-005, amended in DEVOPS, 2026-10-24).
 3. **Graceful degradation**: the game plays fully, with the local best, when the table is down, slow or absent. The table is unavailable only while no table has ever loaded; a failed refresh keeps the last good table. The player is told what happened to their signing, even during the next game, and Enter never waits on the server (ADR-008).
 4. **Testability**: deterministic, fast-forwardable acceptance tests through real keyboard input (fake clock, seeded randomness, the status mirror, the sound journal). The real function and the real Blobs client run on the local Blobs emulator, and network faults are injected with `page.route`.
 5. **Accessibility**: the status mirror carries the HUD, the initials being entered, the signing outcome and the High scores list, with the player's row marked.
@@ -26,13 +26,13 @@ The shared high-score table adds one thin server-side adapter, the **Score API**
 
 **Security and exposure**:
 - **Network**: besides the font, the browser calls only its own origin (`/api/scores`).
-- **The one public write endpoint** accepts exactly `{ initials, score }`: JSON only (else 415), read with a 1 KB byte cap (else 413), three letters A–Z that are not on the word filter, and a positive multiple of £50 up to £9,999,999 (else 400). Every answer from the function is `no-store` (ADR-007).
-- **Rate limit**: the function asks Netlify for about 60 requests per minute per IP (`config.rateLimit`). This is **not yet verified**: whether the site's plan honours it is a DEVOPS go/no-go, with a fallback in ADR-007.
-- **Data kept**: a signature keeps 3 initials, a score and a time. The platform sees client IPs (that is how it rate-limits); the game stores none, and no cookie or account. Logs carry only fixed reasons: never an error message, a key, the body, an id, initials or an IP. The `test-board` cookie exists only on the local server.
+- **The one public write endpoint** accepts exactly `{ initials, score }`: JSON only (else 415), read with a 1 KB byte cap (else 413), three letters A–Z that are not on the word filter, and a positive multiple of £50 up to £9,999,999 (else 400). A successful GET is cached for 15 s at the CDN; every other answer from the function is `no-store` (ADR-007, DDD-6; amended in DEVOPS, 2026-10-24).
+- **Rate limit**: the function asks Netlify for 10 requests per 60 s per IP and domain (`config.rateLimit`; amended in DEVOPS, 2026-10-24). Whether it holds is checked on a deploy preview before the first production deploy (K14). If it doesn't hold, the function isn't merged (see Platform and Delivery).
+- **Data kept**: a signature keeps 3 initials, a score and a time, kept until pruned or deleted by the owner, with no backup. Netlify processes client IPs for rate limiting; the game stores none, and no cookie or account. Logs carry only fixed reasons: never an error message, a key, the body, an id, initials or an IP. Nothing escapes the function's handler: a catch-all logs only the fixed reason and answers 500 `unexpected`, and `scripts/serve.mjs` logs the fixed reason only too (ADR-007, amended in DEVOPS). Module-load errors and runtime timeouts sit outside the handler; no key is on that path. The `test-board` cookie exists only on the local server.
 - **Accepted risk**: anyone can still post a made-up score. The owner can delete the row.
 - **Unchanged**: the only global is the frozen, data-only `window.makeTheRightMove` diagnostics handle (ADR-003). Settings are strictly parsed `'on'`/`'off'` strings that default to on.
 
-**Operability**: one function and one store, with no secrets and no scheduled jobs. The production store has no backup, an accepted loss. Each request writes one structured log line: the event, a fixed reason, the duration, the key count, the store scope and the raw deploy context. "scope=deploy on the production site" means context detection broke.
+**Operability**: one function and one store, with no secrets and no scheduled jobs. The production store has no backup, an accepted loss. Each request writes one structured log line: the event, a fixed reason, the duration, the key count, the store scope, the raw deploy context and the raw `published` flag. "scope=deploy on the production site" means context detection broke.
 
 ### C4: System context
 
@@ -130,7 +130,7 @@ Nothing in a frame waits on the network. An outcome that arrives during play is 
 | Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` |
 | Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) |
 | High-score table client | `src/platform/leaderboard.js` | One request per call to `/api/scores`; rejects on a non-OK answer, a network error or the 5000 ms timeout; never retries |
-| Score API | `netlify/functions/scores.mjs` | The Netlify entry: `chooseStore`, `getStore` or `getDeployStore`, the restricted table-store port, routing (GET gets `list` only), `config.path` and `config.rateLimit`. The port factory. The request handler: validation (415, 413, 400), one key per score, bounded best-effort pruning, rows stamped with `listedAt`, `no-store`, JSON errors (a port refusal is a 500), one log line with a fixed reason. The pure key codec, ranking, prune plan and `chooseStore` |
+| Score API | `netlify/functions/scores.mjs` | The Netlify entry: `chooseStore`, `getStore` or `getDeployStore`, the restricted table-store port, routing (GET gets `list` only), `config.path` and `config.rateLimit`. The port factory. The request handler: validation (415, 413, 400), one key per score, bounded best-effort pruning, rows stamped with `listedAt`, cache headers (a GET 200 cached for 15 s at the CDN, everything else `no-store`), JSON errors (a port refusal is a 500), one log line with a fixed reason. The pure key codec, ranking, prune plan and `chooseStore` |
 | Local server | `scripts/serve.mjs` | Dev and test only: static files, plus the Score API's handler on a `BlobsServer` emulator (temporary directory deleted on exit), with one store per `test-board` cookie behind the same restricted port |
 | Theme | `src/theme/theme.js` | Data: hurdles, colours, art, ladder, plus pure derivations; imports nothing |
 | Sound recipes | `src/sound/recipes.js` | Data: hit pitch, march notes, the mix (`BUS_LEVELS`), the tune (`MUSIC`) and `SOUND_RECIPES` |
@@ -169,18 +169,83 @@ The handler reaches the store only through the restricted table-store port; unit
 
 ## Platform and Delivery
 
-*Owner: nw-platform-architect · Last updated: 2026-10-24 (rightmove-invaders-sound, DEVOPS)*
-
-*Note (2026-10-24, rightmove-invaders-leaderboard DESIGN): the Score API and Netlify Blobs (ADR-004…008) make the "Observability: none…" line (including its "no personal data") and the deployment notes below out of date (function bundling, stores by deploy context, the rate-limit go/no-go, the deploy-preview smoke test). They are pending DEVOPS for this feature.*
+*Owner: nw-platform-architect · Last updated: 2026-10-24 (rightmove-invaders-leaderboard, DEVOPS)*
 
 ### Deployment
 
-The game is published as static files on **Netlify**, from the GitHub repo `lagom1985/rightmove-space-invaders`. Production is https://maketherightmove.fabiodamico.xyz (a custom domain on a Netlify site; the apex `fabiodamico.xyz` already uses Netlify DNS, so the DNS record and the Let's Encrypt certificate are automatic). `scripts/serve.mjs` remains the local and test server only; it is not deployed.
+The game is published on **Netlify** from the GitHub repo `lagom1985/rightmove-space-invaders`: static files on the CDN, plus one function, the Score API.
+- **Site**: production is https://maketherightmove.fabiodamico.xyz, a custom domain on a Netlify site. The apex `fabiodamico.xyz` uses Netlify DNS, so the DNS record and the Let's Encrypt certificate are automatic.
+- **Plan**: the **legacy Free** plan. Serverless only: no containers and no server of our own. `scripts/serve.mjs` is the local and test server only; it is not deployed.
+- **Build gate**:
+  - `npm run build` runs `bddgen`, the Playwright `unit` and `in-memory` projects (no browser), then `scripts/build.mjs`, which copies `index.html` and `src/` into `dist/`.
+  - Netlify then bundles `netlify/functions/scores.mjs` with esbuild, which inlines `src/game/high-scores.js` and `@netlify/blobs`. Only the bundler family is set in `netlify.toml`; the esbuild version is Netlify's.
+  - A failing test or bundle fails the deploy, and Netlify keeps serving the previous one.
+  - The browser projects (and the hard KPIs K5 and K7) run locally with `npm test`.
+- **Triggers**: trunk-based on `main`. A push to `main` deploys to production. Pull requests get deploy previews, and so do branches where branch deploys are on. No GitHub Actions.
+- **Headers** (`netlify.toml`, for the static files):
+  - `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+  - `index.html` is `no-cache`, and `/src/*` is `max-age=0, must-revalidate`, because the files are not hashed
+  - no CSP, so Google Fonts and Web Audio keep working
+  - nothing for `/api/*`: the function sets its own headers. The `/*` rule matches `/api/scores` by pattern, but Netlify's docs say custom headers aren't applied to URLs handled by a function. The first preview records a function answer's real header set, and checks that nothing conflicts with DDD-6
 
-- **Build gate**: `npm run build` runs `bddgen`, the Playwright `unit` and `in-memory` projects (46 tests, no browser needed), then `scripts/build.mjs`, which copies `index.html` and `src/` into `dist/`. A failing test fails the build and Netlify keeps serving the previous deploy. The browser projects (and the hard KPIs K5 and K7) run locally with `npm test`.
-- **Triggers**: a push to `main` deploys to production; pull requests and branches get deploy previews. Trunk-based, no GitHub Actions, no containers.
-- **Headers** (`netlify.toml`): `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`; `index.html` is `no-cache` and `/src/*` is `max-age=0, must-revalidate` (files are not hashed). No CSP, so Google Fonts and Web Audio keep working.
+### The Score API on Netlify
+
+- **Function**: Functions v2 on Node 22, at `/api/scores` (`config.path`). Every deploy carries its own copy of it, reachable at that deploy's URL until the deploy is deleted.
+- **Store by deploy context** (ADR-005):
+  - **The published production deploy** uses the site-wide store `leaderboard`: `chooseStore` requires `context === 'production'` and `published === true`. The table survives deploys and rollbacks, because a rollback simply makes the deploy it publishes the writer. It has no backup (an accepted loss).
+  - **Older production deploys**, reached through their permalinks, write a deploy store of their own, so they can't sign the real table with old code.
+  - **Deploy previews and branch deploys** each get an empty deploy store, which follows its deploy and is deleted with it.
+  - **Locally**: the `BlobsServer` emulator, with one store per `test-board` cookie.
+- **Rate limit**: `config.rateLimit` allows 10 requests per 60 s per IP and domain, GET and POST together. It is one of the 2 code rules the plan allows.
+  - Netlify answers the 429 itself; enforcement can lag by up to 10 s.
+  - It is checked on a deploy preview before the first production deploy (K14). If it doesn't hold, the function isn't merged.
+- **GET cache**: a successful GET is cached at the CDN for 15 s (`Netlify-CDN-Cache-Control: public, s-maxage=15, durable`), and browsers revalidate.
+  - `Netlify-Vary: query=table` keeps arbitrary query strings from splitting the cache.
+  - POSTs and errors are `no-store`.
+  - Other computers see a new row up to about 15 s late. The signer sees it at once, in the POST answer (ADR-008).
+- **Nothing else**: no secrets, no environment variables beyond `NODE_VERSION`, and no scheduled jobs.
+
+### Quotas and the outage risk
+
+- **Quotas**: legacy Free allows 125k function invocations per site per month, counted per request. It also has hard limits of 100 GB bandwidth and 300 build minutes. Usage resets on the 1st.
+- **Outage risk**: at 100% of the function quota, Netlify pauses **every site on the account** and stops builds, until a payment method is added and the account upgraded. Free has no automatic upgrade.
+- **Honest play** costs about 1.1 to 3 invocations per game: under 15,000 a month even at 5,000 games.
+- **Abuse** is what reaches the limit.
+  - Netlify's enforcement lag lets one IP sending r requests a second through at about 10 + 10r a minute, on each hostname that serves the function.
+  - At 20 a second, that is about 302k invocations a day: the month in **about 10 hours**, with about an hour between the 90% email and the pause.
+  - More hostnames or more IPs make it faster.
+  - The real cap is measured on a preview before the merge (K14).
+- **Blobs**: limits are not listed for the plan. They are checked on the account before the merge, and stay an unmonitored risk if nothing is visible.
+- **Controls**:
+  - the rate limit
+  - the GET cache
+  - Netlify's usage emails (at 50, 75, 90 and 100%), plus a daily check that turns the cumulative Usage total into a rate and acts on it
+  - the kill switch
+- **The account**: before the merge, the user decides whether to move the game to a Netlify team or account of its own, so that a pause can't take down the other sites. Transfer and terms are unverified.
+
+### Rollback and the kill switch
+
 - **Rollback**: Netlify → Deploys → a previous deploy → Publish deploy.
-- **Observability**: none. There is no server and no personal data; KPIs come from the playtest, the test suite and `scripts/measure-performance.mjs`.
+  - It is instant, and it moves the files, the function and its rate-limit rule together.
+  - It does **not** roll back the production table: signatures and deletions stay.
+  - Auto publishing stops until "Unlock to start auto publishing".
+  - The key format is a persisted schema, so never change the `s/` keys or the store name in place.
+- **Kill switch** (zero code): publish the last production deploy from before the leaderboard.
+  - It is armed on the merge day, and checked to have no function.
+  - That deploy has no function, so `/api/scores` is a static 404 that costs no invocation, and the game plays as before, without a table.
+  - It covers only the production hostnames: previews, branch deploys and permalinks keep their own copies, which are listed and deleted as needed.
+  - To resume, publish the latest deploy and unlock auto publishing.
+  - Free deletes old deploys after 30 days, so after the recorded expiry date the only route is a revert commit on `main` (one build).
 
-Details and the checks run: [feature-delta.md](../../feature/rightmove-invaders-sound/feature-delta.md) (Wave: DEVOPS) and [environments.yaml](../../feature/rightmove-invaders-sound/environments.yaml).
+### Observability
+
+- **Logs**: the function's structured JSON logs, one line per request with a fixed reason, the scope, the raw deploy context and the raw `published` flag (ADR-005, ADR-007). They are in Netlify → Cloud compute → Functions → `scores`. Netlify's docs say "at least 24 hours"; retention on legacy Free is unverified and is checked on day 1.
+- **Usage**: the Functions Usage page (a cumulative total, read daily), and Netlify's usage emails.
+- **Nothing else**: no third-party tools, no paging, and no SLOs.
+- **After each deploy and each rollback**: a cached GET runs no function, so the check uses `?table=<random>` and expects `scope=site` and `published=true`.
+
+### Privacy
+
+The game stores 3 initials, a score and a time per signature, kept until pruned or deleted by the owner, with no backup. Netlify processes client IPs for rate limiting; we log none. Production sets no cookies, and the only third-party request is Google Fonts.
+
+Details and the checks run: [the leaderboard feature-delta](../../feature/rightmove-invaders-leaderboard/feature-delta.md) (Wave: DEVOPS) and its [environments.yaml](../../feature/rightmove-invaders-leaderboard/environments.yaml). The static-site baseline: [the sound feature-delta](../../feature/rightmove-invaders-sound/feature-delta.md) (Wave: DEVOPS) and its [environments.yaml](../../feature/rightmove-invaders-sound/environments.yaml).

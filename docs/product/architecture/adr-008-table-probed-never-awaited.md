@@ -1,6 +1,6 @@
 # ADR-008: The high-score table is probed, never awaited, and a signing has an explicit outcome
 
-**Status**: Accepted (user, 2026-10-24, revision 3) · **Feature**: rightmove-invaders-leaderboard
+**Status**: Accepted (user, 2026-10-24, revision 3); amended in DEVOPS (user, 2026-10-24): a GET answer may come from the CDN cache, up to 15 s old; the paused outcome is removed, because the ADR-007 fallback was rejected (user, 2026-10-24) · **Feature**: rightmove-invaders-leaderboard
 
 ## Context
 Responsiveness is the game's first quality attribute: input and sound within one frame. The table is a network call, possibly with a cold start, and it can be unreachable (offline, a static host without the function, a 5xx, a 429). In the walking skeleton:
@@ -15,6 +15,7 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
 ## Decision
 - **The network never sits on the frame path.** `main.js` makes the requests through `platform/leaderboard.js` and hands the outcome to the rules from the promise callbacks, between frames. Only `game.js` writes `g`.
 - **When the table is read**: on page load, in the background whenever a game starts (`gameStarted`), and from every POST answer. The server stays the authority: it ranks every valid signature and doesn't refuse one that no longer qualifies.
+  - **Amended in DEVOPS (user, 2026-10-24)**: a GET answer may come from Netlify's CDN cache and be up to 15 s old (DDD-6). It carries the `listedAt` of its own listing, so the rule below treats it as the older answer it is. POST answers are never cached.
 - **Answers ordered by server listing time**:
   - Every answer that carries rows also carries `listedAt`: the function's `Date.now()` in ms, taken right after its `list` call returns. That is GET `{ scores, listedAt }` and POST `{ scores, id, listedAt }`.
   - The rules apply rows only if their `listedAt` is ≥ the last applied `listedAt`. Otherwise they ignore the rows, and still settle a signing from its own answer.
@@ -36,16 +37,15 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
   - **confirmed**: "Signed FAB, #3", when the new id is in the answer's own rows (rank = its position). The answer settles the signing even if its rows are too old to apply.
   - **off-table**: "The table filled up before FAB arrived", when the id is not in the answer's rows.
   - **unconfirmed**: "Couldn't confirm FAB's signing", after a non-OK answer, a network error or the timeout. The signing may still have been saved.
-  - **paused** (only if the ADR-007 fallback is adopted): "High-score signing is paused; FAB wasn't saved", after 503 `signing-paused`. A distinct message that never says "may have been saved".
 - **A signing lives until the next signing** (orchestrator, 2026-10-24).
   - A new game does not drop it. If the outcome arrives during play, the status mirror announces it, and nothing new is drawn on the canvas mid-game.
   - A confirmed row stays highlighted (canvas green, DOM `aria-current`) wherever the list is shown (title attract, game over), until the next signing replaces it or the row leaves the shown table. A row leaves when it is pruned or pushed down by newer signings; the highlight then disappears, and the signing stays confirmed.
   - The game-over messages of a later game don't repeat an earlier outcome.
 - **A replaced signing is still announced** (orchestrator, 2026-10-24). When the answer (or failure) of a signing that a newer signing has replaced arrives:
-  - its outcome (confirmed "#r" from its own rows, off-table, unconfirmed or paused) is announced once, through the status mirror
+  - its outcome (confirmed "#r" from its own rows, off-table or unconfirmed) is announced once, through the status mirror
   - its rows apply under the listing-time rule
   - it changes neither the current signing's status nor its highlight
-- There is no automatic POST retry. Enter starts a new game from pending, confirmed, off-table, unconfirmed and paused alike.
+- There is no automatic POST retry. Enter starts a new game from pending, confirmed, off-table and unconfirmed alike. The client tells only OK from not OK: a 429 or any other error is unconfirmed.
 - **The timeout** is exactly 5000 ms, for GET and POST. It runs on the `setTimeout`/`clearTimeout` that `main.js` injects, and aborts the request. Playwright's clock therefore drives it in tests, as with the synth's capabilities (sound DDD-14).
 - **Wire, probe, use**: the page-load GET is the client's probe. Until a load succeeds nobody is asked for initials, and the game never refuses to start because of the table. The function has no probe of its own at cold start, because every request exercises the store.
 
@@ -62,7 +62,7 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
 - **Retrying the POST automatically**: a retry after a lost answer would add the score twice. Making it idempotent would need a client-chosen key, which isn't worth it for a table of 10 rows.
 
 ## Consequences
-- A qualification decision uses a table as old as the last successful refresh (normally this game's start). Rows apply in server listing order, apart from the accepted clock-skew edge.
+- A qualification decision uses a table as old as the last successful refresh (normally this game's start), plus up to 15 s of CDN caching on GET (amended in DEVOPS (user, 2026-10-24)). Another computer sees a new row up to about 15 s late; the signer sees it at once, in the POST answer. Rows apply in server listing order, apart from the accepted clock-skew edge.
 - The player learns what happened to every signing, even during the next game or after signing again, and the game never claims more than it knows. A slow or absent server costs at most a message.
 - A highlight is not a promise: a confirmed row can later leave the table, and its highlight goes with it.
 - **Saved but unconfirmed** (accepted): the player is told "Couldn't confirm FAB's signing" although the score was saved, and the next refresh shows the row, without a highlight because the client never learned its id. This happens in two ways:

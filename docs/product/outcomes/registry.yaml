@@ -110,9 +110,13 @@ outcomes:
   - shape: 'GET /api/scores, no body'
   output:
     shape: '200 {scores: [{initials, score, id}], listedAt}, best first, at most 10, listedAt
-      = the function''s Date.now() in ms taken right after its list call returns; Cache-Control
-      no-store; a failed listing gives 500 unexpected; the read path receives only the
-      list operation of the restricted table-store port, so the store is unchanged'
+      = the function''s Date.now() in ms taken right after its list call returns; amended
+      in DEVOPS (user, 2026-10-24): the 200 is cached at the CDN for 15 s (Netlify-CDN-Cache-Control
+      public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate;
+      Netlify-Vary query=table), so an answer can be up to 15 s old and carries the listedAt
+      of its own listing; a failed listing gives 500 unexpected with Cache-Control no-store;
+      the read path receives only the list operation of the restricted table-store port,
+      so the store is unchanged'
   keywords:
   - high-score-table
   - leaderboard
@@ -135,9 +139,11 @@ outcomes:
       best-effort pruning failed); function errors are JSON {error}: 415 json-required
       (content type), 413 payload-too-large (over 1 KB), 400 invalid-signature (any other
       shape error) or initials-not-allowed, 405 with Allow, 503 not-saved, 500 unexpected
-      (including a port refusal of a key that is not well-formed); every answer from
-      the function is no-store. 429 comes from Netlify only (its body and headers, no
-      no-store guarantee). If the ADR-007 fallback is adopted: 503 signing-paused'
+      (including a port refusal of a key that is not well-formed); every answer from the
+      function other than a GET 200 is no-store, and every answer carries Netlify-Vary
+      query=table. 429 comes from Netlify only, above 10 requests per 60 s per IP and
+      domain (its body and headers, no no-store guarantee; amended in DEVOPS, user,
+      2026-10-24). The client distinguishes only OK from not OK'
   keywords:
   - sign-table
   - signature
@@ -201,8 +207,8 @@ outcomes:
       answer''s own rows; row highlighted wherever the table is shown until the next
       signing or until the row leaves the shown table, pruned or pushed down, while
       the signing stays confirmed) | off-table | unconfirmed ("Couldn''t confirm FAB''s
-      signing": it may have been saved) | paused (only with the ADR-007 fallback: "High-score
-      signing is paused; FAB wasn''t saved"); a new game keeps the signing and an outcome
+      signing": it may have been saved; any not-OK answer, 429 included); a new game
+      keeps the signing and an outcome
       arriving during play is announced by the status mirror only; the answer or failure
       of a replaced signing is announced once through the status mirror, its rows apply
       under the listedAt rule, and it changes neither the current signing nor its highlight;
@@ -246,17 +252,21 @@ outcomes:
   superseded_by: null
 - id: OUT-13
   kind: invariant
-  summary: Only production deploys use the production high-score store
+  summary: Only the published production deploy uses the production high-score store
   feature: rightmove-invaders-leaderboard
   inputs:
-  - shape: any request to /api/scores in deploy context c
+  - shape: any request to /api/scores in deploy context c, with published flag p
   output:
     shape: 'chooseStore(context) = site only when context?.deploy?.context === production
-      (case-sensitive), else deploy (deploy-preview, branch-deploy, dev, missing deploy,
-      missing context, Production); site -> getStore leaderboard, deploy -> getDeployStore
-      leaderboard; a deploy store without a deploy ID (MissingBlobsEnvironmentError)
-      -> 500 unexpected, never the site store; locally (scripts/serve.mjs) one store
-      per test-board cookie, scope local; every log line carries scope and the raw context'
+      (case-sensitive) and context?.deploy?.published === true (amended in DEVOPS, user,
+      2026-10-24), else deploy (production with published false, missing or not a boolean,
+      deploy-preview, branch-deploy, dev, missing deploy, missing context, Production);
+      so an older production deploy reached through its permalink writes its own deploy
+      store, and a rollback makes the newly published deploy write the site store; site
+      -> getStore leaderboard, deploy -> getDeployStore leaderboard; a deploy store without
+      a deploy ID (MissingBlobsEnvironmentError) -> 500 unexpected, never the site store;
+      locally (scripts/serve.mjs) one store per test-board cookie, scope local; every
+      log line carries scope, the raw context and the raw published flag'
   keywords:
   - deploy-context
   - deploy-store

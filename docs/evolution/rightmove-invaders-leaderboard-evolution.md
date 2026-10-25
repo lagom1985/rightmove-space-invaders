@@ -1,6 +1,6 @@
 # Evolution: rightmove-invaders-leaderboard
 
-**Feature**: a shared high-score table for *Make the Right Move* · **Delivered**: 2026-10-25 on branch `worktree-leaderboard-spike` (from `4f9d64f`, the DELIVER roadmap, to `2c53e96`), pushed to origin and not merged to `main` · **Status**: DELIVER complete. The PO's manual checks (D10) passed on the deploy preview (2026-10-25); the DEVOPS go/no-go on a deploy preview (K10–K14) is still owed before the merge · **Full record**: [feature-delta.md](../feature/rightmove-invaders-leaderboard/feature-delta.md)
+**Feature**: a shared high-score table for *Make the Right Move* · **Delivered**: 2026-10-25 on branch `worktree-leaderboard-spike` (from `4f9d64f`, the DELIVER roadmap, to `2c53e96`), merged to `main` as `144e23a` (PR #1) and live in production · **Status**: released 2026-10-25. D10 passed; preview smoke run go (K10, K12, K14); K13 passed in production · **Full record**: [feature-delta.md](../feature/rightmove-invaders-leaderboard/feature-delta.md)
 
 ## Summary
 
@@ -116,15 +116,23 @@ A DES execution-log commit follows each step's commit. The roadmap is `4f9d64f`.
 - **Mutation testing**: disabled under the project's strategy (`CLAUDE.md`).
 - **Not verified by DELIVER**: anything on Netlify (latency, real Blobs under concurrency, the rate limit, the CDN cache, the deploy context and the bundle), and the canvas (manual, D10).
 
-## Still owed before the merge to `main`
+## Release (2026-10-25)
 
-- ~~**The PO's manual checks (D10)**~~: **done, passed** (PO, 2026-10-25, on the deploy preview of PR #1): signing, the signing lines, the green confirmed row, the in-game refusal and the title's attract table.
-- **The DEVOPS go/no-go** (the commands are in the feature-delta's [DELIVER pre-requisites](../feature/rightmove-invaders-leaderboard/feature-delta.md#wave-deliver--ref-pre-requisites)):
-  - the preview smoke run, K10–K14. It needs a pull request and its deploy preview, plus a throwaway preview without the rate limit for the K11 burst run.
-  - the account's Blobs limits, checked and recorded
-  - the list of live function hostnames, starting with the smoke-test previews, and with a branch deploy of `worktree-leaderboard-spike` if the push made one
-  - the kill switch, armed on the merge day before the merge is pushed
-  - the user's decision on moving the game to a Netlify team of its own
+- **The PO's manual checks (D10)**: done, passed on the deploy preview of PR #1 (signing, the signing lines, the green confirmed row, the in-game refusal, the title's attract table).
+- **Preview smoke run on deploy-preview-1**: go. K10 p95 924 ms (cold start 918 ms); K12 a fresh preview starts empty and blocked initials get 400 from the bundled rules; K14 the rate limit holds (one IP at 20 requests/s gets 78 per minute, better than the assumed 210) and GETs are CDN hits within 15 s. Measured values are in [kpi-contracts.yaml](../product/kpi-contracts.yaml).
+- **Blobs**: only the two deploy stores of PR #1 existed before the merge, and no site store, so preview and production were separate.
+- **Kill switch**: armed by the PO before the merge (main redeployed without the table on 2026-10-25; republishable until about 2026-11-24).
+- **Merged**: [lagom1985/rightmove-space-invaders#1](https://github.com/lagom1985/rightmove-space-invaders/pull/1) into `main` as `144e23a` (a merge commit, keeping the per-step `Step-Id` trailers).
+- **Production checks**: K13 production GET 200, and the function log shows `scope=site`, `context=production`, `published=true`; the production table started empty (no preview signature, K12 step 7).
+- **Accepted residual risk**: for a few seconds after each production deploy or rollback, the new deploy answers before Netlify marks it published, so it uses its own deploy store (observed once, at 18:02:47Z). A signing in that window would not reach the shared table.
+
+## Still owed
+
+- **The K11 burst run** on a throwaway preview without the rate limit (optional, as the local property covers the mechanism).
+- **The unpublished-permalink check** (K13), after a second production deploy with the function.
+- **The list of live function hostnames**, and deleting the PR #1 previews' deploys when they are no longer needed.
+- **The user's decision** on moving the game to a Netlify team of its own.
+- **Next change, agreed with the user**: initials typed directly instead of Up/Down, as a new nWave cycle.
 - **Optional cleanup**: the old `make-the-right-move-blobs-*` directories in the OS temp folder, left by local servers before 01-02.
 
 ## Links

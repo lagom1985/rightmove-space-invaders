@@ -2,7 +2,7 @@ import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { GameEvent } from './events.js';
-import { ALPHABET, INITIALS_LENGTH, makesTheTable } from './high-scores.js';
+import { ALPHABET, INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
 
 // Sizes in logical units, derived from the pixel art.
 export const IW = HURDLES[0].frames[0][0].length * PX, IH = HURDLES[0].frames[0].length * PX;
@@ -30,7 +30,8 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 //   best first }, from the answers main.js hands over (tableAnswered, tableFailed). Unknown until the first answer,
 //   unavailable only while no table has ever loaded (DDD-9): nobody is asked for initials unless it is available.
 // lastListedAt: when the server listed the rows shown (DDD-12), null before any.
-// initials: while a score that makes the table is being signed, { letters, index } (the letter being chosen).
+// initials: while a score that makes the table is being signed, { letters, index (the letter being chosen), refused (the
+//   last Enter's initials are on the word filter, shown until the next key) }.
 // signing: the current signing, { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank },
 //   id and rank set once confirmed; null before the first. A new game keeps it: only the next signing replaces it (DDD-8).
 // signedThisGame: the current signing was made at this game over (the game-over screen describes no earlier one).
@@ -157,12 +158,23 @@ export function handlePresses(pressed) {
 // Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on.
 function enterInitials(pressed) {
   const entry = g.initials;
+  if (pressed.size) entry.refused = false;   // a refusal shows until the next key
   const turn = pressed.has('ArrowUp') - pressed.has('ArrowDown');
   const at = ALPHABET.indexOf(entry.letters[entry.index]);
   entry.letters[entry.index] = ALPHABET[(at + turn + ALPHABET.length) % ALPHABET.length];
   if (!pressed.has('Enter')) return;
   entry.index++;
-  if (entry.index === INITIALS_LENGTH) sign(entry.letters.join(''));
+  if (entry.index < INITIALS_LENGTH) return;
+  const initials = entry.letters.join('');
+  if (isAllowedInitials(initials)) sign(initials);
+  else refuse(entry);
+}
+
+// Initials on the word filter are refused here, before anything is sent (ADR-007): no signing and no event. The letters
+// are kept and the first one is current again, so one can be changed.
+function refuse(entry) {
+  entry.index = 0;
+  entry.refused = true;
 }
 
 // A new signing n replaces any earlier one as the current signing. main.js takes it to the table once, and hands its
@@ -391,7 +403,7 @@ function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
-  if (makesTheTable(g.table, g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0 };
+  if (makesTheTable(g.table, g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0, refused: false };
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

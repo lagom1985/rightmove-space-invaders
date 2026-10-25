@@ -53,7 +53,7 @@ Feature: Every signing has an outcome
       | 4.9 seconds | still pending | Signing FAB…                    |
       | 5 seconds   | given up      | Couldn't confirm FAB's signing. |
 
-  @OUT-11 @OUT-14 @DDD-10 @real-io @error @pending
+  @OUT-11 @OUT-14 @DDD-10 @real-io @error
   Scenario: Initials on the word filter are refused, and I can change a letter
     Given my deposit of £50 makes the high-score table
     When I sign the table with initials on the word filter
@@ -61,14 +61,14 @@ Feature: Every signing has an outcome
     And the initials field still shows those initials, with letter 1 of 3 to change
     And the high-score table is still empty
 
-  @OUT-11 @OUT-14 @DDD-14 @real-io @pending
+  @OUT-11 @OUT-14 @DDD-14 @real-io
   Scenario: The initials field tells me the letters and which one I am choosing
     Given my deposit of £50 makes the high-score table
     When I choose the letter F and move on to the next letter
     Then the initials field shows "F A A, letter 2 of 3"
     And the game tells me "F A A, letter 2 of 3"
 
-  @OUT-11 @OUT-14 @DDD-14 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-14 @real-io @edge
   Scenario Outline: Up pressed 3 times <spacing> is announced <count> times, once per change of letter
     Given my deposit of £50 makes the high-score table
     When I press Up 3 times <spacing>

@@ -171,14 +171,16 @@ function drawHighScores(ctx, y) {
   });
 }
 
-// The three letters, the one being chosen blinking, like on an arcade cabinet.
+// The three letters, the one being chosen blinking, like on an arcade cabinet. Initials on the word filter are refused
+// in red under the help line until the next key (DISTILL, Messages).
 function drawInitialsEntry(ctx, y) {
-  const { letters, index } = g.initials;
+  const { letters, index, refused } = g.initials;
   text(ctx, 'New high score!', W / 2, y, 24, COLORS.green, 'center');
   letters.forEach((letter, i) => {
     if (i !== index || blink()) text(ctx, letter, W / 2 + (i - 1) * 64, y + 80, 40, i === index ? COLORS.green : COLORS.text, 'center');
   });
   text(ctx, 'Up / Down  change the letter     Enter  take it', W / 2, y + 130, 8, COLORS.dim, 'center');
+  if (refused) text(ctx, 'Those initials aren\'t allowed. Change a letter.', W / 2, y + 160, 8, COLORS.danger, 'center');
 }
 
 // What became of the signing made at this game over (DISTILL, Messages); an earlier one shows only as its green row.

@@ -6,6 +6,7 @@ const SETTING_MESSAGES = {
 };
 
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
+const REFUSAL = 'Those initials aren\'t allowed. Change a letter.';
 const PLAY_AGAIN = 'Press Enter to house-hunt again.';
 const NO_ROWS = Object.freeze([]);
 
@@ -34,7 +35,7 @@ export function createStatus(root) {
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const table = root.querySelector('[data-leaderboard]');
   const shown = {};
-  let last = { state: null, paused: false, entering: false, settings: null, rows: NO_ROWS, mine: null, settled: null };
+  let last = { state: null, paused: false, entering: false, field: '', settings: null, rows: NO_ROWS, mine: null, settled: null };
 
   // `always` writes even the same words again: two outcomes can read alike, and each is announced.
   function set(name, value, always = false) {
@@ -68,6 +69,13 @@ export function createStatus(root) {
     }));
   }
 
+  // Each change of letter or position once, while the entry is open (the prompt announced its opening), the refusal
+  // first. The rules see a frame's presses once, so presses of the same key within a frame are one change.
+  const initialsAnnouncement = (g, field) => {
+    if (!g.initials || !last.entering || field === last.field) return '';
+    return g.initials.refused ? `${REFUSAL} ${field}` : field;
+  };
+
   // Each settled outcome once, when it arrives, in any game state.
   const outcomeAnnouncement = settled => (settled && settled.n !== last.settled ? OUTCOME_MESSAGES[settled.outcome](settled) : '');
 
@@ -89,12 +97,14 @@ export function createStatus(root) {
     const rows = g.table.status === 'available' ? g.table.rows : NO_ROWS;
     const mine = g.signing?.id ?? null;   // the current signing's row: its id is set once it is confirmed
     showHighScores(rows, mine);
-    set('initials', g.initials ? initialsField(g.initials) : '');
+    const field = g.initials ? initialsField(g.initials) : '';
+    set('initials', field);
     const entering = g.initials !== null;
     const changed = g.state !== last.state || g.paused !== last.paused || entering !== last.entering;
+    const spelled = initialsAnnouncement(g, field);
     const outcome = outcomeAnnouncement(g.settled);
-    const message = [changed ? announcement(g) : '', outcome, ...settingAnnouncements(g)].filter(Boolean).join(' ');
+    const message = [changed ? announcement(g) : '', spelled, outcome, ...settingAnnouncements(g)].filter(Boolean).join(' ');
     if (message) set('announcement', message, Boolean(outcome));
-    last = { state: g.state, paused: g.paused, entering, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
+    last = { state: g.state, paused: g.paused, entering, field, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
   };
 }

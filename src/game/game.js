@@ -31,11 +31,16 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 //   unavailable only while no table has ever loaded (DDD-9): nobody is asked for initials unless it is available.
 // lastListedAt: when the server listed the rows shown (DDD-12), null before any.
 // initials: while a score that makes the table is being signed, { letters, index } (the letter being chosen).
-// signed: what this game signed, { initials, id }; id stays null until the table has the row.
+// signing: the current signing, { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank },
+//   id and rank set once confirmed; null before the first. A new game keeps it: only the next signing replaces it (DDD-8).
+// signedThisGame: the current signing was made at this game over (the game-over screen describes no earlier one).
+// settled: the latest settled outcome, { n, initials, outcome, rank }, a replaced signing's included; the status mirror
+//   announces each one once.
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
-  table: { status: 'unknown', rows: [] }, lastListedAt: null, initials: null, signed: null,
+  table: { status: 'unknown', rows: [] }, lastListedAt: null, initials: null,
+  signing: null, signedThisGame: false, settled: null,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -63,9 +68,11 @@ export function applyBestStore(store) {
 }
 
 // The rules' side of the table outcomes (DESIGN, "Rules operations"). main.js hands every outcome over between frames,
-// from the promise callbacks (DDD-11); only these functions write the table state.
-//   tableAnswered({ scores, listedAt })   a load answered (page load, or the refresh on every gameStarted)
-//   tableFailed()                         a load failed (not OK, network error, or the 5000 ms timeout)
+// from the promise callbacks (DDD-11); only these functions write the table state and settle a signing.
+//   tableAnswered({ scores, listedAt })            a load answered (page load, or the refresh on every gameStarted)
+//   tableFailed()                                  a load failed (not OK, network error, or the 5000 ms timeout)
+//   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
+//   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
 export function tableAnswered({ scores, listedAt }) {
   applyRows(scores, listedAt);
 }
@@ -82,21 +89,31 @@ export function tableFailed() {
   if (g.table.status === 'unknown') g.table = { ...g.table, status: 'unavailable' };
 }
 
-// The skeleton's signing answer, until the signing lifecycle takes it over: its rows are a table answer like any
-// other, and its id picks out the row this game signed.
-export function applyLeaderboard({ scores, id, listedAt }) {
-  tableAnswered({ scores, listedAt });
-  if (id && g.signed) g.signed = { ...g.signed, id };
+// Signings on their way, n -> initials: a replaced one still needs its initials when it settles. Each settles once.
+const onTheirWay = new Map();
+
+// A signing's answer carries rows like any other table answer. Its outcome comes from those rows, even when they are
+// too old to apply: confirmed at the new row's place, or off the table if the row isn't in them.
+export function signingAnswered(n, { scores, id, listedAt }) {
+  applyRows(scores, listedAt);
+  const at = scores.findIndex(row => row.id === id);
+  if (at < 0) settle(n, 'off-table');
+  else settle(n, 'confirmed', { id, rank: at + 1 });
 }
 
-// The signing lifecycle: RED scaffolds, created by DISTILL. They will keep the signing in g.signing and g.settled:
-//   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
-//   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
-//   g.signing { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank }, or null
-//   g.settled { n, initials, outcome, rank }: the latest settled outcome, for the status mirror to announce once
-const scaffold = () => { throw new Error('__SCAFFOLD__: not yet implemented'); };
-export function signingAnswered(n, answer) { return scaffold(n, answer); }
-export function signingFailed(n) { return scaffold(n); }
+// A failed signing may still have been saved: the next refresh shows its row, unmarked. The table is unchanged.
+export function signingFailed(n) {
+  settle(n, 'unconfirmed');
+}
+
+// Every outcome is recorded for the status mirror; only the current signing's changes it, and so its row's mark.
+function settle(n, outcome, { id = null, rank = null } = {}) {
+  if (!onTheirWay.has(n)) return;
+  const initials = onTheirWay.get(n);
+  onTheirWay.delete(n);
+  g.settled = { n, initials, outcome, rank };
+  if (g.signing.n === n) g.signing = { ...g.signing, status: outcome, id, rank };   // on its way, so still pending
+}
 
 // The one read-only view of the rules' state that the in-memory acceptance model reads (tier-b/signing-rules.js), so
 // it never reaches into g: a fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows },
@@ -113,7 +130,7 @@ export function snapshot() {
     screen: SCREENS[g.state],
     table: { status: g.table.status, rows: g.table.rows.map(row => ({ ...row })) },
     entry: g.initials && { letters: g.initials.letters.join(''), index: g.initials.index },
-    signing: null, settled: null,   // the signing lifecycle is still to come
+    signing: g.signing && { ...g.signing }, settled: g.settled && { ...g.settled },
     lastListedAt: g.lastListedAt,
   });
 }
@@ -148,11 +165,15 @@ function enterInitials(pressed) {
   if (entry.index === INITIALS_LENGTH) sign(entry.letters.join(''));
 }
 
-// main.js takes the signature to the table, then hands the answer back (applyLeaderboard).
+// A new signing n replaces any earlier one as the current signing. main.js takes it to the table once, and hands its
+// answer or failure back (signingAnswered, signingFailed).
 function sign(initials) {
+  const n = (g.signing?.n ?? 0) + 1;
   g.initials = null;
-  g.signed = { initials, id: null };
-  emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score });
+  g.signing = { n, initials, status: 'pending', id: null, rank: null };
+  g.signedThisGame = true;
+  onTheirWay.set(n, initials);
+  emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score, signing: n });
 }
 
 function toggleSetting(name, event) {
@@ -172,7 +193,7 @@ function setPaused(paused) {
 }
 
 function startGame() {
-  g.score = 0; g.lives = LIVES; g.newBest = false; g.initials = null; g.signed = null;
+  g.score = 0; g.lives = LIVES; g.newBest = false; g.initials = null; g.signedThisGame = false;   // the signing is kept
   startWave(0);
   emit(GameEvent.GAME_STARTED);
 }

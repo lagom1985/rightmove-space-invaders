@@ -3,7 +3,7 @@ Feature: Every signing has an outcome
   A signing shows as pending until the table answers, then as confirmed (with its rank, and my row marked), off the
   table, or unconfirmed. The game never claims more than it knows, and Enter never waits for the table.
 
-  @OUT-11 @OUT-14 @DDD-8 @real-io @pending
+  @OUT-11 @OUT-14 @DDD-8 @real-io
   Scenario: My signing shows as pending until the table answers
     Given the high-score table holds 3 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -12,14 +12,14 @@ Feature: Every signing has an outcome
     Then the game tells me "Signing FAB…"
     And no row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io
   Scenario: The table confirms my signing and marks my row
     Given my signing of FAB is on its way
     When the table answers my signing
     Then the game tells me "Signed FAB, #1."
     And FAB's row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-7 @DDD-8 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-7 @DDD-8 @real-io @edge
   Scenario: The table filled up before my signing arrived
     Given the high-score table holds 9 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -28,7 +28,7 @@ Feature: Every signing has an outcome
     Then the game tells me "The table filled up before FAB arrived."
     And no row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-13 @DDD-16 @real-io @error @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-13 @DDD-16 @real-io @error
   Scenario Outline: When the high-score table <trouble>, I am told my signing couldn't be confirmed
     Given the high-score table holds 3 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -42,7 +42,7 @@ Feature: Every signing has an outcome
       | loses the connection   |
       | turns the signing away |
 
-  @OUT-11 @OUT-14 @DDD-13 @DDD-16 @real-io @error @edge @pending
+  @OUT-11 @OUT-14 @DDD-13 @DDD-16 @real-io @error @edge
   Scenario Outline: A signing with no answer after <wait> is <verdict>
     Given my signing of FAB is on its way
     When <wait> pass without an answer

@@ -1,12 +1,21 @@
 // The high-score table everyone shares, behind /api/scores (netlify/functions/scores.mjs; locally, scripts/serve.mjs).
-// fetch is handed in by main.js. Anything but an OK answer rejects: main.js decides what a missing table means.
+// fetch and the timers are handed in by main.js, so a test's fake clock drives the timeout (DDD-13). Each call is one
+// request, never retried, and nothing is kept between calls. Anything but an OK answer within TIMEOUT_MS rejects: a
+// non-OK answer, a network error or the timeout, which aborts the request. main.js decides what a missing answer means.
 const SCORES = '/api/scores';
+const TIMEOUT_MS = 5000;
 
-export function createLeaderboard(fetch) {
+export function createLeaderboard({ fetch, setTimeout, clearTimeout }) {
   async function request(init) {
-    const response = await fetch(SCORES, init);
-    if (!response.ok) throw new Error(`The high-score table answered ${response.status}`);
-    return response.json();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const response = await fetch(SCORES, { ...init, signal: controller.signal });
+      if (!response.ok) throw new Error(`The high-score table answered ${response.status}`);
+      return await response.json();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   return {

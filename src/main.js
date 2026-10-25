@@ -1,6 +1,6 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, applyLeaderboard, tableAnswered, tableFailed } from './game/game.js';
+import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed } from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';
@@ -27,11 +27,17 @@ const director = createSoundDirector({ ...g.settings });
 
 // The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between
 // frames: the frame never waits on the network (DDD-11). If it can't be reached the game plays exactly as it does
-// without one: the rules make it unavailable, so nobody is asked for initials.
-const leaderboard = createLeaderboard(fetch);
-const ignore = () => {};
+// without one: the rules make it unavailable, so nobody is asked for initials. The window's timers time it out, so a
+// test's fake clock drives the timeout (DDD-13).
+const leaderboard = createLeaderboard({
+  fetch,
+  setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+  clearTimeout: id => window.clearTimeout(id),
+});
 leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
-const signTable = ({ initials, score }) => leaderboard.sign({ initials, score }).then(answer => applyLeaderboard(answer), ignore);
+// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it.
+const signTable = ({ initials, score, signing }) =>
+  leaderboard.sign({ initials, score }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 

@@ -6,16 +6,25 @@ const SETTING_MESSAGES = {
 };
 
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
+const PLAY_AGAIN = 'Press Enter to house-hunt again.';
 const NO_ROWS = Object.freeze([]);
 
 // The letters spaced, so a screen reader spells them, and the one being chosen: 'F A A, letter 2 of 3'.
 const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${index + 1} of ${letters.length}`;
 
-// While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again.
+// What a settled signing ended as (DISTILL, Messages), a replaced signing's included.
+const OUTCOME_MESSAGES = {
+  confirmed: ({ initials, rank }) => `Signed ${initials}, #${rank}.`,
+  'off-table': ({ initials }) => `The table filled up before ${initials} arrived.`,
+  unconfirmed: ({ initials }) => `Couldn't confirm ${initials}'s signing.`,
+};
+
+// While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again. Only a
+// signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
-  if (g.signed) return `Signed ${g.signed.initials}. Press Enter to house-hunt again.`;
+  if (g.signedThisGame) return g.signing.status === 'pending' ? `Signing ${g.signing.initials}… ${PLAY_AGAIN}` : PLAY_AGAIN;
   return `Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.` +
-    (g.newBest ? ' New best!' : '') + (g.initials ? ` ${INITIALS_HELP}` : ' Press Enter to house-hunt again.');
+    (g.newBest ? ' New best!' : '') + ` ${g.initials ? INITIALS_HELP : PLAY_AGAIN}`;
 }
 
 // Mirrors the canvas HUD, the high-score table and big moments into the DOM, so screen readers (and tests, which
@@ -25,10 +34,11 @@ export function createStatus(root) {
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const table = root.querySelector('[data-leaderboard]');
   const shown = {};
-  let last = { state: null, paused: false, entering: false, settings: null, rows: NO_ROWS };
+  let last = { state: null, paused: false, entering: false, settings: null, rows: NO_ROWS, mine: null, settled: null };
 
-  function set(name, value) {
-    if (shown[name] === value) return;
+  // `always` writes even the same words again: two outcomes can read alike, and each is announced.
+  function set(name, value, always = false) {
+    if (shown[name] === value && !always) return;
     shown[name] = value;
     fields[name].textContent = value;
   }
@@ -46,15 +56,20 @@ export function createStatus(root) {
     }
   }
 
-  // One item per row while the table is available, rewritten only when the rules have taken in a new table.
-  function showHighScores(rows) {
-    if (rows === last.rows) return;
-    table.replaceChildren(...rows.map(({ initials, score }) => {
+  // One item per row while the table is available, the confirmed current signing's marked as mine; rewritten only when
+  // the rules have taken in a new table or the mark has moved.
+  function showHighScores(rows, mine) {
+    if (rows === last.rows && mine === last.mine) return;
+    table.replaceChildren(...rows.map(({ initials, score, id }) => {
       const item = root.ownerDocument.createElement('li');
       item.textContent = `${initials} ${pounds(score)}`;
+      if (id === mine) item.setAttribute('aria-current', 'true');
       return item;
     }));
   }
+
+  // Each settled outcome once, when it arrives, in any game state.
+  const outcomeAnnouncement = settled => (settled && settled.n !== last.settled ? OUTCOME_MESSAGES[settled.outcome](settled) : '');
 
   // Only a change is announced: the settings loaded at page load are shown but not spoken.
   function settingAnnouncements(g) {
@@ -72,12 +87,14 @@ export function createStatus(root) {
     set('sound', g.settings.sound ? 'On' : 'Off');
     set('music', g.settings.music ? 'On' : 'Off');
     const rows = g.table.status === 'available' ? g.table.rows : NO_ROWS;
-    showHighScores(rows);
+    const mine = g.signing?.id ?? null;   // the current signing's row: its id is set once it is confirmed
+    showHighScores(rows, mine);
     set('initials', g.initials ? initialsField(g.initials) : '');
     const entering = g.initials !== null;
     const changed = g.state !== last.state || g.paused !== last.paused || entering !== last.entering;
-    const message = [changed ? announcement(g) : '', ...settingAnnouncements(g)].filter(Boolean).join(' ');
-    if (message) set('announcement', message);
-    last = { state: g.state, paused: g.paused, entering, settings: { ...g.settings }, rows };
+    const outcome = outcomeAnnouncement(g.settled);
+    const message = [changed ? announcement(g) : '', outcome, ...settingAnnouncements(g)].filter(Boolean).join(' ');
+    if (message) set('announcement', message, Boolean(outcome));
+    last = { state: g.state, paused: g.paused, entering, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
   };
 }

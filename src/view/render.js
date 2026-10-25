@@ -158,11 +158,13 @@ function drawHurdleLegend(ctx, sprites) {
   text(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
 }
 
-// Rank, initials and deposit, a row each. The row this game signed is picked out in green.
+// Rank, initials and deposit, a row each. The confirmed current signing's row is picked out in green, in any later game
+// too (its id is set once it is confirmed).
 function drawHighScores(ctx, y) {
   text(ctx, 'High scores', W / 2, y, 16, COLORS.green, 'center');
+  const mine = g.signing?.id ?? null;
   g.table.rows.forEach((row, i) => {
-    const rowY = y + 40 + i * ROW_GAP, color = row.id === g.signed?.id ? COLORS.green : COLORS.text;
+    const rowY = y + 40 + i * ROW_GAP, color = row.id === mine ? COLORS.green : COLORS.text;
     text(ctx, `${i + 1}.`, 350, rowY, 16, COLORS.dim, 'right');
     text(ctx, row.initials, 380, rowY, 16, color);
     text(ctx, pounds(row.score), 620, rowY, 16, color, 'right');
@@ -179,6 +181,19 @@ function drawInitialsEntry(ctx, y) {
   text(ctx, 'Up / Down  change the letter     Enter  take it', W / 2, y + 130, 8, COLORS.dim, 'center');
 }
 
+// What became of the signing made at this game over (DISTILL, Messages); an earlier one shows only as its green row.
+const SIGNING_LINES = {
+  pending: ({ initials }) => [`Signing ${initials}…`, COLORS.dim],
+  confirmed: ({ initials, rank }) => [`Signed ${initials}, #${rank}.`, COLORS.green],
+  'off-table': ({ initials }) => [`The table filled up before ${initials} arrived.`, COLORS.text],
+  unconfirmed: ({ initials }) => [`Couldn't confirm ${initials}'s signing.`, COLORS.danger],
+};
+
+function drawSigning(ctx, y) {
+  const [line, color] = SIGNING_LINES[g.signing.status](g.signing);
+  text(ctx, line, W / 2, y, 8, color, 'center');
+}
+
 function drawWaveCleared(ctx) {
   text(ctx, 'Wave cleared!', W / 2, 300, 24, COLORS.green, 'center');
   text(ctx, 'Moving up the ladder to', W / 2, 345, 8, COLORS.dim, 'center');
@@ -193,6 +208,7 @@ function drawGameOver(ctx) {
   text(ctx, 'Reached  ' + ladderName(g.level), W / 2, top + 110, 16, COLORS.green, 'center');
   if (g.newBest) text(ctx, 'New best!', W / 2, top + 160, 16, COLORS.dream, 'center');
   if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // Enter takes a letter until all three are in
+  if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
   if (hasHighScores()) drawHighScores(ctx, top + 200);
   if (g.overT > 0.6 && blink()) text(ctx, 'Press Enter to house-hunt again', W / 2, again, 16, COLORS.green, 'center');
 }

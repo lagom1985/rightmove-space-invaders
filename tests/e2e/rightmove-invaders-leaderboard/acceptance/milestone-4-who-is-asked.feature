@@ -2,7 +2,7 @@ Feature: Only a deposit that makes the table is asked for initials
   Like on an arcade cabinet, a house-hunter is asked for initials only when their deposit makes the shared top ten:
   while the table has room, or by beating its 10th row. A tie with the 10th row misses, and so does no deposit.
 
-  @OUT-10 @OUT-14 @DDD-3 @DDD-14 @real-io @pending
+  @OUT-10 @OUT-14 @DDD-3 @DDD-14 @real-io
   Scenario: A deposit is asked for initials while the table has room
     Given the high-score table holds 9 signatures of £1,000
     When I finish a game with a deposit of £50

@@ -10,9 +10,9 @@ export function createLeaderboard(fetch) {
   }
 
   return {
-    // -> [{ initials, score, id }], best first
-    async load() { return (await request()).scores; },
-    // -> { scores, id }, id being the new row's
+    // -> { scores: [{ initials, score, id }] best first, listedAt }, listedAt being when the server listed them
+    load() { return request(); },
+    // -> { scores, id, listedAt }, id being the new row's
     sign({ initials, score }) {
       return request({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initials, score }) });
     },

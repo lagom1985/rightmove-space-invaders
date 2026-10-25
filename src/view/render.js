@@ -133,9 +133,9 @@ function drawHud(ctx) {
   switchedOff.forEach((name, i) => text(ctx, OFF_LABELS[name], W - 24, H - 14 - i * 16, 8, COLORS.dim, 'right'));
 }
 
-const hasHighScores = () => g.highScores !== null && g.highScores.length > 0;
+const hasHighScores = () => g.table.status === 'available' && g.table.rows.length > 0;
 
-// Arcade attract mode: while there is a table, every few seconds it takes the hurdles' place.
+// Arcade attract mode: while the table is available and has rows, every few seconds it takes the hurdles' place.
 const attractShowsTable = () => hasHighScores() && (g.t / ATTRACT_SECONDS | 0) % 2 === 1;
 
 function drawTitle(ctx, sprites) {
@@ -161,7 +161,7 @@ function drawHurdleLegend(ctx, sprites) {
 // Rank, initials and deposit, a row each. The row this game signed is picked out in green.
 function drawHighScores(ctx, y) {
   text(ctx, 'High scores', W / 2, y, 16, COLORS.green, 'center');
-  g.highScores.forEach((row, i) => {
+  g.table.rows.forEach((row, i) => {
     const rowY = y + 40 + i * ROW_GAP, color = row.id === g.signed?.id ? COLORS.green : COLORS.text;
     text(ctx, `${i + 1}.`, 350, rowY, 16, COLORS.dim, 'right');
     text(ctx, row.initials, 380, rowY, 16, color);

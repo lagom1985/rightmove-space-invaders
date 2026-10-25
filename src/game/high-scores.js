@@ -1,10 +1,6 @@
 // Shared high-score rules (ADR-006, DDD-3): one rule on both sides of the wire. Pure: imports nothing.
 // src/game/game.js uses all of it; netlify/functions/scores.mjs uses the table size and signature validity (word filter
 // included); only the browser uses makesTheTable.
-//
-// RED scaffold, created by DISTILL (rightmove-invaders-leaderboard). The constants are DESIGN's values. isValidSignature
-// and isAllowedInitials are implemented (DELIVER 02-01, 02-02); makesTheTable throws until DELIVER implements it (04-01).
-export const __SCAFFOLD__ = true;
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
 export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials, Up and Down move round it
@@ -15,8 +11,6 @@ export const MAX_SCORE = 9_999_999;                    // the 7-digit score fiel
 // The 3-letter word filter: short, public (it ships to the browser) and reviewed by the owner. The acceptance tests take
 // their blocked example from here.
 export const BLOCKED_INITIALS = Object.freeze(['ASS', 'COK', 'CUM', 'DIK', 'FAG', 'FCK', 'FUC', 'FUK', 'KKK', 'NAZ', 'NGR', 'NIG', 'PIS', 'SEX', 'SHT', 'TIT']);
-
-const notYetImplemented = () => { throw new Error('__SCAFFOLD__: not yet implemented'); };
 
 // { initials, score } (exactly these two fields) -> true when the initials are 3 letters A-Z (word filter aside) and the
 // score is a positive integer multiple of SCORE_STEP up to MAX_SCORE. The function refuses blocked initials separately
@@ -40,5 +34,7 @@ export function isAllowedInitials(initials) {
 
 // table state { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }] best first }, deposit
 // -> true only when the status is 'available', the deposit is above 0, and there are fewer than TABLE_SIZE rows or the
-// deposit is above the last row's score (a tie misses).
-export function makesTheTable(table, deposit) { return notYetImplemented(table, deposit); }
+// deposit is above the 10th row's score (a tie misses).
+export function makesTheTable({ status, rows }, deposit) {
+  return status === 'available' && deposit > 0 && (rows.length < TABLE_SIZE || deposit > rows[TABLE_SIZE - 1].score);
+}

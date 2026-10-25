@@ -6,6 +6,10 @@ const SETTING_MESSAGES = {
 };
 
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
+const NO_ROWS = Object.freeze([]);
+
+// The letters spaced, so a screen reader spells them, and the one being chosen: 'F A A, letter 2 of 3'.
+const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${index + 1} of ${letters.length}`;
 
 // While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again.
 function gameOverAnnouncement(g) {
@@ -21,7 +25,7 @@ export function createStatus(root) {
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const table = root.querySelector('[data-leaderboard]');
   const shown = {};
-  let last = { state: null, paused: false, entering: false, settings: null, highScores: null };
+  let last = { state: null, paused: false, entering: false, settings: null, rows: NO_ROWS };
 
   function set(name, value) {
     if (shown[name] === value) return;
@@ -42,10 +46,10 @@ export function createStatus(root) {
     }
   }
 
-  // One item per row, rewritten only when main.js has handed the rules a new table.
-  function showHighScores(highScores) {
-    if (highScores === last.highScores) return;
-    table.replaceChildren(...(highScores ?? []).map(({ initials, score }) => {
+  // One item per row while the table is available, rewritten only when the rules have taken in a new table.
+  function showHighScores(rows) {
+    if (rows === last.rows) return;
+    table.replaceChildren(...rows.map(({ initials, score }) => {
       const item = root.ownerDocument.createElement('li');
       item.textContent = `${initials} ${pounds(score)}`;
       return item;
@@ -67,11 +71,13 @@ export function createStatus(root) {
     set('homes', String(g.lives));
     set('sound', g.settings.sound ? 'On' : 'Off');
     set('music', g.settings.music ? 'On' : 'Off');
-    showHighScores(g.highScores);
+    const rows = g.table.status === 'available' ? g.table.rows : NO_ROWS;
+    showHighScores(rows);
+    set('initials', g.initials ? initialsField(g.initials) : '');
     const entering = g.initials !== null;
     const changed = g.state !== last.state || g.paused !== last.paused || entering !== last.entering;
     const message = [changed ? announcement(g) : '', ...settingAnnouncements(g)].filter(Boolean).join(' ');
     if (message) set('announcement', message);
-    last = { state: g.state, paused: g.paused, entering, settings: { ...g.settings }, highScores: g.highScores };
+    last = { state: g.state, paused: g.paused, entering, settings: { ...g.settings }, rows };
   };
 }

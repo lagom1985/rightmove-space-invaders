@@ -1,6 +1,6 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, applyLeaderboard } from './game/game.js';
+import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, applyLeaderboard, tableAnswered, tableFailed } from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';
@@ -25,13 +25,13 @@ applySettings(loadSettings());   // before the first frame; g.settings is the on
 applyBestStore({ load: loadBest, save: saveBest });   // the best score is read now and written when a game ends on a new best
 const director = createSoundDirector({ ...g.settings });
 
-// The shared high-score table. If it can't be reached the game plays exactly as it does without one: the rules
-// keep it unknown, so nobody is asked for initials, and a signing that doesn't arrive is simply not shown.
+// The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between
+// frames: the frame never waits on the network (DDD-11). If it can't be reached the game plays exactly as it does
+// without one: the rules make it unavailable, so nobody is asked for initials.
 const leaderboard = createLeaderboard(fetch);
 const ignore = () => {};
-leaderboard.load().then(scores => applyLeaderboard(scores), ignore);
-const signTable = ({ initials, score }) =>
-  leaderboard.sign({ initials, score }).then(({ scores, id }) => applyLeaderboard(scores, id), ignore);
+leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
+const signTable = ({ initials, score }) => leaderboard.sign({ initials, score }).then(answer => applyLeaderboard(answer), ignore);
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 

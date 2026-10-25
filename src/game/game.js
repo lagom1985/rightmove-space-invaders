@@ -2,6 +2,7 @@ import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { GameEvent } from './events.js';
+import { ALPHABET, INITIALS_LENGTH, makesTheTable } from './high-scores.js';
 
 // Sizes in logical units, derived from the pixel art.
 export const IW = HURDLES[0].frames[0][0].length * PX, IH = HURDLES[0].frames[0].length * PX;
@@ -25,14 +26,16 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
 // settings: the player's sound and music choices, loaded by main.js (applySettings) and flipped by M and N.
 // best: the best score so far, loaded by main.js through the store it hands over (applyBestStore).
-// highScores: the shared high-score table, [{ initials, score, id }] best first, handed in by main.js
-//   (applyLeaderboard). null until it has loaded: while the table is unknown nobody is asked for initials.
+// table: the shared high-score table, { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }]
+//   best first }, from the answers main.js hands over (tableAnswered, tableFailed). Unknown until the first answer,
+//   unavailable only while no table has ever loaded (DDD-9): nobody is asked for initials unless it is available.
+// lastListedAt: when the server listed the rows shown (DDD-12), null before any.
 // initials: while a score that makes the table is being signed, { letters, index } (the letter being chosen).
 // signed: what this game signed, { initials, id }; id stays null until the table has the row.
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
-  highScores: null, initials: null, signed: null,
+  table: { status: 'unknown', rows: [] }, lastListedAt: null, initials: null, signed: null,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -59,44 +62,61 @@ export function applyBestStore(store) {
   g.best = store.load();
 }
 
-// The high-score table is behind main.js too: it hands over what the table says and, once a signing has
-// reached it, the id of the new row.
-export function applyLeaderboard(scores, signedId) {
-  g.highScores = scores;
-  if (signedId && g.signed) g.signed = { ...g.signed, id: signedId };
+// The rules' side of the table outcomes (DESIGN, "Rules operations"). main.js hands every outcome over between frames,
+// from the promise callbacks (DDD-11); only these functions write the table state.
+//   tableAnswered({ scores, listedAt })   a load answered (page load, or the refresh on every gameStarted)
+//   tableFailed()                         a load failed (not OK, network error, or the 5000 ms timeout)
+export function tableAnswered({ scores, listedAt }) {
+  applyRows(scores, listedAt);
 }
 
-// The rules' side of the table outcomes (DESIGN, "Rules operations"). RED scaffolds, created by DISTILL
-// (rightmove-invaders-leaderboard): main.js doesn't call them yet, so the game behaves exactly as before. main.js
-// will hand every outcome over between frames; only these functions write the table state and the signing.
-//   tableAnswered({ scores, listedAt })            a load answered (page load, or the refresh on every gameStarted)
-//   tableFailed()                                  a load failed (not OK, network error, or the 5000 ms timeout)
+// Rows listed earlier than the ones shown are older news, and are ignored (DDD-12).
+function applyRows(rows, listedAt) {
+  if (g.lastListedAt !== null && listedAt < g.lastListedAt) return;
+  g.table = { status: 'available', rows };
+  g.lastListedAt = listedAt;
+}
+
+// Unavailable only while no table has ever loaded: a failed refresh keeps the last good table (DDD-9).
+export function tableFailed() {
+  if (g.table.status === 'unknown') g.table = { ...g.table, status: 'unavailable' };
+}
+
+// The skeleton's signing answer, until the signing lifecycle takes it over: its rows are a table answer like any
+// other, and its id picks out the row this game signed.
+export function applyLeaderboard({ scores, id, listedAt }) {
+  tableAnswered({ scores, listedAt });
+  if (id && g.signed) g.signed = { ...g.signed, id };
+}
+
+// The signing lifecycle: RED scaffolds, created by DISTILL. They will keep the signing in g.signing and g.settled:
 //   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
 //   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
-// The state they keep, read by the views and by the in-memory acceptance model (tier-b/signing-rules.js):
-//   g.table   { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }] }
 //   g.signing { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank }, or null
 //   g.settled { n, initials, outcome, rank }: the latest settled outcome, for the status mirror to announce once
-//   the last applied listedAt (DDD-12), a number or none yet
-// And the one read-only view the in-memory acceptance model uses, so that it never reaches into those fields:
-//   snapshot() -> a fresh, frozen { screen: 'title' | 'play' | 'over',
-//                                   table: { status, rows: [{ initials, score, id }] },
-//                                   entry: { letters: 'AAA', index } or null,        (the initials being entered)
-//                                   signing, settled,                                (as above, or null)
-//                                   lastListedAt: number or null }
 const scaffold = () => { throw new Error('__SCAFFOLD__: not yet implemented'); };
-export function tableAnswered(answer) { return scaffold(answer); }
-export function tableFailed() { return scaffold(); }
 export function signingAnswered(n, answer) { return scaffold(n, answer); }
 export function signingFailed(n) { return scaffold(n); }
-export function snapshot() { return scaffold(); }
 
-const TABLE_SIZE = 10;   // rows on the high-score table
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', INITIALS_LENGTH = 3;
+// The one read-only view of the rules' state that the in-memory acceptance model reads (tier-b/signing-rules.js), so
+// it never reaches into g: a fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows },
+// entry: { letters: 'AAA', index } or null, signing, settled, lastListedAt: number or null }.
+const SCREENS = { title: 'title', play: 'play', dead: 'play', clear: 'play', over: 'over' };
 
-// A score makes the table when it is known to have room, or the score beats its last row (a tie ranks below).
-const makesTheTable = score => g.highScores !== null && score > 0 &&
-  (g.highScores.length < TABLE_SIZE || score > g.highScores[TABLE_SIZE - 1].score);
+const deepFreeze = value => {
+  if (typeof value === 'object' && value !== null) Object.values(value).forEach(deepFreeze);
+  return Object.freeze(value);
+};
+
+export function snapshot() {
+  return deepFreeze({
+    screen: SCREENS[g.state],
+    table: { status: g.table.status, rows: g.table.rows.map(row => ({ ...row })) },
+    entry: g.initials && { letters: g.initials.letters.join(''), index: g.initials.index },
+    signing: null, settled: null,   // the signing lifecycle is still to come
+    lastListedAt: g.lastListedAt,
+  });
+}
 
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
@@ -350,7 +370,7 @@ function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
-  if (makesTheTable(g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0 };
+  if (makesTheTable(g.table, g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0 };
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

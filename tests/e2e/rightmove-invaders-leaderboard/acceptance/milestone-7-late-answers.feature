@@ -2,7 +2,7 @@ Feature: Answers that arrive late
   The table answers between frames, possibly after the next game has started. A late outcome is still announced, a
   copy of the table older than the one shown is ignored, and my confirmed row stays marked until it leaves the table.
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-11 @DDD-14 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-11 @DDD-14 @real-io @edge
   Scenario: A signing confirmed during my next game is still announced, once
     Given my signing of FAB is on its way
     And I have started a new game
@@ -11,14 +11,14 @@ Feature: Answers that arrive late
     And the game announced that outcome only once
     And FAB's row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge
   Scenario: My confirmed row stays marked on the next game-over screen, which doesn't repeat the outcome
     Given my signing of FAB was confirmed during my next game
     When I finish a game without a deposit
     Then FAB's row on the high-score table is marked as mine
     And the game-over message doesn't mention FAB
 
-  @OUT-12 @OUT-14 @DDD-12 @DDD-14 @DDD-16 @real-io @edge @pending
+  @OUT-12 @OUT-14 @DDD-12 @DDD-14 @DDD-16 @real-io @edge
   Scenario: An older copy of the table that arrives late doesn't undo my signing
     Given my signing of FAB is on its way
     And the table looked up for my next game is slow to arrive
@@ -28,7 +28,7 @@ Feature: Answers that arrive late
     Then the high-score table is topped by "FAB" with "£50"
     And FAB's row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge
   Scenario: A newer signing moves my mark from the older row to the new one
     Given the high-score table holds 3 signatures of £1,000
     And my signing of FAB is confirmed
@@ -36,7 +36,7 @@ Feature: Answers that arrive late
     When I sign the table as ABC
     Then ABC's row on the high-score table is marked as mine
 
-  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge @pending
+  @OUT-11 @OUT-14 @DDD-8 @DDD-14 @real-io @edge
   Scenario: My row loses its mark when newer signings push it off the table
     Given the high-score table holds 9 signatures of £1,000
     And my signing of FAB is confirmed

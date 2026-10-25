@@ -88,7 +88,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 1 and 6"
     window: "the preview before the first merge to main; again on every release-check trigger"
     gate: hard
-    baseline: "none measured: waits for the preview run. There is no local twin: the emulator's submit p95 (20 ms for 20 players in the SPIKE) says little about Netlify, where every Blobs call is a network round trip"
+    baseline: "measured 2026-10-25 on deploy-preview-1 (PR #1, commit 4d0ac70), smoke preview run step 6: 30 sequential POST+GET pairs, all 200, p95 924 ms (max 1,049 ms, median about 780 ms): PASS, close to the 1 s budget. Cold start (step 1, first GET of a fresh deploy) 918 ms, measured separately"
   - id: K11
     feature: rightmove-invaders-leaderboard
     name: No signature lost on real Netlify Blobs
@@ -106,7 +106,7 @@ kpis:
     window: "as K10"
     gate: hard
     local_scenarios: "@kpi-K12 'Initials on the word filter are refused by the table too' (milestone-2-signing-the-table.feature): 400 initials-not-allowed and nothing saved, the local twin of smoke step 4: it proves the handler's refusal, not that the esbuild bundle includes src/game/high-scores.js (that is smoke step 4 on a preview). Preview isolation itself is Netlify's (chooseStore unit table, smoke steps 1 and 7)"
-    baseline: "local twin only: the @kpi-K12 scenario has been green in every build since 2026-10-25 (enabled in f91dc92), and the write guard's refusals are unit-tested (tests/unit/smoke-write-guard.spec.js). None measured on Netlify: waits for the preview run"
+    baseline: "measured 2026-10-25 on deploy-preview-1 (PR #1, commit 4d0ac70): step 1, a fresh preview answered {scores: []} with 200; step 4, blocked initials got 400 initials-not-allowed (the bundle includes src/game/high-scores.js): PASS. Step 7 (no preview id in a production GET) SKIPPED: production answered 404, it has no function before the merge; rerun after the first production deploy with the function. The preview's function log line (scope=deploy, context=deploy-preview, published=false) is still to be read by hand. Locally the @kpi-K12 scenario is green (enabled in f91dc92)"
   - id: K13
     feature: rightmove-invaders-leaderboard
     name: Only the published production deploy uses the site-wide store
@@ -123,7 +123,7 @@ kpis:
     window: "the preview before the first merge (go/no-go: no-go = no merge to main); again on every release-check trigger"
     gate: hard
     local_scenarios: "@kpi-K14 'An empty high-score table is read as empty, and everyone sees it at most 15 seconds old' (milestone-1-reading-the-table.feature) and 'A valid signature is saved, and the answer shows where it ranks' (milestone-2-signing-the-table.feature): the header set of a GET 200 (Netlify-CDN-Cache-Control public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate) and of a POST 200 (no-store), with Netlify-Vary query=table and nosniff; every refusal scenario checks no-store and Netlify-Vary too. The local check is at handler level: it proves what the function sets, not that Netlify honours it. The rate limit and the CDN's real behaviour stay K14's on a preview"
-    baseline: "local twins only: both @kpi-K14 scenarios have been green in every build since 2026-10-25 (enabled in 1d3b70d and 8952f9b), and the exported config is pinned by a unit test (tests/unit/scores-entry.spec.js). None measured on Netlify: the rule, the real cap of one fast IP (step 8b) and the CDN cache wait for the preview run"
+    baseline: "measured 2026-10-25 on deploy-preview-1 (PR #1, commit 4d0ac70): GO. Step 8a (2 requests/s achieved): first 429 after 6.0 s, at most 13 accepted in a 60 s window (no recompute). Step 8b (20 requests/s achieved): first 429 after 1.65 s, 78 accepted in 60 s, so one fast IP gets about 78 per minute (about 112k per day: the 125k quota in about 27 h, about 2.7 h after the 90% email), better than the 10 + 10r = 210 assumption; a GET 61 s later is 200. Step 5: GETs are CDN hits within 15 s (Cache-Status: 'Netlify Durable'/'Netlify Edge' hit, ttl 14); a different ?table= value is a deliberate miss. Step 9: cache hits count toward the rate limit, and no 429 was served from the cache. Header set of a GET 200, a 400 and a POST 200: one Cache-Control as in DDD-6, Netlify-Vary query=table, X-Content-Type-Options nosniff; the netlify.toml /* security headers are absent from function answers, as expected"
   - id: K15
     feature: rightmove-invaders-leaderboard
     name: Function invocations stay under half the free quota

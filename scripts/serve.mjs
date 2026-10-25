@@ -1,9 +1,10 @@
 // Local server for play and the acceptance tests: the game's static files, plus the high-score table at
 // /api/scores. ES modules don't load from file:// URLs, so the game has to be served over http.
-// The table is the real Netlify Function (netlify/functions/scores.mjs) and the real @netlify/blobs client,
-// against the Blobs emulator in a fresh temporary directory, so every start begins with empty tables and needs
-// no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side); without one,
-// the table is `local`.
+// The table is the real Netlify Function's handler (netlify/functions/scores.mjs) behind its restricted port, and the
+// real @netlify/blobs client, against the Blobs emulator in a fresh temporary directory, so every start begins with
+// empty tables and needs no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side);
+// without one, the table is `local`. This is a composition root: it chooses the store, builds the port, and hands the
+// handler the clock, the id source, the logger and where the table is kept (scope local).
 import { createServer } from 'node:http';
 import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
-import { handleScores } from '../netlify/functions/scores.mjs';
+import { createTablePort, handleScores } from '../netlify/functions/scores.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.env.PORT) || 4173;
@@ -21,6 +22,14 @@ const types = {
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
+// What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
+const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
+const tableOptions = Object.freeze({
+  now: Date.now,
+  newId: () => randomUUID().replaceAll('-', ''),
+  log: entry => console.log(JSON.stringify(entry)),
+  where: LOCAL,
+});
 
 // The Blobs client finds the emulator through this context. Strong consistency needs `uncachedEdgeURL` as well.
 async function startBlobs() {
@@ -36,15 +45,15 @@ function storeFor(req) {
   return getStore({ name: `leaderboard-${board}`, consistency: 'strong' });
 }
 
-// Node request -> Web Request -> the function -> Node response.
+// Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6).
 async function serveScores(req, res) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const body = ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks);
   const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body });
-  const response = await handleScores(request, storeFor(req));
+  const response = await handleScores(request, createTablePort(storeFor(req)), tableOptions);
   const answer = Buffer.from(await response.arrayBuffer());
-  res.writeHead(response.status, { ...Object.fromEntries(response.headers), 'cache-control': 'no-store' }).end(answer);
+  res.writeHead(response.status, Object.fromEntries(response.headers)).end(answer);
 }
 
 async function serveFile(path, res) {

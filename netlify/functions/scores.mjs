@@ -1,28 +1,162 @@
-// The shared high-score table: a Netlify Function (v2) over Netlify Blobs.
-//   GET  /api/scores                        -> { scores: [{ initials, score, id }] }   best first, at most 10
-//   POST /api/scores { initials, score }    -> { scores, id }   id = the new row's, so the game can find it
+// The shared high-score table: a Netlify Function (v2) over Netlify Blobs (ADR-004).
+//   GET  /api/scores                        -> { scores: [{ initials, score, id }], listedAt }   best first, at most 10
+//   POST /api/scores { initials, score }    -> { scores, id, listedAt }   id = the new row's, so the game can find it
 // One blob per score, with everything in its key and an empty body (spike findings, strategy D). Every write
 // goes to a key of its own, so players signing at the same moment never overwrite each other, and the keys
-// sort as strings into arcade order: higher score first, then the earlier entry. scripts/serve.mjs mounts
-// handleScores locally against the Blobs emulator, with a store of its own.
+// sort as strings into arcade order: higher score first, then the earlier entry.
+// The handler reaches the store only through the restricted table port (createTablePort, DDD-4), which a composition
+// root builds and hands it with the clock, the id source, the logger and where the table is kept: the default export
+// below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one store per test-board cookie), and the acceptance
+// harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
 import { randomUUID } from 'node:crypto';
-import { getStore } from '@netlify/blobs';
+import { getDeployStore, getStore } from '@netlify/blobs';
+import { MAX_SCORE, SCORE_STEP, TABLE_SIZE } from '../../src/game/high-scores.js';
 
-export const config = { path: '/api/scores' };
+// Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
+// a minute per client, by IP and domain (DEVOPS).
+export const config = { path: '/api/scores', rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
 
-export default req => handleScores(req, getStore({ name: 'leaderboard', consistency: 'strong' }));
+const MISSING = 'missing';
+const NOWHERE = Object.freeze({ scope: MISSING, context: MISSING, published: MISSING });
+const STORES = Object.freeze({
+  site: () => getStore({ name: 'leaderboard', consistency: 'strong' }),
+  deploy: () => getDeployStore({ name: 'leaderboard', consistency: 'strong' }),
+});
 
-const TABLE_SIZE = 10;
-const MAX_SCORE = 9_999_999;
-const SCORE_STEP = 50;          // every hurdle and bonus is worth a multiple of £50
+// The Netlify entry (ADR-005): the published production deploy keeps the site-wide table, and every other deploy a
+// table of its own, which Netlify deletes with the deploy. A deploy store needs a deploy ID: without one the table is
+// unavailable, and the site-wide table is never used instead.
+export default async function scores(request, context) {
+  const scope = chooseStore(context);
+  const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
+  const options = { now: Date.now, newId, log: entry => console.log(JSON.stringify(entry)), where };
+  const record = journal(options);
+  const port = openTable(scope);
+  if (!port) {
+    record('scores.error', 'store-unavailable');
+    return answer(500, { error: 'unexpected' });
+  }
+  return handleScores(request, port, options);
+}
+
+// 'site' only for the published production deploy; anything else, however close, gets 'deploy' (ADR-005).
+export function chooseStore(context) {
+  const deploy = context?.deploy;
+  return deploy?.context === 'production' && deploy?.published === true ? 'site' : 'deploy';
+}
+
+function openTable(scope) {
+  try { return createTablePort(STORES[scope]()); } catch { return null; }   // MissingBlobsEnvironmentError, for one
+}
+
+const newId = () => randomUUID().replaceAll('-', '');
+
+// ---- the key codec (the persisted schema, ADR-004) ----
+// s/{MAX_SCORE - score, 7 digits}-{epoch ms, 15 digits}-{initials}-{id}. Only keys of exactly this shape are rows: the
+// emulator lists its own temporary files (`s/.xxxx`) next to them.
+const PREFIX = 's/';
+const KEY = /^s\/(\d{7})-(\d{15})-([A-Z]{3})-([a-z0-9]+)$/;
+const digits = (value, width) => String(value).padStart(width, '0');
+
+export function encodeKey({ initials, score, at, id }) {
+  return `${PREFIX}${digits(MAX_SCORE - score, 7)}-${digits(at, 15)}-${initials}-${id}`;
+}
+
+export function decodeKey(key) {
+  const [, inverted, at, initials, id] = KEY.exec(key) ?? [];
+  return initials ? { initials, score: MAX_SCORE - Number(inverted), at: Number(at), id } : null;
+}
+
+// The well-formed keys, in arcade order: the fixed widths make string order the arcade's.
+export function rankKeys(keys) {
+  return keys.filter(key => KEY.test(key)).sort();
+}
+
+// RED scaffold, created by DISTILL: the accepted prune rule (DDD-1), arriving in DELIVER step 03-01.
+//   planPrune(ranked) -> the keys to remove: none up to 20 keys; above that k = min(5, n - 20) keys, all ranked 11th or lower
+export function planPrune(ranked) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+
+// ---- the restricted table port (DDD-4, ADR-004) ----
+// The only way the handler reaches the store: it lists the well-formed score keys, in arcade order, and writes or
+// removes score keys and nothing else. It calls store.list, store.set and store.delete, and no other store method.
+class KeyRefused extends Error {
+  name = 'KeyRefused';
+  constructor() { super('The high-score table only files score keys'); }   // never the key itself (DDD-17)
+}
+
+function scoreKeyOnly(key) {
+  if (!KEY.test(key)) throw new KeyRefused();
+  return key;
+}
+
+export function createTablePort(store) {
+  return Object.freeze({
+    async list() {
+      const { blobs } = await store.list({ prefix: PREFIX });   // strong: the roots open the store with consistency 'strong'
+      return rankKeys(blobs.map(blob => blob.key));
+    },
+    // true if written, false if the key already existed
+    async putIfNew(key) {
+      const { modified } = await store.set(scoreKeyOnly(key), '', { onlyIfNew: true });
+      return modified;
+    },
+    async remove(key) { await store.delete(scoreKeyOnly(key)); },
+  });
+}
+
+// ---- the handler ----
+// Caching per answer (DDD-6): a table read may be shared by the CDN for 15 s and is revalidated by every browser, so
+// nobody sees it more than 15 s old; nothing else is kept. Every answer is JSON.
+const SHARED_15_SECONDS = Object.freeze({ 'Netlify-CDN-Cache-Control': 'public, s-maxage=15, durable', 'Cache-Control': 'public, max-age=0, must-revalidate' });
+const NEVER_KEPT = Object.freeze({ 'Cache-Control': 'no-store' });
+const EVERY_ANSWER = Object.freeze({ 'Netlify-Vary': 'query=table', 'X-Content-Type-Options': 'nosniff' });
+
+const answer = (status, body, caching = NEVER_KEPT) => Response.json(body, { status, headers: { ...caching, ...EVERY_ANSWER } });
+
+// One log line per request (DDD-17): a fixed reason, how long it took and where the table is kept, as the root said
+// (all three 'missing' if it didn't). Never a key, initials, an id, a body or an error message.
+function journal({ now, log, where = NOWHERE }) {
+  const started = now();
+  return (event, reason, counts = {}) => log({ event, reason, ms: now() - started, ...counts, ...where });
+}
+
+// options, from the composition root: now () -> ms (a new row's time, and listedAt), newId () -> a new row's id
+// ([a-z0-9]+), log (receives one entry per request) and where ({ scope, context, published }, logged as given).
+// A GET is handed the port's list alone.
+export async function handleScores(request, port, options) {
+  if (request.method === 'GET') return read(port, options);
+  if (request.method !== 'POST') return answer(405, { error: 'method-not-allowed' });
+  return sign(request, port, options);
+}
+
+async function read({ list }, options) {
+  const record = journal(options);
+  const keys = await list();
+  const listedAt = options.now();   // right after the listing returns (DDD-12)
+  record('scores.read', 'ok', { keys: keys.length });
+  return answer(200, { scores: table(keys), listedAt }, SHARED_15_SECONDS);
+}
+
+function table(keys) {
+  return keys.slice(0, TABLE_SIZE).map(decodeKey).map(({ initials, score, id }) => ({ initials, score, id }));
+}
+
+// The walking skeleton's signing, on the port, until the shared signing rules (src/game/high-scores.js) and the
+// accepted prune rule replace its check and its fixed prune (DELIVER steps 02-01 and 03-01).
 const KEEP = 20;                // keys kept before pruning starts
 const PRUNE_AT_MOST = 5;        // per submit, so a burst of submits never becomes a storm of deletes
-const PREFIX = 's/';
-// Only keys of this shape count: the emulator lists its own temporary files (`s/.xxxx`) next to them.
-const KEY = /^s\/(\d{7})-\d{15}-([A-Z]{3})-([a-z0-9]+)$/;
 
-const keyFor = ({ initials, score }, id) =>
-  `${PREFIX}${String(MAX_SCORE - score).padStart(7, '0')}-${String(Date.now()).padStart(15, '0')}-${initials}-${id}`;
+async function sign(request, port, { now, newId }) {
+  const entry = await readEntry(request);
+  if (!isValid(entry)) return answer(400, { error: 'invalid-signature' });
+  const id = newId();
+  const saved = await port.putIfNew(encodeKey({ initials: entry.initials, score: entry.score, at: now(), id }));
+  if (!saved) return answer(503, { error: 'not-saved' });
+  const keys = await port.list();
+  const listedAt = now();
+  await prune(port, keys);
+  return answer(200, { scores: table(keys), id, listedAt });
+}
 
 function isValid(entry) {
   const { initials, score } = entry ?? {};
@@ -30,78 +164,13 @@ function isValid(entry) {
     Number.isSafeInteger(score) && score > 0 && score <= MAX_SCORE && score % SCORE_STEP === 0;
 }
 
-// Every well-formed key, in arcade order.
-async function rankedKeys(store) {
-  const { blobs } = await store.list({ prefix: PREFIX });   // strong: the store was opened with consistency 'strong'
-  return blobs.map(blob => blob.key).filter(key => KEY.test(key)).sort();
-}
-
-function table(keys) {
-  return keys.slice(0, TABLE_SIZE).map(key => {
-    const [, inverted, initials, id] = KEY.exec(key);
-    return { initials, score: MAX_SCORE - Number(inverted), id };
-  });
+async function readEntry(request) {
+  try { return await request.json(); } catch { return null; }
 }
 
 // A key ranked below 10th can never climb back (rows only ever leave the table), so any instance may delete it
 // without coordinating with the others.
-async function prune(store, keys) {
+async function prune(port, keys) {
   if (keys.length <= KEEP) return;
-  await Promise.all(keys.slice(TABLE_SIZE, TABLE_SIZE + PRUNE_AT_MOST).map(key => store.delete(key)));
-}
-
-async function readEntry(req) {
-  try { return await req.json(); } catch { return null; }
-}
-
-// RED scaffolds, created by DISTILL (rightmove-invaders-leaderboard). Nothing calls them yet, so the function and
-// scripts/serve.mjs behave exactly as before. Contract (DDD-4, ADR-004): the restricted table-store port that the
-// composition roots build around a @netlify/blobs Store, and the only way the handler reaches the store:
-//   list()        -> the well-formed score keys under s/ (^s/\d{7}-\d{15}-[A-Z]{3}-[a-z0-9]+$), in arcade order
-//   putIfNew(key) -> true if written, false if the key already existed (written with onlyIfNew)
-//   remove(key)   -> deletes one score key
-// putIfNew and remove throw a refusal for any key that is not well-formed; there is no deleteAll and no other store
-// access.
-//
-// The handler today is handleScores(req, store). DELIVER changes it to handleScores(req, port, options), which is what
-// the acceptance harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js, a second
-// composition root) already calls, and changes the default export and scripts/serve.mjs in the same step:
-//   options.now    () -> ms, stands in for Date.now (the key's time and listedAt)
-//   options.newId  () -> string, stands in for randomUUID
-//   options.log    receives one entry per request: { event, reason, ms, keys?, scope, context, published } (DDD-17)
-//   options.where  required: { scope, context, published }, what the composition root knows about where the table is
-//                  kept, logged as given. scope is 'site' | 'deploy' | 'local'; context and published are the raw
-//                  context.deploy values, or 'missing'. The Netlify entry builds it from the Context; scripts/serve.mjs
-//                  and the acceptance harness pass { scope: 'local', context: 'missing', published: 'missing' }.
-//                  If a root omits it, the handler still answers, and logs scope, context and published as 'missing',
-//                  so the wiring slip shows in the log like DDD-2's other detection signals.
-// The skeleton's fixed delete-5 in prune() above is replaced in DELIVER by the accepted rule k = min(5, n - 20) (DDD-1).
-export function createTablePort(store) {
-  throw new Error('__SCAFFOLD__: not yet implemented');
-}
-
-// The pure helpers (DESIGN, "Key codec, ranking, prune plan, chooseStore"), exported for DELIVER's unit tests, so that
-// the 12-case chooseStore table and the codec have a RED marker. Contracts:
-//   chooseStore(context)  -> 'site' only for context.deploy.context === 'production' and context.deploy.published === true,
-//                            else 'deploy' (ADR-005)
-//   encodeKey({ initials, score, at, id }) / decodeKey(key) -> the persisted key and back (null if not well-formed)
-//   rankKeys(keys)        -> the well-formed keys in arcade order
-//   planPrune(ranked)     -> the keys to remove: none up to 20 keys; above that k = min(5, n - 20) keys, all ranked 11th or lower
-export function chooseStore(context) { throw new Error('__SCAFFOLD__: not yet implemented'); }
-export function encodeKey(row) { throw new Error('__SCAFFOLD__: not yet implemented'); }
-export function decodeKey(key) { throw new Error('__SCAFFOLD__: not yet implemented'); }
-export function rankKeys(keys) { throw new Error('__SCAFFOLD__: not yet implemented'); }
-export function planPrune(ranked) { throw new Error('__SCAFFOLD__: not yet implemented'); }
-
-export async function handleScores(req, store) {
-  if (req.method === 'GET') return Response.json({ scores: table(await rankedKeys(store)) });
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
-  const entry = await readEntry(req);
-  if (!isValid(entry)) return new Response('Expected { initials: three letters A-Z, score: a positive multiple of 50 }', { status: 400 });
-  const id = randomUUID().replaceAll('-', '');
-  const { modified } = await store.set(keyFor(entry, id), '', { onlyIfNew: true });
-  if (!modified) return new Response('Score not saved, try again', { status: 503 });
-  const keys = await rankedKeys(store);
-  await prune(store, keys);
-  return Response.json({ scores: table(keys), id });
+  await Promise.all(keys.slice(TABLE_SIZE, TABLE_SIZE + PRUNE_AT_MOST).map(key => port.remove(key)));
 }

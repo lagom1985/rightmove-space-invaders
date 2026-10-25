@@ -2,7 +2,7 @@ Feature: Reading the shared high-score table
   Everyone who opens the game reads the same table: the best ten signatures, best first. The high-score table answers
   every reader, even when it holds stray entries or can't be looked at, and never changes while it is read.
 
-  @OUT-7 @DDD-6 @DDD-12 @DDD-17 @driving_port @server @real-io @kpi-K14 @pending
+  @OUT-7 @DDD-6 @DDD-12 @DDD-17 @driving_port @server @real-io @kpi-K14
   Scenario: An empty high-score table is read as empty, and everyone sees it at most 15 seconds old
     Given nobody has signed the high-score table yet
     When someone reads the high-score table

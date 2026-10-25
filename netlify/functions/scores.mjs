@@ -10,7 +10,7 @@
 // harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
-import { MAX_SCORE, SCORE_STEP, TABLE_SIZE } from '../../src/game/high-scores.js';
+import { MAX_SCORE, TABLE_SIZE, isValidSignature } from '../../src/game/high-scores.js';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
 // a minute per client, by IP and domain (DEVOPS).
@@ -144,7 +144,7 @@ export async function handleScores(request, port, options) {
 async function route(request, port, options, record) {
   if (request.method === 'GET') return read(port, options, record);
   if (request.method !== 'POST') return answer(405, { error: 'method-not-allowed' });
-  return sign(request, port, options);
+  return sign(request, port, options, record);
 }
 
 async function read({ list }, { now }, record) {
@@ -164,32 +164,63 @@ function table(keys) {
   return keys.slice(0, TABLE_SIZE).map(decodeKey).map(({ initials, score, id }) => ({ initials, score, id }));
 }
 
-// The walking skeleton's signing, on the port, until the shared signing rules (src/game/high-scores.js) and the
-// accepted prune rule replace its check and its fixed prune (DELIVER steps 02-01 and 03-01).
-const KEEP = 20;                // keys kept before pruning starts
-const PRUNE_AT_MOST = 5;        // per submit, so a burst of submits never becomes a storm of deletes
-
-async function sign(request, port, { now, newId }) {
-  const entry = await readEntry(request);
-  if (!isValid(entry)) return answer(400, { error: 'invalid-signature' });
+// A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
+// The rows are logged as a count, after the tidy-up, so a tidy-up that throws leaves one line (the catch-all's).
+async function sign(request, port, { now, newId }, record) {
+  const { signature, refused } = await readSignature(request);
+  if (refused) return refuse(record, refused);
   const id = newId();
-  const saved = await port.putIfNew(encodeKey({ initials: entry.initials, score: entry.score, at: now(), id }));
+  const saved = await port.putIfNew(encodeKey({ initials: signature.initials, score: signature.score, at: now(), id }));
   if (!saved) return answer(503, { error: 'not-saved' });
   const keys = await port.list();
-  const listedAt = now();
+  const listedAt = now();   // right after the listing returns (DDD-12)
   await prune(port, keys);
+  record('scores.signed', 'ok', { keys: keys.length });
   return answer(200, { scores: table(keys), id, listedAt });
 }
 
-function isValid(entry) {
-  const { initials, score } = entry ?? {};
-  return typeof initials === 'string' && /^[A-Z]{3}$/.test(initials) &&
-    Number.isSafeInteger(score) && score > 0 && score <= MAX_SCORE && score % SCORE_STEP === 0;
+// ---- what a POST must be (ADR-007, DDD-5), checked in this order; a refusal saves nothing ----
+const REFUSAL_STATUS = Object.freeze({ 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400 });
+const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
+
+function refuse(record, error) {
+  record('scores.rejected', error);
+  return answer(REFUSAL_STATUS[error], { error });
 }
 
-async function readEntry(request) {
-  try { return await request.json(); } catch { return null; }
+// { signature } or { refused: the error code }. The body is read only once the format is right.
+async function readSignature(request) {
+  if (mediaType(request) !== 'application/json') return { refused: 'json-required' };
+  const body = await readUpTo(BODY_CAP, request.body);
+  if (body === null) return { refused: 'payload-too-large' };
+  const signature = parsed(body);
+  return isValidSignature(signature) ? { signature } : { refused: 'invalid-signature' };
 }
+
+// The media type alone, its parameters (a charset, say) ignored; media types are case-insensitive.
+const mediaType = request => (request.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+
+// The body as text, or null as soon as it passes `cap` bytes: the rest is never read.
+async function readUpTo(cap, stream) {
+  if (!stream) return '';
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let size = 0, text = '';
+  for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+    size += chunk.value.byteLength;
+    if (size > cap) { await reader.cancel(); return null; }
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+function parsed(body) {
+  try { return JSON.parse(body); } catch { return undefined; }
+}
+
+// The walking skeleton's fixed prune, until the accepted prune rule (planPrune) replaces it (DELIVER step 03-01).
+const KEEP = 20;                // keys kept before pruning starts
+const PRUNE_AT_MOST = 5;        // per submit, so a burst of submits never becomes a storm of deletes
 
 // A key ranked below 10th can never climb back (rows only ever leave the table), so any instance may delete it
 // without coordinating with the others.

@@ -4,7 +4,7 @@ Feature: Signing the shared high-score table
   signature as a row of its own, refuses anything else without saving it, and answers with the table as it now
   stands, so the signer can find their row.
 
-  @OUT-8 @DDD-1 @DDD-6 @DDD-12 @DDD-17 @driving_port @server @real-io @kpi-K14 @pending
+  @OUT-8 @DDD-1 @DDD-6 @DDD-12 @DDD-17 @driving_port @server @real-io @kpi-K14
   Scenario: A valid signature is saved, and the answer shows where it ranks
     Given nobody has signed the high-score table yet
     When the high-score table receives the signature FAB with £1,000
@@ -14,14 +14,14 @@ Feature: Signing the shared high-score table
     And the answer is never kept for reuse
     And the owner can see where the table is kept and how long the signing took
 
-  @OUT-8 @DDD-8 @server @real-io @edge @pending
+  @OUT-8 @DDD-8 @server @real-io @edge
   Scenario: Signing twice with the same initials and deposit makes two rows
     Given the high-score table has saved the signature FAB with £1,000
     When the high-score table receives the signature FAB with £1,000
     Then the signature is saved as one new row
     And the answer shows FAB at #1 and at #2
 
-  @OUT-8 @OUT-10 @DDD-3 @DDD-5 @server @real-io @edge @pending
+  @OUT-8 @OUT-10 @DDD-3 @DDD-5 @server @real-io @edge
   Scenario Outline: The table accepts the signature <signature>
     Given nobody has signed the high-score table yet
     When the high-score table receives the signature <signature>
@@ -34,7 +34,7 @@ Feature: Signing the shared high-score table
       | FAB with £9,999,950               |
       | FAB with £1,000 stretched to 1 KB |
 
-  @OUT-8 @DDD-5 @DDD-17 @server @real-io @error @pending
+  @OUT-8 @DDD-5 @DDD-17 @server @real-io @error
   Scenario Outline: The table refuses <what> <why>, and saves nothing
     Given nobody has signed the high-score table yet
     When the high-score table receives <what>

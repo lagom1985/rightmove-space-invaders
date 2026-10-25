@@ -64,3 +64,37 @@ test('a GET handed only the listing answers 200 with the best ten rows held, and
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 15 });
 });
+
+// A body's size is what is read from it, never what its Content-Length claims (DDD-5): a valid signature padded past
+// 1 KB (1,024 bytes), claiming to be 1 KB or less and arriving in any chunks, is answered 413 and saves nothing.
+const KB = 1024;
+const signature = fc.record({ initials: fc.stringMatching(/^[A-Z]{3}$/), score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50) });
+const claimed = fc.integer({ min: 1, max: KB });
+const pastOneKB = fc.integer({ min: KB + 1, max: 4 * KB });
+const cuts = fc.uniqueArray(fc.integer({ min: 1, max: 4 * KB }), { maxLength: 6 });
+
+function streamed(bytes, at) {
+  const ends = [...at.filter(cut => cut < bytes.length).sort((a, b) => a - b), bytes.length];
+  return new ReadableStream({
+    start(controller) {
+      ends.reduce((start, end) => { controller.enqueue(bytes.slice(start, end)); return end; }, 0);
+      controller.close();
+    },
+  });
+}
+
+test('a POST that claims to be small but runs past 1 KB answers 413 payload-too-large, never kept, and saves nothing', async () => {
+  await fc.assert(fc.asyncProperty(signature, claimed, pastOneKB, cuts, async (signed, length, size, at) => {
+    const store = freshStore();
+    const json = JSON.stringify(signed);
+    const bytes = new TextEncoder().encode(json + ' '.repeat(size - json.length));
+    const headers = { 'content-type': 'application/json', 'content-length': String(length) };
+    const request = new Request(URL, { method: 'POST', headers, body: streamed(bytes, at), duplex: 'half' });
+    const before = await snapshot(store);
+    const response = await handleScores(request, createTablePort(store), { now: () => NOW, newId: () => 'unused', log: () => {}, where: LOCAL });
+    expect(response.status).toBe(413);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'payload-too-large' });
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 15, examples: [[{ initials: 'FAB', score: 1000 }, 20, KB + 1, []]] });
+});

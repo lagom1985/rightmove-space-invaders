@@ -2,8 +2,8 @@
 // src/game/game.js uses all of it; netlify/functions/scores.mjs uses the table size and signature validity (word filter
 // included); only the browser uses makesTheTable.
 //
-// RED scaffold, created by DISTILL (rightmove-invaders-leaderboard). The constants are DESIGN's values; the functions
-// throw until DELIVER implements them. Nothing in the browser or the function imports this module yet, so it is inert.
+// RED scaffold, created by DISTILL (rightmove-invaders-leaderboard). The constants are DESIGN's values. isValidSignature
+// is implemented (DELIVER 02-01); isAllowedInitials and makesTheTable throw until DELIVER implements them (02-02, 04-01).
 export const __SCAFFOLD__ = true;
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
@@ -24,7 +24,17 @@ export function isAllowedInitials(initials) { return notYetImplemented(initials)
 // { initials, score } (exactly these two fields) -> true when the initials are 3 letters A-Z (word filter aside) and the
 // score is a positive integer multiple of SCORE_STEP up to MAX_SCORE. The function refuses blocked initials separately
 // (400 initials-not-allowed), so validity and the word filter are two questions.
-export function isValidSignature(signature) { return notYetImplemented(signature); }
+const SIGNATURE_FIELDS = Object.freeze(['initials', 'score']);
+
+const hasExactlyTheFields = signature => typeof signature === 'object' && signature !== null &&
+  Object.keys(signature).length === SIGNATURE_FIELDS.length && SIGNATURE_FIELDS.every(field => Object.hasOwn(signature, field));
+const isInitialsShape = initials => typeof initials === 'string' && initials.length === INITIALS_LENGTH &&
+  [...initials].every(letter => ALPHABET.includes(letter));
+const isScore = score => Number.isSafeInteger(score) && score > 0 && score % SCORE_STEP === 0 && score <= MAX_SCORE;
+
+export function isValidSignature(signature) {
+  return hasExactlyTheFields(signature) && isInitialsShape(signature.initials) && isScore(signature.score);
+}
 
 // table state { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }] best first }, deposit
 // -> true only when the status is 'available', the deposit is above 0, and there are fewer than TABLE_SIZE rows or the

@@ -1,12 +1,18 @@
 # Journey SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23 (lightweight depth).
+# Extended by DISCUSS for rightmove-invaders-typed-initials, 2026-10-25: the high-score steps (qualify, type-initials,
+# sign, see-the-table) and their error paths. The table itself shipped with rightmove-invaders-leaderboard, which had no
+# DISCUSS. The type-initials step describes typed initials; until that feature ships, Up and Down choose each letter
+# and Enter takes it.
 id: play-a-session
 persona: casual-arcade-player
-jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE]
+jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE, J-TABLE-SIGN, J-TABLE-SKIP]
 
 steps:
   - id: open
     action: Open the game in a desktop browser.
-    sees: Title screen with the hurdle legend, best deposit and controls (including "M sound").
+    sees: >
+      Title screen with the hurdle legend, best deposit and controls (including "M sound"). While the shared high-score
+      table is available, the title takes turns showing the legend and the High scores list.
     hears: Nothing yet. Browsers block audio until the first key press.
     feels: curious
   - id: start
@@ -39,12 +45,43 @@ steps:
     action: Clear the wave, or lose.
     hears: A rising fanfare for "Wave cleared!", or a descending tune for "Offer rejected" / "Gazumped!".
     feels: proud, or wry and motivated to retry
+  - id: qualify
+    action: Lose with a deposit that makes the shared top 10, while the table is available.
+    sees: >
+      "Deposit saved £1,250", "New high score!", three empty slots (_ _ _) with the first blinking, and the help line
+      "Type 3 letters   Enter sign   Backspace delete   Esc skip". Screen readers hear "New high score! Enter your
+      initials: type 3 letters, then press Enter to sign. Esc skips." For the first 0.6 s no key acts on the entry, so
+      a game key tapped as the game ends doesn't type.
+    feels: proud, a little rushed
+  - id: type-initials
+    action: Type 3 letters (lowercase is fine, on any keyboard layout); Backspace deletes the last letter.
+    sees: >
+      Each letter fills the next slot, in capitals, as printed on the key (A _ _, A L _, A L X). Arrows, digits, Space and
+      punctuation do nothing, and M, N and P type letters instead of toggling. Screen readers hear "A, letter 2 of 3" and
+      so on, up to "A L X, press Enter to sign".
+    feels: in control
+  - id: sign
+    action: Press Enter (or Esc to pass; see error_paths).
+    sees: >
+      "Signing ALX…", then "Signed ALX, #3." with the row marked (green on the canvas, aria-current in the page), or
+      "The table filled up before ALX arrived." or "Couldn't confirm ALX's signing."
+    feels: proud, recognised
+  - id: see-the-table
+    action: Press Enter to house-hunt again; open the game later, or on another computer.
+    sees: >
+      The High scores list on every game-over screen and on the title, refreshed at each game start. ALX's confirmed row
+      stays marked until the next signing, or until it leaves the table.
+    feels: motivated to climb
 
 shared_artifacts:
   sound_enabled: {source: "g.settings.sound (rules), persisted by main.js in localStorage 'make-the-right-move:sound'", default: true, toggled_by: M}
   music_enabled: {source: "g.settings.music (rules), persisted by main.js in localStorage 'make-the-right-move:music'", default: true, toggled_by: N}
   formation_step: {source: "formationStepped event from the rules (src/game/events.js)", drives: marching beat tempo}
   game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/game/events.js", drives: effects and jingles}
+  high_score_table: {source: "the Score API /api/scores (netlify/functions/scores.mjs over Netlify Blobs), held by the rules as g.table", consumers: [game-over list, title attract list, status mirror High scores list]}
+  initials_entry: {source: "g.initials (rules)", consumers: [canvas slots, "data-hud=initials field", live region]}
+  signing: {source: "g.signing and g.settled (rules)", consumers: [canvas signing line, live region, "the marked row (aria-current)"]}
+  wording: {source: "src/view/messages.js", consumers: [canvas, status mirror]}
 
 error_paths:
   - when: No key pressed yet (autoplay policy).
@@ -57,3 +94,19 @@ error_paths:
     then: All sound stops at once, without waiting for the next frame; it resumes when play resumes.
   - when: localStorage is blocked.
     then: Sound and music default to on for every visit.
+  - when: The initials typed are on the word filter (for example ASS).
+    then: '"Those initials aren''t allowed. Type different ones."; the slots empty; nothing is sent.'
+  - when: Enter is pressed with fewer than 3 letters.
+    then: '"Type 3 letters to sign, or press Esc to skip."; the letters stay; nothing is sent.'
+  - when: The player doesn't want to sign.
+    then: 'Esc: "Signing skipped. Press Enter to house-hunt again."; nothing is sent; the deposit stays off the table; an earlier signing keeps its mark.'
+  - when: A game key is tapped just as the game ends.
+    then: For the first 0.6 s of game over no key acts on the entry, and a key held down from play never types.
+  - when: The table has never loaded by game over (unreachable at page load).
+    then: No initials are asked; game over says "High-score table unavailable." and the game plays on.
+  - when: A refresh fails after a table has loaded.
+    then: The last good table stays, and a deposit that makes it is still asked for initials.
+  - when: The signing doesn't get through (connection lost, turned away, or no answer within 5 s).
+    then: '"Couldn''t confirm ALX''s signing." It is never retried; if it was saved, the next refresh shows the row, unmarked.'
+  - when: The table filled up before the signing arrived.
+    then: '"The table filled up before ALX arrived."'

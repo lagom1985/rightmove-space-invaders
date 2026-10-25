@@ -1,4 +1,5 @@
 # Persona SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23.
+# Vocabulary extended by DISCUSS for rightmove-invaders-typed-initials, 2026-10-25 (the high-score table).
 id: casual-arcade-player
 name: Alex Morgan
 pronouns: they/them
@@ -18,10 +19,14 @@ frustrations:
 mental_model: >
   Arcade games sound like 8-bit chips. Every shot and explosion makes a noise, the music speeds
   up when danger gets close, and there is always one key to turn sound off.
-vocabulary: [shot, hurdle, house, home, dream home, deposit, wave, ladder, mute, sound on, sound off, music off, bolt, pin, formation]
+vocabulary: [shot, hurdle, house, home, dream home, deposit, wave, ladder, mute, sound on, sound off, music off, bolt, pin, formation, high-score table, initials, sign, skip]
 glossary:
   pin: the player, a map pin with a house cut out of it
   bolt: a shot fired by a hurdle
   formation: the marching rows of hurdles
   house: one of the four terraced-house shields
   home: a life (the pins shown bottom left)
+  high-score table: the top 10 deposits that everyone who opens the game shares ("High scores")
+  initials: the three letters a player signs the high-score table with
+  sign: put your initials on the high-score table; a signing is pending until the table answers
+  skip: pass on signing (Esc), so the deposit stays off the table

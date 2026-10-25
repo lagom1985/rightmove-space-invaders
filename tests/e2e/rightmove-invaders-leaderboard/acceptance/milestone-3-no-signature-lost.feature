@@ -29,7 +29,7 @@ Feature: No signature is lost
     And the owner can see it was a failed tidy-up
     And what the owner sees says nothing about the player
 
-  @OUT-9 @DDD-1 @server @real-io @property @kpi-K11 @pending
+  @OUT-9 @DDD-1 @server @real-io @property @kpi-K11
   Scenario: However many signatures arrive at once, none that belongs in the top ten is lost
     Given nobody has signed the high-score table yet
     When any batch of up to 30 valid signatures arrives at the same moment

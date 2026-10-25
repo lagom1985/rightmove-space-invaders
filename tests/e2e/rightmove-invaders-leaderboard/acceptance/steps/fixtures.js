@@ -10,14 +10,15 @@ import { test as base } from 'playwright-bdd';
 // rules: the game's rules on their own, with the table's answers handed over in any order (project in-memory, Tier B).
 // The drivers are imported lazily, so a scenario only loads the one it uses.
 export const test = base.extend({
-  table: async ({}, use) => {
+  // Every browser scenario plays at least one whole game until the hurdles win, and some play two.
+  // On `table`, not `game`: the walking skeleton plays a whole game with `table` alone, and `game` uses `table` anyway.
+  table: async ({}, use, testInfo) => {
+    testInfo.setTimeout(testInfo.timeout * 3);
     const table = { board: randomUUID(), viewer: null, others: [] };
     await use(table);
     for (const context of table.others) await context.close();
   },
-  // Every browser scenario plays at least one whole game until the hurdles win, and some play two.
-  game: async ({ page, table, baseURL }, use, testInfo) => {
-    testInfo.setTimeout(testInfo.timeout * 3);
+  game: async ({ page, table, baseURL }, use) => {
     const { LeaderboardGame } = await import('./leaderboard-game.js');
     await use(new LeaderboardGame(page, table, baseURL));
   },

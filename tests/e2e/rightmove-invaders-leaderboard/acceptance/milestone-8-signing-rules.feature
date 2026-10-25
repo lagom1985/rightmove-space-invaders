@@ -3,13 +3,13 @@ Feature: The signing and table rules, whatever order the answers arrive in
   listing time. This also covers what the keyboard can't reach within the 5-second timeout: a game that ends before
   the table has ever answered, and the answer to a signing that a newer signing has replaced.
 
-  @OUT-10 @OUT-11 @OUT-12 @DDD-8 @DDD-9 @DDD-12 @in-memory @property @pending
+  @OUT-10 @OUT-11 @OUT-12 @DDD-8 @DDD-9 @DDD-12 @in-memory @property
   Scenario: Whatever order the table's answers arrive in, the signing and the table follow the rules
     Given the game's rules are running on their own
     When the player plays any sequence of games, signings and table answers, in any order
     Then the table, the signing and what is announced always follow the rules
 
-  @OUT-12 @DDD-9 @in-memory @edge @pending
+  @OUT-12 @DDD-9 @in-memory @edge
   Scenario: A game that ends before the table has ever answered asks for no initials
     Given the game's rules are running on their own
     And the high-score table has not answered yet
@@ -17,7 +17,7 @@ Feature: The signing and table rules, whatever order the answers arrive in
     Then no initials are asked for
     And the game-over screen shows no table
 
-  @OUT-11 @DDD-8 @in-memory @edge @pending
+  @OUT-11 @DDD-8 @in-memory @edge
   Scenario: The answer to a signing I have since replaced is announced once and changes nothing else
     Given the game's rules are running on their own
     And FAB's signing is on its way

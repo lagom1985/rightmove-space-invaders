@@ -29,13 +29,10 @@ const STORES = Object.freeze({
 export default async function scores(request, context) {
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
-  const options = { now: Date.now, newId, log: entry => console.log(JSON.stringify(entry)), where };
+  const options = { now: Date.now, newId, log: logToConsole, where };
   const record = journal(options);
   const port = openTable(scope);
-  if (!port) {
-    record('scores.error', 'store-unavailable');
-    return answer(500, { error: 'unexpected' });
-  }
+  if (!port) return failed(record, 'store-unavailable');
   return handleScores(request, port, options);
 }
 
@@ -50,6 +47,9 @@ function openTable(scope) {
 }
 
 const newId = () => randomUUID().replaceAll('-', '');
+
+// The production logger: one JSON line per entry on the console, which Netlify keeps as the function's log (DDD-17).
+export const logToConsole = entry => console.log(JSON.stringify(entry));
 
 // ---- the key codec (the persisted schema, ADR-004) ----
 // s/{MAX_SCORE - score, 7 digits}-{epoch ms, 15 digits}-{initials}-{id}. Only keys of exactly this shape are rows: the
@@ -114,27 +114,50 @@ const EVERY_ANSWER = Object.freeze({ 'Netlify-Vary': 'query=table', 'X-Content-T
 const answer = (status, body, caching = NEVER_KEPT) => Response.json(body, { status, headers: { ...caching, ...EVERY_ANSWER } });
 
 // One log line per request (DDD-17): a fixed reason, how long it took and where the table is kept, as the root said
-// (all three 'missing' if it didn't). Never a key, initials, an id, a body or an error message.
+// (all three 'missing' if it didn't). Never a key, initials, an id, a body or an error message. A clock that throws
+// costs the line its ms (logged as null), never the line itself.
 function journal({ now, log, where = NOWHERE }) {
-  const started = now();
-  return (event, reason, counts = {}) => log({ event, reason, ms: now() - started, ...counts, ...where });
+  const reading = () => { try { return now(); } catch { return NaN; } };
+  const started = reading();
+  return (event, reason, counts = {}) => log({ event, reason, ms: reading() - started, ...counts, ...where });
+}
+
+// 500 unexpected, logged with its fixed reason and never with the error, whose message can carry a key (DDD-17).
+function failed(record, reason) {
+  record('scores.error', reason);
+  return answer(500, { error: 'unexpected' });
 }
 
 // options, from the composition root: now () -> ms (a new row's time, and listedAt), newId () -> a new row's id
 // ([a-z0-9]+), log (receives one entry per request) and where ({ scope, context, published }, logged as given).
-// A GET is handed the port's list alone.
+// A GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws is answered 500
+// unexpected and logged as unexpected, so the promise always resolves.
 export async function handleScores(request, port, options) {
-  if (request.method === 'GET') return read(port, options);
+  const record = journal(options);
+  try {
+    return await route(request, port, options, record);
+  } catch {
+    return failed(record, 'unexpected');
+  }
+}
+
+async function route(request, port, options, record) {
+  if (request.method === 'GET') return read(port, options, record);
   if (request.method !== 'POST') return answer(405, { error: 'method-not-allowed' });
   return sign(request, port, options);
 }
 
-async function read({ list }, options) {
-  const record = journal(options);
-  const keys = await list();
-  const listedAt = options.now();   // right after the listing returns (DDD-12)
+async function read({ list }, { now }, record) {
+  const keys = await listing(list);
+  if (!keys) return failed(record, 'list-failed');
+  const listedAt = now();   // right after the listing returns (DDD-12)
   record('scores.read', 'ok', { keys: keys.length });
   return answer(200, { scores: table(keys), listedAt }, SHARED_15_SECONDS);
+}
+
+// The well-formed keys, or null when the table can't be looked at.
+async function listing(list) {
+  try { return await list(); } catch { return null; }
 }
 
 function table(keys) {

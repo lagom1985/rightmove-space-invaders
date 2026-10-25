@@ -24,7 +24,8 @@ export default defineConfig({
   testDir,
   reporter: 'list',
   use: { baseURL },
-  webServer: { command: 'npm start', url: baseURL, reuseExistingServer: !process.env.CI },
+  // SIGTERM, not Playwright's default SIGKILL, so the server can delete its emulator directory on the way out (DDD-16).
+  webServer: { command: 'npm start', url: baseURL, reuseExistingServer: !process.env.CI, gracefulShutdown: { signal: 'SIGTERM', timeout: 2000 } },
   projects: [
     // Unit properties (fast-check) on pure modules: no browser, no @pending/@in-memory filtering.
     { name: 'unit', testDir: 'tests/unit' },

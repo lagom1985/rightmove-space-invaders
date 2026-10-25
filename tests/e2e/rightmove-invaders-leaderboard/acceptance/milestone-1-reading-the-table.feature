@@ -12,7 +12,7 @@ Feature: Reading the shared high-score table
     And the owner can see where the table is kept and how long the read took
     And the table is left as it was
 
-  @OUT-7 @DDD-1 @server @real-io @pending
+  @OUT-7 @DDD-1 @server @real-io
   Scenario: The table shows the best ten signatures, best first, and the earlier of two equal deposits first
     Given the high-score table holds these signatures:
       | initials | deposit | signed at |
@@ -43,7 +43,7 @@ Feature: Reading the shared high-score table
       | FAY      | £150    |
     And the table is left as it was
 
-  @OUT-7 @DDD-1 @DDD-18 @server @real-io @edge @pending
+  @OUT-7 @DDD-1 @DDD-18 @server @real-io @edge
   Scenario: Stray entries that aren't signatures are ignored when the table is read
     Given the high-score table holds FAB with £1,000
     And the high-score table also holds stray entries that aren't signatures
@@ -53,7 +53,7 @@ Feature: Reading the shared high-score table
       | FAB      | £1,000  |
     And the table is left as it was
 
-  @OUT-7 @DDD-6 @DDD-17 @server @real-io @error @pending
+  @OUT-7 @DDD-6 @DDD-17 @server @real-io @error
   Scenario: A reader is told the table failed when it can't be looked at, and the owner is told why, without the player's details
     Given the high-score table holds FAB with £1,000
     And looking at the high-score table fails

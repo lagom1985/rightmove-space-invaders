@@ -212,6 +212,8 @@ function drawGameOver(ctx) {
   if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // Enter takes a letter until all three are in
   if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
   if (hasHighScores()) drawHighScores(ctx, top + 200);
+  // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
+  if (g.table.status === 'unavailable') text(ctx, 'High-score table unavailable.', W / 2, top + 200, 8, COLORS.dim, 'center');
   if (g.overT > 0.6 && blink()) text(ctx, 'Press Enter to house-hunt again', W / 2, again, 16, COLORS.green, 'center');
 }
 

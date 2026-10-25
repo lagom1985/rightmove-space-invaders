@@ -27,14 +27,16 @@ const director = createSoundDirector({ ...g.settings });
 
 // The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between
 // frames: the frame never waits on the network (DDD-11). If it can't be reached the game plays exactly as it does
-// without one: the rules make it unavailable, so nobody is asked for initials. The window's timers time it out, so a
-// test's fake clock drives the timeout (DDD-13).
+// without one: the rules make it unavailable while no table has ever loaded, so nobody is asked for initials. The
+// window's timers time it out, so a test's fake clock drives the timeout (DDD-13).
 const leaderboard = createLeaderboard({
   fetch,
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
   clearTimeout: id => window.clearTimeout(id),
 });
-leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
+// Read on page load and again, in the background, whenever a game starts (DDD-7): never awaited (ADR-008).
+const loadTable = () => leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
+loadTable();
 // Signing n is sent once and never retried (ADR-008): its answer or its failure settles it.
 const signTable = ({ initials, score, signing }) =>
   leaderboard.sign({ initials, score }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
@@ -48,6 +50,7 @@ function handleEvents() {
   for (const event of takeEvents()) {
     const setting = SAVED_WHEN_TOGGLED[event.type];
     if (setting) saveSetting(setting, event.on);
+    if (event.type === GameEvent.GAME_STARTED) loadTable();
     if (event.type === GameEvent.INITIALS_ENTERED) signTable(event);
     for (const cue of director.handle(event)) synth.perform(cue);
   }

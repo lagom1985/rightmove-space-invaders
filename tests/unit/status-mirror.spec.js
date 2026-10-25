@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
@@ -36,9 +37,10 @@ const REFUSAL = 'Those initials aren\'t allowed. Change a letter.';
 const ABOUT_THE_INITIALS = /[A-Z] [A-Z] [A-Z], letter [1-3] of 3|Those initials aren't allowed/;
 
 class MirroredGame {
-  static async fresh() {
+  // The page load has answered with an empty table, unless the table is to stay unknown until something says otherwise.
+  static async fresh({ answered = true } = {}) {
     const game = await loadFreshGame();
-    game.tableAnswered({ scores: [], listedAt: 0 });   // the page load's answer: an empty table
+    if (answered) game.tableAnswered({ scores: [], listedAt: 0 });
     return new MirroredGame(game);
   }
 
@@ -271,4 +273,65 @@ test('the initials field reads the entry and is empty otherwise, each change of 
     fc.modelRun(() => ({ model, real: mirrored }), commands);
   }));
   expect(ENTRY_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
+});
+
+// ---- what game over says about the table (DDD-9) ----
+// No load ever answers here, so the table is unknown until a load fails, and unavailable from then on; loads fail at
+// any moment (on the title, in play or on the game-over screen), any number of times. Game over with the table
+// unavailable says 'High-score table unavailable.' once: in the game-over message, or on its own when the table turns
+// unavailable on the game-over screen. With the table unknown, game over says nothing about the table (DISTILL,
+// Messages: no neutral wording). Either way nobody is asked for initials, no list is shown, and the game plays on.
+const TABLE_UNAVAILABLE = 'High-score table unavailable.';
+const PLAY_AGAIN = 'Press Enter to house-hunt again.';
+const ABOUT_THE_TABLE = /High-score table|Enter your initials/;
+const occurrences = (text, part) => text.split(part).length - 1;
+const keptWhatWasSaid = (was, now) => isDeepStrictEqual(now.slice(0, was.length), was);
+
+const nothingAboutTheTable = satisfying('nothing said about the table', (was, now) =>
+  keptWhatWasSaid(was, now) && now.slice(was.length).every(text => !ABOUT_THE_TABLE.test(text)));
+
+// The game-over message alone: the deposit, the table line once if the table is unavailable and nothing else about the
+// table, no prompt, and the way to play on.
+const gameOverSays = (deposit, unavailable) => satisfying(
+  `the game-over message for ${pounds(deposit)}, ${unavailable ? 'saying once that the table is unavailable' : 'saying nothing about the table'}`,
+  (was, now) => {
+    if (now.length !== was.length + 1 || !keptWhatWasSaid(was, now)) return false;
+    const said = now.at(-1);
+    return said.startsWith('Game over: ') && said.includes(`Deposit saved ${pounds(deposit)}.`) && said.endsWith(PLAY_AGAIN) &&
+      occurrences(said, TABLE_UNAVAILABLE) === Number(unavailable) && !ABOUT_THE_TABLE.test(said.replace(TABLE_UNAVAILABLE, ''));
+  });
+
+const failureMoments = fc.array(fc.constantFrom('title', 'play', 'over'), { maxLength: 4 });
+const TABLE_WITNESSES = ['unknown at game over', 'unavailable before game over', 'unavailable on the game-over screen', 'failed again on the game-over screen'];
+
+test('at game over an unavailable table is said to be unavailable once, an unknown one says nothing about the table, and neither asks for initials or shows a list', async () => {
+  const seen = new Set();
+  await fc.assert(fc.asyncProperty(failureMoments, fc.integer({ min: 0, max: 20 }), syncs, async (moments, fifties, times) => {
+    const r = await MirroredGame.fresh({ answered: false });
+    const deposit = fifties * 50;
+    const quiet = { heard: nothingAboutTheTable, field: '' };
+    const failuresOn = screen => moments.filter(moment => moment === screen);
+    let unavailable = false;
+    const failBeforeGameOver = () => {
+      r.frame(() => r.game.tableFailed(), times, quiet);
+      unavailable = true;
+    };
+    r.frame(() => {}, times, quiet);   // the title
+    failuresOn('title').forEach(failBeforeGameOver);
+    r.frame(() => r.press('Enter'), times, quiet);
+    failuresOn('play').forEach(failBeforeGameOver);
+    seen.add(unavailable ? 'unavailable before game over' : 'unknown at game over');
+    r.frame(() => { arrange.deposit(r.game, deposit); arrange.formationOnPin(r.game); r.game.update(STEP, keyboard); }, times,
+      { heard: gameOverSays(deposit, unavailable), field: '' });
+    expect(r.screen(), 'arranging: the game should be over').toBe('over');
+    failuresOn('over').forEach(() => {
+      seen.add(unavailable ? 'failed again on the game-over screen' : 'unavailable on the game-over screen');
+      r.frame(() => r.game.tableFailed(), times, { heard: unavailable ? unchanged() : appendedWith(TABLE_UNAVAILABLE), field: '' });
+      unavailable = true;
+    });
+    r.frame(() => r.game.update(SETTLE_S, keyboard), times, { heard: unchanged(), field: '' });
+    r.frame(() => r.press('Enter'), times, quiet);
+    expect(r.screen(), 'the game plays on').toBe('play');
+  }));
+  expect(TABLE_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });

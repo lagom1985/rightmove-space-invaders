@@ -8,7 +8,12 @@ const SETTING_MESSAGES = {
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
 const REFUSAL = 'Those initials aren\'t allowed. Change a letter.';
 const PLAY_AGAIN = 'Press Enter to house-hunt again.';
+const TABLE_UNAVAILABLE = 'High-score table unavailable.';
 const NO_ROWS = Object.freeze([]);
+
+// What game over says about the table (DISTILL, Messages): only that it can't be reached. While it is unknown (at most
+// 5 s after a load starts) nothing at all, and while it is available its rows say it.
+const tableLine = g => (g.state === 'over' && g.table.status === 'unavailable' ? TABLE_UNAVAILABLE : '');
 
 // The letters spaced, so a screen reader spells them, and the one being chosen: 'F A A, letter 2 of 3'.
 const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${index + 1} of ${letters.length}`;
@@ -24,8 +29,8 @@ const OUTCOME_MESSAGES = {
 // signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
   if (g.signedThisGame) return g.signing.status === 'pending' ? `Signing ${g.signing.initials}… ${PLAY_AGAIN}` : PLAY_AGAIN;
-  return `Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.` +
-    (g.newBest ? ' New best!' : '') + ` ${g.initials ? INITIALS_HELP : PLAY_AGAIN}`;
+  return [`Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.`, g.newBest ? 'New best!' : '',
+    tableLine(g), g.initials ? INITIALS_HELP : PLAY_AGAIN].filter(Boolean).join(' ');
 }
 
 // Mirrors the canvas HUD, the high-score table and big moments into the DOM, so screen readers (and tests, which
@@ -35,7 +40,7 @@ export function createStatus(root) {
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const table = root.querySelector('[data-leaderboard]');
   const shown = {};
-  let last = { state: null, paused: false, entering: false, field: '', settings: null, rows: NO_ROWS, mine: null, settled: null };
+  let last = { state: null, paused: false, entering: false, field: '', line: '', settings: null, rows: NO_ROWS, mine: null, settled: null };
 
   // `always` writes even the same words again: two outcomes can read alike, and each is announced.
   function set(name, value, always = false) {
@@ -76,6 +81,10 @@ export function createStatus(root) {
     return g.initials.refused ? `${REFUSAL} ${field}` : field;
   };
 
+  // The table line on its own, once, when the table turns unavailable on the game-over screen; game over itself says it
+  // when it is unavailable already.
+  const tableAnnouncement = (line, changed) => (!changed && line !== last.line ? line : '');
+
   // Each settled outcome once, when it arrives, in any game state.
   const outcomeAnnouncement = settled => (settled && settled.n !== last.settled ? OUTCOME_MESSAGES[settled.outcome](settled) : '');
 
@@ -101,10 +110,12 @@ export function createStatus(root) {
     set('initials', field);
     const entering = g.initials !== null;
     const changed = g.state !== last.state || g.paused !== last.paused || entering !== last.entering;
+    const line = tableLine(g);
     const spelled = initialsAnnouncement(g, field);
     const outcome = outcomeAnnouncement(g.settled);
-    const message = [changed ? announcement(g) : '', spelled, outcome, ...settingAnnouncements(g)].filter(Boolean).join(' ');
+    const message = [changed ? announcement(g) : '', tableAnnouncement(line, changed), spelled, outcome, ...settingAnnouncements(g)]
+      .filter(Boolean).join(' ');
     if (message) set('announcement', message, Boolean(outcome));
-    last = { state: g.state, paused: g.paused, entering, field, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
+    last = { state: g.state, paused: g.paused, entering, field, line, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
   };
 }

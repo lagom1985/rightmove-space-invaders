@@ -4,7 +4,7 @@ Feature: No signature is lost
   five, never a top-ten row, and never anything that isn't a score. Tidying up is best effort, so a signing never
   fails because of it.
 
-  @OUT-9 @DDD-1 @server @real-io @edge @pending
+  @OUT-9 @DDD-1 @server @real-io @edge
   Scenario Outline: With <held> scores already kept, a new signing tidies away <loses>
     Given the high-score table holds <held> scores
     And the high-score table also holds stray entries that aren't signatures
@@ -19,7 +19,7 @@ Feature: No signature is lost
       | 20   | exactly 1 old score, ranked 11th or lower          |
       | 30   | exactly 5 old scores, all ranked 11th or lower     |
 
-  @OUT-9 @DDD-1 @DDD-17 @server @real-io @error @pending
+  @OUT-9 @DDD-1 @DDD-17 @server @real-io @error
   Scenario: A signing is still saved and answered when tidying up fails
     Given the high-score table holds 25 scores
     And tidying up old scores fails

@@ -9,7 +9,7 @@ import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import { TABLE_SIZE } from '../../src/game/high-scores.js';
 import { createTablePort, encodeKey, handleScores } from '../../netlify/functions/scores.mjs';
-import { assertStateDelta } from '../common/state-delta.js';
+import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
 // The read path is handed the port's listing and nothing else (DDD-4): a GET can't save or remove a row, because it
 // holds no way to. The port is the production one, over a real BlobsServer (DDD-19), with only `list` passed on.
@@ -97,4 +97,31 @@ test('a POST that claims to be small but runs past 1 KB answers 413 payload-too-
     expect(await response.json()).toEqual({ error: 'payload-too-large' });
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 15, examples: [[{ initials: 'FAB', score: 1000 }, 20, KB + 1, []]] });
+});
+
+// A refusal is a bug, never a failed tidy-up (DDD-1, DDD-4): when the handler's port hands the real port's remove a key
+// it refuses while tidying up, the signing answers 500 unexpected and is logged as unexpected, never prune-failed.
+// The real port refuses every one of those keys, so the new row stays and no old score is removed.
+// Held: 20 to 30 rows, so the listing after the write is over 20 keys and the signing always tidies up.
+const enoughToTidy = fc.uniqueArray(row, { minLength: 20, maxLength: 30, selector: r => `${r.score}-${r.at}` });
+const REFUSED = [key => `${key}\n`, key => `${key} `, key => `archive/${key}`, key => key.toLowerCase(), key => key.replace(/^s\/\d/, 's/')];
+
+test('a key refused while tidying up answers 500 unexpected, logged as unexpected and never prune-failed', async () => {
+  await fc.assert(fc.asyncProperty(enoughToTidy, signature, fc.constantFrom(...REFUSED), async (rows, signed, refused) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const real = createTablePort(store);
+    const port = Object.freeze({ list: real.list, putIfNew: real.putIfNew, remove: key => real.remove(refused(key)) });
+    const logs = [];
+    const request = new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
+    const before = await snapshot(store);
+    const response = await handleScores(request, port, { now: () => NOW + 1, newId: () => 'signed1', log: entry => logs.push(entry), where: LOCAL });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: 'unexpected' });
+    expect(logs.map(({ event, reason }) => ({ event, reason }))).toEqual([{ event: 'scores.error', reason: 'unexpected' }]);
+    assertStateDelta(before, await snapshot(store), {
+      universe: UNIVERSE,
+      expected: { 'table.keys': satisfying('the new row added, no old score removed', (was, now) => now.length === was.length + 1 && was.every(key => now.includes(key))) },
+    });
+  }), { numRuns: 10 });
 });

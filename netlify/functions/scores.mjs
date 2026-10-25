@@ -72,9 +72,18 @@ export function rankKeys(keys) {
   return keys.filter(key => KEY.test(key)).sort();
 }
 
-// RED scaffold, created by DISTILL: the accepted prune rule (DDD-1), arriving in DELIVER step 03-01.
-//   planPrune(ranked) -> the keys to remove: none up to 20 keys; above that k = min(5, n - 20) keys, all ranked 11th or lower
-export function planPrune(ranked) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+// The accepted prune rule (DDD-1): the keys a signing tidies away from `ranked`, the well-formed keys listed after its
+// write. None up to 20 keys; above that k = min(5, n - 20), so a burst of signings never becomes a storm of deletes and
+// the store stays at about 20 keys. They are the lowest ranked, so always 11th or lower: a key ranked below 10th can
+// never climb back (rows only ever leave the table), and a short or stale listing only ever ranks a key higher than it
+// really is, so any instance may delete them without coordinating with the others.
+const KEEP = 20;                // keys kept before pruning starts
+const PRUNE_AT_MOST = 5;        // per signing
+
+export function planPrune(ranked) {
+  const count = Math.min(PRUNE_AT_MOST, ranked.length - KEEP);
+  return count > 0 ? ranked.slice(-count) : [];
+}
 
 // ---- the restricted table port (DDD-4, ADR-004) ----
 // The only way the handler reaches the store: it lists the well-formed score keys, in arcade order, and writes or
@@ -177,8 +186,8 @@ async function sign(request, port, options, record) {
 
 // A key that already exists is turned away (503, no second row). A save that throws may or may not have written its
 // row, and a listing that throws after the save leaves the row there: both are 500 unexpected, and the signer's game
-// shows the signing as unconfirmed (ADR-008). The rows are logged as a count, after the tidy-up, so a tidy-up that
-// throws leaves one line (the catch-all's).
+// shows the signing as unconfirmed (ADR-008). Tidying up is best effort: the answer is the listing's top ten whatever
+// the tidy-up does, and a store failure while tidying is only logged (prune-failed). The rows are logged as a count.
 async function save({ initials, score }, port, { now, newId }, record) {
   const id = newId();
   const saved = await saving(port, encodeKey({ initials, score, at: now(), id }));
@@ -187,8 +196,8 @@ async function save({ initials, score }, port, { now, newId }, record) {
   const keys = await listing(port.list);
   if (!keys) return failed(record, 'list-failed');
   const listedAt = now();   // right after the listing returns (DDD-12)
-  await prune(port, keys);
-  record('scores.signed', 'ok', { keys: keys.length });
+  const tidied = await prune(port, planPrune(keys));
+  record('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: keys.length });
   return answer(200, { scores: table(keys), id, listedAt });
 }
 
@@ -198,9 +207,22 @@ async function saving(port, key) {
   try {
     return await port.putIfNew(key);
   } catch (error) {
-    if (error instanceof KeyRefused) throw error;
+    passOnRefusal(error);
     return null;
   }
+}
+
+// A key the port refuses is a bug, never a store failure: it goes on to the catch-all.
+function passOnRefusal(error) {
+  if (error instanceof KeyRefused) throw error;
+}
+
+// Removes every planned key it can: true if all of them went, false if the store failed on any.
+async function prune(port, keys) {
+  const outcomes = await Promise.allSettled(keys.map(key => port.remove(key)));
+  const failures = outcomes.filter(outcome => outcome.status === 'rejected').map(outcome => outcome.reason);
+  failures.forEach(passOnRefusal);
+  return failures.length === 0;
 }
 
 function notSaved(record) {
@@ -249,15 +271,4 @@ async function readUpTo(cap, stream) {
 
 function parsed(body) {
   try { return JSON.parse(body); } catch { return undefined; }
-}
-
-// The walking skeleton's fixed prune, until the accepted prune rule (planPrune) replaces it (DELIVER step 03-01).
-const KEEP = 20;                // keys kept before pruning starts
-const PRUNE_AT_MOST = 5;        // per submit, so a burst of submits never becomes a storm of deletes
-
-// A key ranked below 10th can never climb back (rows only ever leave the table), so any instance may delete it
-// without coordinating with the others.
-async function prune(port, keys) {
-  if (keys.length <= KEEP) return;
-  await Promise.all(keys.slice(TABLE_SIZE, TABLE_SIZE + PRUNE_AT_MOST).map(key => port.remove(key)));
 }

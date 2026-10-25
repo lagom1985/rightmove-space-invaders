@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { MAX_SCORE } from '../../src/game/high-scores.js';
-import { decodeKey, encodeKey, rankKeys } from '../../netlify/functions/scores.mjs';
+import { MAX_SCORE, TABLE_SIZE } from '../../src/game/high-scores.js';
+import { decodeKey, encodeKey, planPrune, rankKeys } from '../../netlify/functions/scores.mjs';
 
 // A row's key is the persisted schema (ADR-004): s/{MAX_SCORE - score, 7 digits}-{epoch ms, 15 digits}-{initials}-{id},
 // so that the keys sort as strings into arcade order. Only keys of exactly this shape are rows: a store also lists
@@ -65,5 +65,23 @@ test('ranking keeps exactly the score keys: higher score first, then the earlier
     expect([...ranked].sort()).toEqual(items.filter(item => item.row).map(item => item.key).sort());
     const order = ranked.map(key => rows.get(key));
     expect(order.slice(1).filter((next, i) => !outranksOrTies(order[i], next))).toEqual([]);
+  }));
+});
+
+// The accepted prune rule (DDD-1): with n well-formed keys listed after a write, a signing tidies away k = min(5, n - 20)
+// of them when n is above 20 and none otherwise, every one ranked 11th or lower, so no top-ten row is ever touched.
+// Every length from 0 to 40 is as likely as any other, so the runs cross the 20-key edge many times.
+const ranked = fc.integer({ min: 0, max: 40 })
+  .chain(n => fc.uniqueArray(row, { minLength: n, maxLength: n, selector: encodeKey }))
+  .map(rows => rankKeys(rows.map(encodeKey)));
+const KEPT_BEFORE_PRUNING = 20, PRUNED_AT_MOST = 5;
+
+test('a tidy-up plans min(5, n - 20) keys ranked 11th or lower, each once, and none for 20 keys or fewer', () => {
+  fc.assert(fc.property(ranked, keys => {
+    const planned = planPrune(keys);
+    const belowTheTable = keys.slice(TABLE_SIZE);
+    expect(planned).toHaveLength(Math.max(0, Math.min(PRUNED_AT_MOST, keys.length - KEPT_BEFORE_PRUNING)));
+    expect(planned.filter(key => !belowTheTable.includes(key)), 'planned keys not ranked 11th or lower').toEqual([]);
+    expect(new Set(planned).size, 'a key planned twice').toBe(planned.length);
   }));
 });

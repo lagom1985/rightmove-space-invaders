@@ -14,7 +14,9 @@ import { createSmokeClient, decidePost, Refusal } from '../../scripts/smoke-lead
 const site = fc.stringMatching(/^[a-z0-9]{1,8}(?:-[a-z0-9]{1,8}){0,2}$/);
 const deployId = fc.stringMatching(/^[0-9a-f]{24}$/);
 const preview = fc.integer({ min: 1, max: 99_999 }).map(n => `deploy-preview-${n}`);
-const branch = fc.stringMatching(/^[a-z0-9]{1,10}(?:-[a-z0-9]{1,10}){0,3}$/).filter(name => name !== 'main');
+// Not main (production), nor xn: xn--<site> is punycode the URL parser rejects (as fc.domain() leaves out xn-- labels),
+// so the guard rightly refuses it, and Netlify never serves it. A named refusal below pins that refusal.
+const branch = fc.stringMatching(/^[a-z0-9]{1,10}(?:-[a-z0-9]{1,10}){0,3}$/).filter(name => name !== 'main' && name !== 'xn');
 const previewOrBranch = fc.oneof(preview, branch);
 const scoresAt = host => `https://${host}/api/scores`;
 
@@ -41,6 +43,7 @@ const NAMED_REFUSALS = [
   ['main--<site>.netlify.app', { url: scoresAt(`main--${SITE}.netlify.app`) }, Refusal.PRODUCTION_HOST],
   ['a permalink outside the unpublished check', { url: PERMALINK }, Refusal.PERMALINK],
   ['another site\'s deploy preview', { url: scoresAt('deploy-preview-7--another-site.netlify.app') }, Refusal.NOT_A_PREVIEW],
+  ['a host the URL parser rejects (a branch named xn)', { url: scoresAt(`xn--${SITE}.netlify.app`) }, Refusal.NOT_A_PREVIEW],
   ['no --site', { site: undefined, url: PREVIEW }, Refusal.NO_SITE],
   ['a deploy preview, in the unpublished check', { url: PREVIEW, unpublished: { publishedId: PUBLISHED_ID } }, Refusal.NOT_A_PERMALINK],
   ['the published deploy\'s permalink', { url: PERMALINK, unpublished: { publishedId: TARGET_ID } }, Refusal.PUBLISHED_DEPLOY],

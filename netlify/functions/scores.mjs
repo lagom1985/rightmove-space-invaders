@@ -25,11 +25,13 @@ const STORES = Object.freeze({
 
 // The Netlify entry (ADR-005): the published production deploy keeps the site-wide table, and every other deploy a
 // table of its own, which Netlify deletes with the deploy. A deploy store needs a deploy ID: without one the table is
-// unavailable, and the site-wide table is never used instead.
+// unavailable, and the site-wide table is never used instead. A method the table doesn't take is refused before any
+// store is opened, so it is told what the table takes whether or not there is one.
 export default async function scores(request, context) {
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
   const options = { now: Date.now, newId, log: logToConsole, where };
+  if (!isReadOrSign(request.method)) return refuseMethod(options);
   const record = journal(options);
   const port = openTable(scope);
   if (!port) return failed(record, 'store-unavailable');
@@ -119,7 +121,8 @@ export function createTablePort(store) {
 // nobody sees it more than 15 s old; nothing else is kept. Every answer is JSON.
 const SHARED_15_SECONDS = Object.freeze({ 'Netlify-CDN-Cache-Control': 'public, s-maxage=15, durable', 'Cache-Control': 'public, max-age=0, must-revalidate' });
 const NEVER_KEPT = Object.freeze({ 'Cache-Control': 'no-store' });
-const EVERY_ANSWER = Object.freeze({ 'Netlify-Vary': 'query=table', 'X-Content-Type-Options': 'nosniff' });
+// On every answer, scripts/serve.mjs's own 500 included.
+export const EVERY_ANSWER = Object.freeze({ 'Netlify-Vary': 'query=table', 'X-Content-Type-Options': 'nosniff' });
 
 const answer = (status, body, headers = NEVER_KEPT) => Response.json(body, { status, headers: { ...headers, ...EVERY_ANSWER } });
 
@@ -151,12 +154,17 @@ export async function handleScores(request, port, options) {
   }
 }
 
-// The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at.
+// The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at, and by
+// a composition root before it opens a store or builds a Request (scripts/serve.mjs: a Request can't carry TRACE).
+// refuseMethod takes the options handleScores takes (the clock, the logger and where are all it uses).
 const METHODS = Object.freeze(['GET', 'POST']);
 const READ_OR_SIGN_ONLY = Object.freeze({ ...NEVER_KEPT, Allow: METHODS.join(', ') });
+export const isReadOrSign = method => METHODS.includes(method);
+const methodRefused = record => refuse(record, 'method-not-allowed', READ_OR_SIGN_ONLY);
+export const refuseMethod = options => methodRefused(journal(options));
 
 async function route(request, port, options, record) {
-  if (!METHODS.includes(request.method)) return refuse(record, 'method-not-allowed', READ_OR_SIGN_ONLY);
+  if (!isReadOrSign(request.method)) return methodRefused(record);
   if (request.method === 'GET') return read(port, options, record);
   return sign(request, port, options, record);
 }

@@ -1,5 +1,5 @@
 import { ladderName, pounds } from '../theme/theme.js';
-import { INITIALS_REFUSED, PLAY_AGAIN as PLAY_AGAIN_HEADING, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_REFUSED, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
 
 const SETTING_MESSAGES = {
   sound: { on: 'Sound on.', off: 'Sound off. Press M to turn it on.' },
@@ -7,7 +7,6 @@ const SETTING_MESSAGES = {
 };
 
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
-const PLAY_AGAIN = `${PLAY_AGAIN_HEADING}.`;
 const NO_ROWS = Object.freeze([]);
 
 // What game over says about the table (DISTILL, Messages): only that it can't be reached. While it is unknown (at most
@@ -20,9 +19,9 @@ const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${in
 // While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again. Only a
 // signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
-  if (g.signedThisGame) return g.signing.status === 'pending' ? `${SIGNING_MESSAGES.pending(g.signing)} ${PLAY_AGAIN}` : PLAY_AGAIN;
+  if (g.signedThisGame) return g.signing.status === 'pending' ? `${SIGNING_MESSAGES.pending(g.signing)} ${PLAY_AGAIN_SENTENCE}` : PLAY_AGAIN_SENTENCE;
   return [`Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.`, g.newBest ? 'New best!' : '',
-    tableLine(g), g.initials ? INITIALS_HELP : PLAY_AGAIN].filter(Boolean).join(' ');
+    tableLine(g), g.initials ? INITIALS_HELP : PLAY_AGAIN_SENTENCE].filter(Boolean).join(' ');
 }
 
 // Mirrors the canvas HUD, the high-score table and big moments into the DOM, so screen readers (and tests, which

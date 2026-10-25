@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { assertStateDelta, appendedWith } from '../common/state-delta.js';
-import { createSmokeClient, decidePost, Refusal } from '../../scripts/smoke-leaderboard.mjs';
+import { createSmokeClient, decidePost, publishedIdFromApi, Refusal } from '../../scripts/smoke-leaderboard.mjs';
 
 // The smoke test's write guard (DEVOPS "Preview smoke test", write guard rules 1-3), decided before every POST in every
 // mode, with no network. Rule 1: a POST goes only to a deploy preview or a branch deploy of the site named by --site.
@@ -120,6 +120,76 @@ test('the unpublished check posts only to a permalink of the site whose ID isn\'
   }));
   fc.assert(fc.property(withNonPermalinkHost, deployId, ([name, host], publishedId) => {
     expect(decideUnpublished(name, host, publishedId), host).toEqual({ allowed: false, reason: Refusal.NOT_A_PERMALINK });
+  }));
+});
+
+// Where the unpublished check learns the published deploy's ID: Netlify's API, getSite, GET /api/v1/sites/{site_id}
+// (https://open-api.netlify.com/). Its Site object has published_deploy, a Deploy object, and a Deploy's id is a
+// string. The reference doesn't say the id's format, so the script keeps to the 24 hex digits a permalink starts with,
+// and any other shape refuses (fail-closed). The body below is a Site object as getSite returns one, trimmed to a few
+// fields.
+const SITE_ID = '3d9f1c2e-5b7a-4e8f-9a1b-2c3d4e5f6a7b';
+const TOKEN = 'nfp_the-owners-token';
+const SITE_BODY = Object.freeze({
+  id: SITE_ID, site_id: SITE_ID, name: SITE, state: 'current', account_slug: 'owner',
+  url: 'https://maketherightmove.fabiodamico.xyz', ssl_url: 'https://maketherightmove.fabiodamico.xyz',
+  admin_url: `https://app.netlify.com/sites/${SITE}`, custom_domain: 'maketherightmove.fabiodamico.xyz',
+  created_at: '2026-09-30T10:12:45.118Z', updated_at: '2026-10-24T18:03:11.402Z',
+  published_deploy: Object.freeze({
+    id: PUBLISHED_ID, site_id: SITE_ID, state: 'ready', name: SITE, context: 'production', branch: 'main',
+    commit_ref: '0d436be5c0ffee0123456789abcdef0123456789', title: 'Merge pull request #12',
+    url: 'https://maketherightmove.fabiodamico.xyz', ssl_url: 'https://maketherightmove.fabiodamico.xyz',
+    deploy_url: `http://${PUBLISHED_ID}--${SITE}.netlify.app`, deploy_ssl_url: `https://${PUBLISHED_ID}--${SITE}.netlify.app`,
+    admin_url: `https://app.netlify.com/sites/${SITE}`, error_message: null, skipped: null, locked: null,
+    created_at: '2026-10-24T18:01:52.007Z', updated_at: '2026-10-24T18:03:11.399Z', published_at: '2026-10-24T18:03:11.391Z',
+  }),
+  build_settings: Object.freeze({ provider: 'github', repo_branch: 'main', cmd: 'npm run build', dir: 'dist' }),
+});
+const GET_SITE = `https://api.netlify.com/api/v1/sites/${SITE_ID}`;
+const without = (object, field) => Object.fromEntries(Object.entries(object).filter(([key]) => key !== field));
+const withPublishedDeploy = deploy => ({ ...SITE_BODY, published_deploy: deploy });
+
+// Netlify's API, as a double of the network port: getSite answers `site` to the owner's token for this site, and 404 to
+// anything else. It records what it was asked.
+function netlifyApi(site) {
+  const requests = [];
+  const fetch = async (url, { headers = {}, redirect } = {}) => {
+    requests.push({ url, authorization: headers.authorization, redirect });
+    const isGetSite = url === GET_SITE && headers.authorization === `Bearer ${TOKEN}`;
+    return isGetSite ? Response.json(site) : Response.json({ code: 404, message: 'Not Found' }, { status: 404 });
+  };
+  return { fetch, requests: () => [...requests] };
+}
+const unpublishedCheck = (url, publishedId) => decidePost({ site: SITE, url, unpublished: { publishedId }, firstAnswer: EMPTY_TABLE });
+
+// bypass: one Site object as Netlify's reference describes it, pinned field for field; the property below varies its
+// published_deploy.
+test('the published deploy\'s ID is read from published_deploy.id in the site getSite returns, and only its permalink is refused', async () => {
+  const api = netlifyApi(SITE_BODY);
+  const publishedId = await publishedIdFromApi({ token: TOKEN, siteId: SITE_ID, fetch: api.fetch });
+  expect(publishedId).toBe(PUBLISHED_ID);
+  expect(api.requests()).toEqual([{ url: GET_SITE, authorization: `Bearer ${TOKEN}`, redirect: 'manual' }]);
+  expect(unpublishedCheck(PERMALINK, publishedId)).toEqual({ allowed: true });
+  expect(unpublishedCheck(scoresAt(`${PUBLISHED_ID}--${SITE}.netlify.app`), publishedId)).toEqual({ allowed: false, reason: Refusal.PUBLISHED_DEPLOY });
+});
+
+// Every site whose published_deploy isn't a Deploy with a 24-hex-digit id: none (nothing published yet), null, not an
+// object, no id, an id that isn't a string, or a string of any other shape.
+const notTheDeployIdShape = fc.oneof(fc.string(), deployId.map(id => id.toUpperCase()), deployId.map(id => `${id}0`), deployId.map(id => id.slice(1)))
+  .filter(id => !/^[0-9a-f]{24}$/.test(id));
+const withoutAPublishedId = fc.oneof(
+  fc.constant(without(SITE_BODY, 'published_deploy')),
+  fc.jsonValue().filter(deploy => deploy === null || typeof deploy !== 'object' || Array.isArray(deploy)).map(withPublishedDeploy),
+  fc.constant(withPublishedDeploy(without(SITE_BODY.published_deploy, 'id'))),
+  fc.jsonValue().filter(id => typeof id !== 'string').map(id => withPublishedDeploy({ ...SITE_BODY.published_deploy, id })),
+  notTheDeployIdShape.map(id => withPublishedDeploy({ ...SITE_BODY.published_deploy, id })),
+);
+
+test('a site without a published deploy ID of the deploy-ID shape gives no ID, and the unpublished check refuses', async () => {
+  await fc.assert(fc.asyncProperty(withoutAPublishedId, async site => {
+    const publishedId = await publishedIdFromApi({ token: TOKEN, siteId: SITE_ID, fetch: netlifyApi(site).fetch });
+    expect(publishedId).toBeNull();
+    expect(unpublishedCheck(PERMALINK, publishedId)).toEqual({ allowed: false, reason: Refusal.PUBLISHED_UNKNOWN });
   }));
 });
 

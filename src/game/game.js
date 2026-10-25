@@ -116,9 +116,10 @@ function settle(n, outcome, { id = null, rank = null } = {}) {
   if (g.signing.n === n) g.signing = { ...g.signing, status: outcome, id, rank };   // on its way, so still pending
 }
 
-// The one read-only view of the rules' state that the in-memory acceptance model (tier-b/signing-rules.js) and the unit
-// properties read, so they never reach into g: a fresh, frozen { screen: 'title' | 'play' | 'over',
-// table: { status, rows }, entry: { letters: 'AAA', index } or null, signing, settled, lastListedAt: number or null }.
+// The rules' read model for tests; the views read g directly. No production code calls it: the in-memory acceptance
+// model (tier-b/signing-rules.js) and the unit properties read it (DISTILL, "WS strategy"), so they never reach into g.
+// A fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows }, entry: { letters: 'AAA', index } or
+// null, signing, settled, lastListedAt: number or null }.
 const SCREENS = { title: 'title', play: 'play', dead: 'play', clear: 'play', over: 'over' };
 
 const deepFreeze = value => {

@@ -38,6 +38,7 @@ export const Refusal = Object.freeze({
 // A site name, and a subdomain prefix: deploy-preview-<n>, or a branch name as Netlify writes it into a hostname.
 const LABEL = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const DEPLOY_ID = /^[0-9a-f]{24}$/;   // a deploy's ID, the prefix of its permalink
+const isDeployId = id => typeof id === 'string' && DEPLOY_ID.test(id);
 const PRODUCTION_BRANCH = 'main';
 const ALLOWED = Object.freeze({ allowed: true });
 const refused = reason => Object.freeze({ allowed: false, reason });
@@ -62,7 +63,7 @@ const previewRefusal = host => OUTSIDE_THE_CHECK[host.kind];
 // the permalink's.
 function permalinkRefusal(host, publishedId) {
   if (host.kind !== 'permalink') return Refusal.NOT_A_PERMALINK;
-  if (typeof publishedId !== 'string' || !DEPLOY_ID.test(publishedId)) return Refusal.PUBLISHED_UNKNOWN;
+  if (!isDeployId(publishedId)) return Refusal.PUBLISHED_UNKNOWN;
   return publishedId === host.deployId ? Refusal.PUBLISHED_DEPLOY : undefined;
 }
 
@@ -163,8 +164,11 @@ const BURST_SIZE = 20;
 const PAIRS = 30;
 const PAIR_EVERY_MS = 13_000;
 const P95_UNDER_MS = 1000;
-// Netlify's API: the site's published deploy is published_deploy.id in GET /api/v1/sites/<site ID>. UNCONFIRMED: check
-// this field against Netlify's API reference before the first run (DEVOPS write guard, rule 2).
+// Netlify's API: the site's published deploy is published_deploy.id in getSite, GET /api/v1/sites/{site_id} (DEVOPS
+// write guard, rule 2). Checked against the OpenAPI reference (https://open-api.netlify.com/, operation getSite): the
+// Site object's published_deploy is a Deploy object, and a Deploy's id is a string. The reference doesn't document the
+// id's format: the 24 hex digits a permalink starts with (DEPLOY_ID) are this script's assumption, kept fail-closed, so
+// an id of any other shape refuses.
 const PUBLISHED_DEPLOY_ID_FIELD = Object.freeze(['published_deploy', 'id']);
 const NETLIFY_SITES_API = 'https://api.netlify.com/api/v1/sites/';
 
@@ -361,14 +365,17 @@ async function productionRead(run) {
 }
 
 // Rule 2's published deploy ID, never from a flag: Netlify's API with the owner's token, or the owner typing it back.
-async function publishedIdFromApi(token, siteId) {
+// { token, siteId, fetch (the network port) } -> the published deploy's ID, or null, which refuses: a failed answer, a
+// site with no published deploy, or an id that isn't a string of the deploy-ID shape.
+export async function publishedIdFromApi({ token, siteId, fetch = globalThis.fetch }) {
   try {
     const headers = { authorization: `Bearer ${token}` };
     const response = await fetch(`${NETLIFY_SITES_API}${encodeURIComponent(siteId)}`, { headers, redirect: 'manual' });
     if (!response.ok) return null;
-    return PUBLISHED_DEPLOY_ID_FIELD.reduce((value, key) => value?.[key], await response.json()) ?? null;
+    const id = PUBLISHED_DEPLOY_ID_FIELD.reduce((value, key) => value?.[key], await response.json());
+    return isDeployId(id) ? id : null;
   } catch {
-    return null;   // a failed or empty answer refuses
+    return null;
   }
 }
 
@@ -386,8 +393,8 @@ async function publishedIdFromOwner(permalink) {
 }
 
 // -> { publishedId, from: 'api' | 'owner' }: the API with a token and a site ID, the owner otherwise.
-async function publishedIdFor(options, permalink) {
-  if (options.token && options.siteId) return { publishedId: await publishedIdFromApi(options.token, options.siteId), from: 'api' };
+async function publishedIdFor({ token, siteId }, permalink) {
+  if (token && siteId) return { publishedId: await publishedIdFromApi({ token, siteId }), from: 'api' };
   return { publishedId: await publishedIdFromOwner(permalink), from: 'owner' };
 }
 

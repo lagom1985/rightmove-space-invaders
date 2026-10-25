@@ -1,13 +1,10 @@
-import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
 import './support/seed.js';
+import { startLocalServer } from './support/local-server.js';
 import { assertStateDelta, setTo } from '../common/state-delta.js';
 
 // The local server (scripts/serve.mjs) keeps its Blobs emulator in a temporary directory of its own, and deletes it when
@@ -18,29 +15,7 @@ import { assertStateDelta, setTo } from '../common/state-delta.js';
 // TMPDIR of its own (os.tmpdir() honours it), so the directories seen are this server's alone.
 // The universe of the state delta: the emulator directories in the server's TMPDIR.
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const UNIVERSE = ['tmpdir.blobs'];
-const STARTS_WITHIN_MS = 10_000;
-
-async function sparePort() {
-  const server = createServer().listen(0, '127.0.0.1');
-  await once(server, 'listening');
-  const { port } = server.address();
-  server.close();
-  await once(server, 'close');
-  return port;
-}
-
-async function untilServing(url, server) {
-  const deadline = Date.now() + STARTS_WITHIN_MS;
-  while (Date.now() < deadline) {
-    expect(server.exitCode, 'the server stopped before it served').toBeNull();
-    const answered = await fetch(url).then(response => response.ok, () => false);
-    if (answered) return;
-    await delay(50);
-  }
-  throw new Error(`the server did not serve ${url} within ${STARTS_WITHIN_MS} ms`);
-}
 
 const blobsDirectories = async directory => ({ 'tmpdir.blobs': (await readdir(directory)).filter(name => name.startsWith('make-the-right-move-blobs-')) });
 
@@ -48,18 +23,17 @@ const blobsDirectories = async directory => ({ 'tmpdir.blobs': (await readdir(di
 for (const signal of ['SIGTERM', 'SIGINT']) {
   test(`stopped with ${signal}, the local server deletes its emulator directory`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'make-the-right-move-serve-cleanup-'));
-    const port = await sparePort();
-    const server = spawn('npm', ['start'], { cwd: ROOT, detached: true, env: { ...process.env, PORT: String(port), TMPDIR: directory }, stdio: 'ignore' });
+    let server;
     try {
-      await untilServing(`http://127.0.0.1:${port}/api/scores`, server);
+      server = await startLocalServer(directory);
       const before = await blobsDirectories(directory);
       expect(before['tmpdir.blobs'], 'the server keeps its emulator in a directory of its own').toHaveLength(1);
-      const exited = once(server, 'exit');
-      process.kill(-server.pid, signal);
+      const exited = once(server.process, 'exit');
+      server.signal(signal);
       await exited;
       assertStateDelta(before, await blobsDirectories(directory), { universe: UNIVERSE, expected: { 'tmpdir.blobs': setTo([]) } });
     } finally {
-      if (server.exitCode === null) process.kill(-server.pid, 'SIGKILL');
+      server?.kill();
       await rm(directory, { recursive: true, force: true });
     }
   });

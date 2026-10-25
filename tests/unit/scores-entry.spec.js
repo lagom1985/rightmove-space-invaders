@@ -63,12 +63,12 @@ async function snapshot(deployID) {
   };
 }
 
-// One GET through the entry, as Netlify would make it.
-async function readThroughEntry({ deployID, context }) {
+// One request through the entry, a GET unless said otherwise, as Netlify would make it.
+async function requestThroughEntry({ deployID, context, method = 'GET' }) {
   return inEnvironment({ ...blobs, ...(deployID ? { deployID } : {}) }, async () => {
     if (deployID) await getDeployStore({ name: 'leaderboard', consistency: 'strong' }).set(encodeKey(DEPLOY_ROW), '');
     const before = await snapshot(deployID);
-    const { answer, lines } = await capturingConsole(async () => readAnswer(await scores(new Request(URL), context)));
+    const { answer, lines } = await capturingConsole(async () => readAnswer(await scores(new Request(URL, { method }), context)));
     return { answer, lines, logged: lines.map(({ text }) => JSON.parse(text)), before, after: await snapshot(deployID) };
   });
 }
@@ -86,7 +86,7 @@ const DEPLOY_PREVIEW = { deploy: { context: 'deploy-preview', published: false }
 
 test('on any deploy but the published production one, the entry reads that deploy\'s own table and logs scope deploy with the raw context', async () => {
   await fc.assert(fc.asyncProperty(deployId, deployContext, async (deployID, context) => {
-    const read = await readThroughEntry({ deployID, context: { ...context, deploy: { ...context.deploy, id: deployID } } });
+    const read = await requestThroughEntry({ deployID, context: { ...context, deploy: { ...context.deploy, id: deployID } } });
     expect(read.answer.status).toBe(200);
     expect(read.answer.body).toEqual({ scores: [shown(DEPLOY_ROW)], listedAt: expect.any(Number) });
     expect(read.lines.map(({ method }) => method), 'one log line per request').toEqual(['log']);
@@ -101,7 +101,7 @@ test('on any deploy but the published production one, the entry reads that deplo
 // bypass: exactly one context reaches the site store (ADR-005), so there is one case to show.
 test('on the published production deploy, the entry reads the site-wide table and logs scope site', async () => {
   const deployID = '6720a1b2c3d4e5f6a7b8c9d1';
-  const read = await readThroughEntry({ deployID, context: { deploy: { context: 'production', published: true, id: deployID } } });
+  const read = await requestThroughEntry({ deployID, context: { deploy: { context: 'production', published: true, id: deployID } } });
   expect(read.answer.status).toBe(200);
   expect(read.answer.body).toEqual({ scores: [shown(SITE_ROW)], listedAt: expect.any(Number) });
   expect(read.logged).toEqual([{ event: 'scores.read', reason: 'ok', ms: expect.any(Number), keys: 1, scope: 'site', context: 'production', published: true }]);
@@ -110,7 +110,7 @@ test('on the published production deploy, the entry reads the site-wide table an
 
 test('without a deploy ID, a deploy\'s table is unavailable: 500 unexpected, logged store-unavailable, never the site table', async () => {
   await fc.assert(fc.asyncProperty(deployContext, async context => {
-    const read = await readThroughEntry({ deployID: null, context });
+    const read = await requestThroughEntry({ deployID: null, context });
     expect(read.answer.status).toBe(500);
     expect(read.answer.body).toEqual({ error: 'unexpected' });
     expect(read.answer.headers['cache-control']).toBe('no-store');
@@ -121,6 +121,25 @@ test('without a deploy ID, a deploy\'s table is unavailable: 500 unexpected, log
     });
     assertStateDelta(read.before, read.after, { universe: UNIVERSE });
   }), { numRuns: RUNS, examples: [[DEPLOY_PREVIEW]] });
+});
+
+// The table can only be read or signed (DDD-6), and the entry says so before it opens a store: without a deploy ID
+// there is none to open, and a method the table doesn't take is still refused for what it is.
+const notReadOrSign = fc.constantFrom('DELETE', 'PUT', 'PATCH', 'OPTIONS', 'HEAD', 'PROPFIND');
+
+test('without a deploy ID, a method the table doesn\'t take is refused 405 with Allow, logged as such, before any store is opened', async () => {
+  await fc.assert(fc.asyncProperty(notReadOrSign, deployContext, async (method, context) => {
+    const read = await requestThroughEntry({ deployID: null, context, method });
+    expect(read.answer.status).toBe(405);
+    expect(read.answer.headers).toMatchObject({ allow: 'GET, POST', 'cache-control': 'no-store' });
+    expect(read.answer.body).toEqual({ error: 'method-not-allowed' });
+    expect(read.lines.map(({ method: logged }) => logged), 'one log line per request').toEqual(['log']);
+    expect(read.logged[0]).toEqual({
+      event: 'scores.rejected', reason: 'method-not-allowed', ms: expect.any(Number),
+      scope: 'deploy', context: raw(context.deploy.context), published: raw(context.deploy.published),
+    });
+    assertStateDelta(read.before, read.after, { universe: UNIVERSE });
+  }), { numRuns: RUNS, examples: [['DELETE', DEPLOY_PREVIEW]] });
 });
 
 // bypass: the exported config is one literal, which Netlify reads statically.

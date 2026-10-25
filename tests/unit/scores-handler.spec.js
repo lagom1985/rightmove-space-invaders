@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE } from '../../src/game/high-scores.js';
-import { createTablePort, encodeKey, handleScores } from '../../netlify/functions/scores.mjs';
+import { createTablePort, decodeKey, encodeKey, handleScores } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
 // The read path is handed the port's listing and nothing else (DDD-4): a GET can't save or remove a row, because it
@@ -105,4 +105,70 @@ test('a key refused while tidying up answers 500 unexpected, logged as unexpecte
       expected: { 'table.keys': satisfying('the new row added, no old score removed', (was, now) => now.length === was.length + 1 && was.every(key => now.includes(key))) },
     });
   }), { numRuns: 10 });
+});
+
+// Two of the store's lies (DDD-18), each forced from the composition root's side: the clock and the id source are what
+// the handler is handed.
+const signing = signed => new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(signed) });
+const newRowId = fc.stringMatching(/^[a-z0-9]{1,12}$/);
+
+// A write to a key that already exists: the store reports it as not modified, with no error. A clock that never moves
+// and an id source that repeats itself give the second signing the first one's key, so the store sees exactly that.
+test('with a stopped clock and a repeating id, the second signing\'s write is refused by the store: 503 not-saved, never kept, one row', async () => {
+  await fc.assert(fc.asyncProperty(signature, newRowId, async (signed, id) => {
+    const store = freshStore();
+    const logs = [];
+    const options = { now: () => NOW, newId: () => id, log: entry => logs.push(entry), where: LOCAL };
+    expect((await handleScores(signing(signed), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
+    const before = await snapshot(store);
+    expect(before['table.keys'], 'arranging: the first signing\'s row').toEqual([encodeKey({ ...signed, at: NOW, id })]);
+    const response = await handleScores(signing(signed), createTablePort(store), options);
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'not-saved' });
+    expect(logs.slice(1).map(({ event, reason }) => ({ event, reason }))).toEqual([{ event: 'scores.not_saved', reason: 'key-exists' }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 15 });
+});
+
+// Instances' clocks can differ, so two listings a few ms apart can be misordered by listedAt (DDD-12, accepted). What
+// holds is that a listing's listedAt is read after that listing returns: the clock moves on at every reading, and the
+// port notes the latest reading at the moment its listing returns.
+function movingClock(start) {
+  let reading = start;
+  return { now: () => ++reading, latest: () => reading };
+}
+
+function notingWhenListed(port, clock) {
+  const listedBy = [];
+  const list = async () => {
+    const keys = await port.list();
+    listedBy.push(clock.latest());
+    return keys;
+  };
+  return { port: Object.freeze({ ...port, list }), listedBy };
+}
+
+test('listedAt is read from the clock after the listing returns, on a read and after a signing', async () => {
+  await fc.assert(fc.asyncProperty(held, fc.option(signature, { nil: null }), async (rows, signed) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const clock = movingClock(NOW);
+    const { port, listedBy } = notingWhenListed(createTablePort(store), clock);
+    const before = await snapshot(store);
+    const request = signed ? signing(signed) : new Request(URL);
+    const response = await handleScores(request, port, { now: clock.now, newId: () => 'signer', log: () => {}, where: LOCAL });
+    expect(response.status).toBe(200);
+    const { listedAt } = await response.json();
+    expect(listedBy, 'one listing per request').toHaveLength(1);
+    expect(listedAt, 'listedAt is a later reading than any taken before the listing returned').toBeGreaterThan(listedBy[0]);
+    const signersRowAdded = (was, now) => {
+      const added = now.filter(key => !was.includes(key)).map(decodeKey);
+      return was.every(key => now.includes(key)) && added.length === 1 && added[0].id === 'signer' && added[0].initials === signed.initials;
+    };
+    assertStateDelta(before, await snapshot(store), {
+      universe: UNIVERSE,
+      expected: signed ? { 'table.keys': satisfying('the signer\'s row added, nothing removed', signersRowAdded) } : {},
+    });
+  }), { numRuns: 15 });
 });

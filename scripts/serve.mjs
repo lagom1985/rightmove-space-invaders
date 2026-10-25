@@ -5,7 +5,7 @@
 // empty tables and needs no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side);
 // without one, the table is `local`. This is a composition root: it chooses the store, builds the port, and hands the
 // handler the clock, the id source, the logger and where the table is kept (scope local).
-import { createServer } from 'node:http';
+import { STATUS_CODES, createServer } from 'node:http';
 import { rmSync } from 'node:fs';
 import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +15,9 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
-import { createTablePort, handleScores, logToConsole, newId } from '../netlify/functions/scores.mjs';
+import {
+  EVERY_ANSWER, createTablePort, handleScores, isReadOrSign, logToConsole, newId, refuseMethod,
+} from '../netlify/functions/scores.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.env.PORT) || 4173;
@@ -56,21 +58,58 @@ function storeFor(req) {
   return getStore({ name: `leaderboard-${board}`, consistency: 'strong' });
 }
 
-// Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6).
+// Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6). A method the
+// table doesn't take is refused first, as on Netlify, and before a Request is built: one can't carry TRACE.
 async function serveScores(req, res) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const body = ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks);
-  const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body });
-  const response = await handleScores(request, createTablePort(storeFor(req)), tableOptions);
+  if (!isReadOrSign(req.method)) return send(res, refuseMethod(tableOptions));
+  const body = req.method === 'POST' ? bodyOf(req) : undefined;
+  const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body, duplex: 'half' });
+  return send(res, await handleScores(request, createTablePort(storeFor(req)), tableOptions));
+}
+
+async function send(res, response) {
   const answer = Buffer.from(await response.arrayBuffer());
   res.writeHead(response.status, Object.fromEntries(response.headers)).end(answer);
+}
+
+// The body as a stream the function reads itself, so its 1 KB cap (DDD-5) is how much is read here too. What it leaves
+// unread is drained, never destroyed: destroying the request would take the socket, and the answer, with it.
+function bodyOf(req) {
+  const chunks = req.iterator({ destroyOnReturn: false });
+  return new ReadableStream({
+    async pull(controller) {
+      const { value, done } = await chunks.next();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    async cancel() {
+      await chunks.return();
+      req.resume();
+    },
+  }, { highWaterMark: 0 });   // read only when the function asks
 }
 
 // Only the fixed reason is logged, never the error: its message can carry a key, and so initials (DDD-17).
 function failedLocally(res) {
   logToConsole({ event: 'scores.error', reason: 'unexpected', ...LOCAL });
-  res.writeHead(500, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ error: 'unexpected' }));
+  const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', ...EVERY_ANSWER };
+  res.writeHead(500, headers).end(JSON.stringify({ error: 'unexpected' }));
+}
+
+// CONNECT never reaches the request listener: Node hands it to 'connect', and drops the connection when nobody listens
+// there. To the table it is refused like any other method the table doesn't take, written straight to the socket;
+// anywhere else it is dropped, as Node does.
+async function refuseConnect(socket) {
+  socket.on('error', () => {});   // a client gone before the answer is no failure of the server's
+  const refusal = refuseMethod(tableOptions);
+  const fields = [...refusal.headers].map(([name, value]) => `${name}: ${value}`);
+  const head = [`HTTP/1.1 ${refusal.status} ${STATUS_CODES[refusal.status]}`, ...fields, 'connection: close'].join('\r\n');
+  socket.end(`${head}\r\n\r\n${await refusal.text()}`);
+}
+
+// The path, decoded, or null when it doesn't decode (`/%`): a bad request, never a crash.
+function pathOf(req) {
+  try { return decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return null; }
 }
 
 async function serveFile(path, res) {
@@ -86,10 +125,12 @@ async function serveFile(path, res) {
 
 await startBlobs();
 createServer(async (req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  const path = pathOf(req);
+  if (path === null) { res.writeHead(400).end('Bad request'); return; }
   if (path === '/api/scores') {
     try { await serveScores(req, res); } catch { failedLocally(res); }
     return;
   }
   await serveFile(path, res);
-}).listen(port, '127.0.0.1', () => console.log(`Make the Right Move: http://localhost:${port}`));
+}).on('connect', (req, socket) => (pathOf(req) === '/api/scores' ? refuseConnect(socket) : socket.destroy()))
+  .listen(port, '127.0.0.1', () => console.log(`Make the Right Move: http://localhost:${port}`));

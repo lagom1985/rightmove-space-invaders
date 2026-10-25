@@ -1,6 +1,9 @@
-# Netlify static hosting for Make the Right Move (docs/feature/rightmove-invaders-sound/feature-delta.md, DEVOPS).
+# Netlify static hosting and the Score API function for Make the Right Move
+# (docs/feature/rightmove-invaders-sound/feature-delta.md and docs/feature/rightmove-invaders-leaderboard/feature-delta.md, DEVOPS).
 # Production: pushes to main. Deploy previews: pull requests and branch deploys. Same build for all.
-# `npm run build` = unit + in-memory Playwright projects (no browsers needed), then scripts/build.mjs.
+# `npm run build` = unit + in-memory Playwright projects (no browsers needed), then scripts/build.mjs. Playwright still starts
+# scripts/serve.mjs (and its Blobs emulator) as its global web server for those projects: the first Netlify build log shows
+# whether that start and stop work on the build image (docs/feature/rightmove-invaders-leaderboard/feature-delta.md, DEVOPS).
 # A failing test fails the build, so Netlify keeps serving the previous deploy.
 
 [build]
@@ -10,7 +13,21 @@
 [build.environment]
   NODE_VERSION = "22"
 
-# Security headers on every response. No Content-Security-Policy on purpose: it would have to
+# The Score API, netlify/functions/scores.mjs (ADR-004). The bundler family is pinned, so that a change to Netlify's
+# default (zisi for JavaScript) can't switch bundlers; the esbuild version itself is whatever Netlify's build image
+# ships, and is not pinned. esbuild follows the function's static import of src/game/high-scores.js (ADR-006) and
+# inlines it with @netlify/blobs, so no included_files is needed.
+# The function sets its own cache headers (DDD-6) and its own rate limit (config.rateLimit: Netlify doesn't
+# accept function rate limits in this file). No [[headers]] or [[redirects]] entry is added for /api/*. The "/*"
+# rule below does match /api/scores by pattern, but Netlify's custom-headers docs say these headers are applied
+# only to files Netlify serves itself, not to URLs handled by a function. So a function answer should carry only
+# the headers the function sets. The first deploy preview records a function answer's real header set, and checks
+# that nothing conflicts with DDD-6 (feature-delta, smoke spec); if the "/*" headers do appear, fix this comment.
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Security headers on every static response (function answers: see above). No Content-Security-Policy on purpose: it would have to
 # allow Google Fonts (styles and fonts) and Web Audio, and the game has no user-supplied content.
 # microphone=() does not affect Web Audio playback.
 [[headers]]

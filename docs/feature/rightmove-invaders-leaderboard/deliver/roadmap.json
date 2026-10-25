@@ -1,0 +1,394 @@
+{
+  "roadmap": {
+    "project_id": "rightmove-invaders-leaderboard",
+    "created_at": "2026-10-25T00:00:00Z",
+    "total_steps": 12
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Milestone 1: Reading the shared table",
+      "description": "Both composition roots (the Netlify entry, with chooseStore, and scripts/serve.mjs) build the restricted port in one change. Reading answers the best ten with listedAt, CDN cache headers and one fixed-reason log line; failures answer 500 without leaking player details.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Restricted port wired through both roots; empty table read",
+          "criteria": [
+            "A GET of an empty table answers 200 with no rows and a listedAt, cached 15 s at the CDN, logged scores.read ok with scope local.",
+            "The walking skeleton stays green in all three browsers, with scripts/serve.mjs signing and reading through createTablePort and passing the function's own headers through.",
+            "(unit) chooseStore returns 'site' only for context 'production' with published true: all 12 ADR-005 cases pass, and no other context reaches the site store.",
+            "Over a fake deploy environment the Netlify entry answers and logs scope deploy with the raw context and published; without a deploy ID it answers 500 unexpected (store-unavailable).",
+            "The exported config is exactly path /api/scores and rateLimit 10 per 60 s by ip and domain; a GET handed only list still answers 200.",
+            "No __SCAFFOLD__ throw remains in scores.mjs for createTablePort, chooseStore, encodeKey, decodeKey or rankKeys."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-1-reading-the-table.feature",
+          "scenario_name": "An empty high-score table is read as empty, and everyone sees it at most 15 seconds old",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-1-reading-the-table.feature",
+            "tests/unit/choose-store.spec.js",
+            "tests/unit/score-keys.spec.js",
+            "tests/unit/scores-entry.spec.js",
+            "tests/unit/scores-handler.spec.js"
+          ],
+          "implementation_notes": "The inseparable change (DISTILL, WS strategy): handleScores(request, port, options) replaces handleScores(req, store), and the Netlify default export and scripts/serve.mjs build the port in the same change, or the walking skeleton and the production entry break. createTablePort(store) -> { list, putIfNew, remove } (DDD-4): list() = the keys under s/ matching ^s/\\d{7}-\\d{15}-[A-Z]{3}-[a-z0-9]+$, in arcade order; putIfNew(key) = store.set(key, '', { onlyIfNew: true }), true if written; remove(key) = store.delete(key); putIfNew and remove throw a refusal (a distinguishable error) for any key that isn't well-formed; no other store method. Call only store.list, store.set and store.delete: the harness's test store port (steps/table-service.js, a second composition root) intercepts exactly those. GET is handed list alone. options = { now, newId, log, where }: now stands in for Date.now (the key's time, and listedAt = now() right after list returns); newId for the id; log receives one entry per request { event, reason, ms, keys?, scope, context, published }, where = { scope, context, published } logged as given, and all three 'missing' if a root omits it. GET 200 = { scores: at most 10 { initials, score, id }, best first, listedAt }, with Netlify-CDN-Cache-Control: public, s-maxage=15, durable and Cache-Control: public, max-age=0, must-revalidate; every other answer Cache-Control: no-store; every answer Content-Type application/json, Netlify-Vary: query=table and X-Content-Type-Options: nosniff (DDD-6). Log scores.read ok with keys = the well-formed keys listed. Pure helpers, exported: encodeKey({ initials, score, at, id }) -> s/{9999999 - score, 7 digits}-{at, 15 digits}-{initials}-{id}; decodeKey(key) -> the row or null; rankKeys(keys) -> the well-formed keys in arcade order; chooseStore(context) -> 'site' only when context?.deploy?.context === 'production' and context?.deploy?.published === true, else 'deploy' (ADR-005). Until 02-01 the POST keeps the skeleton's validation, and until 03-01 its fixed prune, both moved onto the port; it answers { scores, id, listedAt }. Take TABLE_SIZE and MAX_SCORE from ../../src/game/high-scores.js, the one import from src/ that netlify/ may make. Entry: default export (req, context): kind = chooseStore(context); getStore({ name: 'leaderboard', consistency: 'strong' }) for 'site', getDeployStore({ name: 'leaderboard', consistency: 'strong' }) for 'deploy'; where = { scope: kind, context: context?.deploy?.context ?? 'missing', published: context?.deploy?.published ?? 'missing' } (raw values); now = Date.now; newId = randomUUID() without hyphens (it must match [a-z0-9]+); log = one JSON line on console. If opening the store throws (MissingBlobsEnvironmentError without a deploy ID), answer 500 { error: 'unexpected' } with the no-store headers, logged scores.error store-unavailable; never fall back to the site store. config = { path: '/api/scores', rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } } (DEVOPS pre-requisite 2). scripts/serve.mjs: per request, createTablePort over the cookie's store (leaderboard-<board>, else leaderboard-local) and handleScores(request, port, { now: Date.now, newId, log, where: { scope: 'local', context: 'missing', published: 'missing' } }); stop forcing cache-control: no-store on /api/scores and pass the function's headers through (DEVOPS pre-requisite 5). Unit tests: tests/unit/choose-store.spec.js (the 12 ADR-005 cases as a `// bypass:` table, plus a property that every other context gives 'deploy'); tests/unit/score-keys.spec.js (encode/decode round trip and rankKeys order as properties; decodeKey gives null for malformed keys, the emulator's s/.xxxx included); tests/unit/scores-entry.spec.js (the default export over a fake deploy environment on a real BlobsServer: NETLIFY_BLOBS_CONTEXT with edgeURL, uncachedEdgeURL, siteID, token and deployID, restored afterwards; it answers and logs scope deploy, context deploy-preview, published false; production with published true logs scope site; with no deployID, 500 unexpected logged store-unavailable; and the exported config contract, config only, because the per-answer headers are the @server scenarios'); tests/unit/scores-handler.spec.js (a GET handed { list } alone answers 200). With this step ADR-005 is implemented; pushing the branch still needs the user's OK. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        },
+        {
+          "id": "01-02",
+          "name": "Ranked reads, ignored strays, failures that leak nothing",
+          "criteria": [
+            "A GET answers the best ten well-formed rows, best first, the earlier of equal deposits first; stray keys are neither shown nor removed.",
+            "A listing that throws answers 500 unexpected, no-store, logged scores.error list-failed, and nothing logged names a key, initials or an id.",
+            "handleScores always resolves: any unexpected throw answers 500 unexpected, logged scores.error unexpected, and no console method ever receives a key or initials.",
+            "scripts/serve.mjs logs only a fixed reason and deletes its emulator directory on exit, SIGINT and SIGTERM; a test shows the directory gone.",
+            "The import scan enforces the five layering rules over src and netlify, and recognises all four import forms, including dynamic import()."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-1-reading-the-table.feature",
+          "scenario_name": "The table shows the best ten signatures, best first, and the earlier of two equal deposits first | Stray entries that aren't signatures are ignored when the table is read | A reader is told the table failed when it can't be looked at, and the owner is told why, without the player's details",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "playwright.config.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-1-reading-the-table.feature",
+            "tests/unit/scores-log-leak.spec.js",
+            "tests/unit/serve-cleanup.spec.js",
+            "tests/unit/layering.spec.js"
+          ],
+          "implementation_notes": "Nothing escapes the handler (DDD-17, DEVOPS pre-requisite 4): a catch-all around the request handling turns any throw into 500 { error: 'unexpected' }, no-store, logged once as scores.error unexpected, so handleScores never rejects; known failures keep their own reason (a GET whose listing throws: 500 unexpected, logged list-failed). Never log an error's message, a key, the body, an id, initials or an IP. M1's ranking and stray-entry scenarios should pass on enablement after 01-01 (the keys sort as strings into arcade order; the port lists well-formed keys only): confirm, then un-pend. tests/unit/scores-log-leak.spec.js: the real port over a real BlobsServer store whose list, set and delete throw an Error carrying a score key (for example s/9999000-001767225600000-FAB-t1), handled with the production console logger (export it from scores.mjs, or go through the entry over a fake environment); capture console.log, info, warn, error, debug and trace, and assert that none receives s/\\d{7}-, the initials or the id; also make now() throw, and assert 500 unexpected and the same silence. scripts/serve.mjs (DEVOPS pre-requisite 5, DDD-16): its own catch logs a fixed line only (scores.error, unexpected, scope local), never console.error(error); it stops the emulator and deletes its temp directory on exit, SIGINT and SIGTERM (a synchronous rm on 'exit'); no start-up sweep, which could delete a side-by-side checkout's live directory. tests/unit/serve-cleanup.spec.js: spawn node scripts/serve.mjs with a spare PORT and its own TMPDIR (os.tmpdir() honours it), wait until it serves, send SIGTERM (and SIGINT in a second run), and assert that its make-the-right-move-blobs-* directory is gone (`// bypass:` a process lifecycle, not a property). Playwright's webServer, per its docs, SIGKILLs the server when gracefulShutdown is unset, so the cleanup would never run after npm test or npm run build: set webServer.gracefulShutdown to { signal: 'SIGTERM', timeout: 2000 } in playwright.config.js, its only change, and flag it to the orchestrator (DISTILL left the config alone). tests/unit/layering.spec.js: a hand-rolled import scan over src/** and netlify/** that matches import ... from '...', bare import '...', export ... from '...' and dynamic import('...'), and checks the five rules (ADR-006): game/ imports only from game/ and theme/; theme/ imports nothing; game/high-scores.js imports nothing; src/** never imports netlify/** or @netlify/*; netlify/** imports only src/game/high-scores.js from src/. Check the scanner itself on inline sources for each import form. No new devDependency. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Milestone 2: Signing the shared table",
+      "description": "Every valid signature becomes a row of its own; anything else is refused and saves nothing: 415, 413 (a 1,024-byte cap), 400 for shape or the word filter, 405, 503 for an existing key, 500 for store failures and port refusals. Split for @sizing-review-needed.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Save valid signatures; refuse wrong format, size or shape",
+          "criteria": [
+            "A valid POST adds exactly one well-formed key and answers 200 with scores, id and a listedAt taken after its post-write listing, no-store.",
+            "Signing the same initials and deposit twice makes two rows; £50, £9,999,950 and a body padded to exactly 1,024 bytes are accepted.",
+            "A non-JSON content type answers 415 json-required; a body over 1,024 bytes answers 413 payload-too-large, even when Content-Length claims 20.",
+            "Bad JSON, extra or missing fields, lowercase initials, or a score that isn't a positive £50 multiple up to £9,999,999 answer 400 invalid-signature.",
+            "Every refusal saves nothing, answers no-store JSON with its error, and logs scores.rejected with that reason; a signing logs scores.signed ok with keys."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+          "scenario_name": "A valid signature is saved, and the answer shows where it ranks | Signing twice with the same initials and deposit makes two rows | The table accepts the signature <signature> | The table refuses <what> <why>, and saves nothing",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "src/game/high-scores.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+            "tests/unit/scores-handler.spec.js"
+          ],
+          "implementation_notes": "First half of M2 (@sizing-review-needed, 10 scenarios: split into 02-01 and 02-02, 4 + 6 scenarios). POST checks, in this order (ADR-007): the media type must be application/json (parameters ignored), else 415 json-required; the body is read from the stream with a cap of 1,024 bytes, stopping at the 1,025th, Content-Length never trusted, else 413 payload-too-large; then JSON.parse and isValidSignature, else 400 invalid-signature. Implement isValidSignature in src/game/high-scores.js: shape only, exactly the two fields { initials, score }, three letters of ALPHABET, a safe integer above 0, a multiple of SCORE_STEP, at most MAX_SCORE; the word filter is a separate question (02-02). The server takes SCORE_STEP from there and drops the skeleton's own constants and isValid. A valid signature: putIfNew(encodeKey({ initials, score, at: now(), id: newId() })), then list; answer 200 { scores, id, listedAt } from that listing, listedAt = now() right after it returns, no-store; log scores.signed ok with keys = the well-formed keys in that listing. Refusals answer { error } with no-store and log scores.rejected with the error code as the reason, plus ms and where. The browser already sends application/json, so the walking skeleton stays green. Unit test in tests/unit/scores-handler.spec.js: a POST declaring Content-Length: 20 with a 1,025-byte body answers 413 and saves nothing (moved out of M2 by DISTILL to keep the Gherkin in business language). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        },
+        {
+          "id": "02-02",
+          "name": "Word filter, method refusals, duplicate rows and store failures",
+          "criteria": [
+            "A POST with any of the 16 owner-reviewed initials (ASS, COK, CUM, DIK, FAG, FCK, FUC, FUK, KKK, NAZ, NGR, NIG, PIS, SEX, SHT, TIT) answers 400 initials-not-allowed and saves nothing.",
+            "DELETE or PUT answers 405 method-not-allowed with Allow: GET, POST and no-store, logged scores.rejected method-not-allowed; the table is unchanged.",
+            "A signature whose key already exists answers 503 not-saved, logged scores.not_saved key-exists, and no second row is written.",
+            "A failed write answers 500 unexpected, logged put-failed, adding at most one row; a listing failing after the write answers 500 unexpected, logged list-failed, keeping the row.",
+            "A key the port refuses answers 500 unexpected, logged unexpected, and writes nothing; no log line names the player."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+          "scenario_name": "Initials on the word filter are refused by the table too | Asking the table to <demand> is refused, because it can only be read or signed | A signature that would land on an existing row is turned away, not saved twice | A signature the table fails to save is reported as an unexpected failure | A signature saved just before the table can't be looked at stays saved, though the signer isn't told | A new row the table can't file is refused, and nothing is written",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "src/game/high-scores.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+            "tests/unit/high-scores.spec.js"
+          ],
+          "implementation_notes": "Second half of M2. Precondition 0, resolved by the user: BLOCKED_INITIALS in src/game/high-scores.js becomes Object.freeze(['ASS', 'COK', 'CUM', 'DIK', 'FAG', 'FCK', 'FUC', 'FUK', 'KKK', 'NAZ', 'NGR', 'NIG', 'PIS', 'SEX', 'SHT', 'TIT']), exactly these 16. The acceptance tests take BLOCKED_INITIALS[0] as their example, so their DATA GAP closes here (M2 now; M5 and M8 later). isAllowedInitials(initials): three letters of ALPHABET and not in BLOCKED_INITIALS. Handler: after a valid shape, blocked initials answer 400 initials-not-allowed, logged scores.rejected initials-not-allowed. Any method but GET and POST, checked first: 405 { error: 'method-not-allowed' }, Allow: GET, POST, no-store, logged scores.rejected method-not-allowed. putIfNew false: 503 { error: 'not-saved' }, logged scores.not_saved key-exists. putIfNew throws: 500 unexpected, logged scores.error put-failed. The listing after the write throws: 500 unexpected, logged list-failed (the row stays; the client will show unconfirmed, ADR-008). A port refusal: 500 unexpected, logged unexpected. Don't validate or clean the id before the port: refusing a key is the port's job, and the harness forces an id outside [a-z0-9]+ to prove it. Unit test in tests/unit/high-scores.spec.js: a property that isAllowedInitials is false for every BLOCKED_INITIALS entry and for anything that isn't three letters A-Z, and true for every other three letters. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Milestone 3: No signature is lost",
+      "description": "Each signing tidies away min(5, n - 20) scores ranked 11th or lower, best effort, never a stray entry. A burst of up to 30 loses nothing locally; the preview smoke script, behind its write guard, carries the same check to real Netlify (K10-K14).",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Bounded best-effort pruning of old scores below the top ten",
+          "criteria": [
+            "After a save, exactly min(5, n - 20) keys ranked 11th or lower are removed, n being the well-formed keys listed after the write; none up to 20.",
+            "With 19, 20 and 30 scores held, a signing tidies away 0, 1 and 5 old scores, and every stray entry survives.",
+            "When every removal fails, the signing still answers 200 with its row at #1, removes no score, and logs scores.signed prune-failed without player details.",
+            "A port refusal while pruning answers 500 unexpected, never 200 with prune-failed.",
+            "(unit) planPrune, as a property over any ranked listing, returns min(5, n - 20) keys, all ranked 11th or lower, and none for 20 keys or fewer; its __SCAFFOLD__ throw is gone."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature",
+          "scenario_name": "With <held> scores already kept, a new signing tidies away <loses> | A signing is still saved and answered when tidying up fails",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature",
+            "tests/unit/score-keys.spec.js",
+            "tests/unit/scores-handler.spec.js"
+          ],
+          "implementation_notes": "DDD-1, exact rule accepted by the user (2026-10-24): planPrune(ranked) returns k = min(5, n - 20) keys when n, the number of well-formed keys in the listing taken after the write, is above 20, and none otherwise. Every key it returns is ranked 11th or lower (from ranked.slice(10)); which of those is the crafter's choice, and it may be the new key itself (accepted: that signing's answer then shows it off the table, ADR-008). This replaces the skeleton's fixed delete-5 in prune(). After the post-write listing, remove each planned key through port.remove. Best effort: a store failure while removing is caught, the answer is still 200 with the top 10 of that listing (pruning never touches it), and the request's one log line is scores.signed prune-failed. A port refusal is a bug, never prune-failed: 500 unexpected, logged unexpected (DDD-4). keys in the log = the well-formed keys in the post-write listing. Unit tests: in tests/unit/score-keys.spec.js, a planPrune property over ranked listings of 0 to 40 keys; in tests/unit/scores-handler.spec.js, a refusal during pruning (the real port, with remove passing on a key it refuses) answers 500 unexpected and never prune-failed. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        },
+        {
+          "id": "03-02",
+          "name": "No signature lost under a burst; preview smoke script",
+          "criteria": [
+            "Any batch of up to 30 simultaneous valid signatures gets 200 for each, and the table read afterwards is exactly their best 10.",
+            "scripts/smoke-leaderboard.mjs implements the four DEVOPS modes, prints one JSON summary, and exits 1 on a failed hard check and 2 on a guard refusal.",
+            "The write guard refuses any POST to the custom domain, <site>.netlify.app, main--<site>, a permalink outside the unpublished check, or any other non-preview host.",
+            "The unpublished check refuses when the published deploy's ID equals the permalink's or can't be learned; no POST precedes a first GET answering 200 with no rows.",
+            ".netlify/ is ignored by git, and nothing is pushed, deployed or run against Netlify in this step."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature",
+          "scenario_name": "However many signatures arrive at once, none that belongs in the top ten is lost",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "scripts/smoke-leaderboard.mjs",
+            ".gitignore",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature",
+            "tests/unit/smoke-write-guard.spec.js"
+          ],
+          "implementation_notes": "Enable M3's @property (OUT-9, the local twin of K11). It should pass on enablement: one key per score loses nothing (SPIKE). It runs 20 batches of up to 30 on the real emulator with seed 20261023, and a failure replays with FC_SEED. It checks that every signer gets 200 and that the table read afterwards is the true top 10, not that each signer finds its own row: the emulator can cut a listing short under concurrent writes, so that is K11's check, on Netlify. scripts/smoke-leaderboard.mjs follows the DEVOPS spec 'Preview smoke test' in feature-delta.md: Node 22 fetch, no dependencies; it imports src/game/high-scores.js for valid and blocked initials. Modes: --site --preview [--production] [--permalink] (steps 1 and 4-10); --site --burst (steps 1-3); --production alone (GET only, P1-P3); --site --unpublished --production, with NETLIFY_AUTH_TOKEN and --site-id, or interactive (U1-U3). Every step stays under 10 requests per 60 s per host, except steps 2, 8a, 8b and 9, each followed by a 61 s wait; an inconclusive step is never a pass; it prints the full response headers of step 1, step 4 and the first POST of step 6; one JSON summary; exit 1 on a failed hard check, 2 on a guard refusal. Write guard, checked before every POST in every mode: (1) POST only to deploy-preview-<n>--<site>.netlify.app or <branch>--<site>.netlify.app, <site> taken from --site; refuse the custom domain, <site>.netlify.app, main--<site>.netlify.app, any host whose prefix is a 24-character deploy ID, and any other host; (2) only the unpublished check may POST to a permalink, and only if its ID differs from the published deploy's, learned from published_deploy.id in GET https://api.netlify.com/api/v1/sites/<site ID> (confirm the field name in Netlify's API reference first) or typed back by the owner as a 24-character ID different from the target's, never from a command-line flag; a failed or empty answer refuses; (3) the run's first request to the host is a GET, and a POST is allowed only after it answered 200 with scores: []. The token stays in the owner's shell: never logged, written or committed. Export the guard as a pure decision function and run the CLI only when the file is executed directly, so tests/unit/smoke-write-guard.spec.js can import it with no network: every refusal case the spec names, the allowed preview and branch hosts, and a property that any host outside both patterns is refused. Add .netlify/ to .gitignore before anyone runs netlify link (DEVOPS pre-requisite 8). Running the script needs the user's OK to push, so it is not run here (DEVOPS pre-requisite 9). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green. Time budget: the M3 @property runs in npm run build (20 batches of up to 30 POSTs on the real emulator); record its duration in the step report. The first Netlify build log is a DEVOPS release check (a timing flake would fail the build; replay with FC_SEED)."
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Milestone 4: Only a deposit that makes the table is asked",
+      "description": "The browser's table state, ordered by listedAt, and makesTheTable from the shared rules decide who is asked for initials. The rules gain snapshot(), main.js hands answers over between frames, and the page gains the initials field.",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Ask for initials only when the deposit makes the table",
+          "criteria": [
+            "With 9 rows of £1,000, a £50 deposit is asked for initials, and the initials field reads 'A A A, letter 1 of 3'.",
+            "makesTheTable is true only for an available table and a deposit above 0, with fewer than 10 rows or above the 10th; a tie misses.",
+            "Through snapshot(): load rows apply only when listedAt is at least the last applied; a failed first load makes the table unavailable, later failures change nothing.",
+            "Every hurdle value and Dream Home bonus is a multiple of SCORE_STEP from src/game/high-scores.js, which no longer carries __SCAFFOLD__ (marker and helper gone); game.js has no scaffold throw left for tableAnswered, tableFailed or snapshot.",
+            "The guards stay green: the walking skeleton, both M4 guards, M6's title scenario, and M5's sent-once and Enter outlines."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-4-who-is-asked.feature",
+          "scenario_name": "A deposit is asked for initials while the table has room",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "src/game/high-scores.js",
+            "src/game/game.js",
+            "src/main.js",
+            "src/platform/leaderboard.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "index.html",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-4-who-is-asked.feature",
+            "tests/unit/high-scores.spec.js"
+          ],
+          "implementation_notes": "src/game/high-scores.js: makesTheTable(table, deposit) is true only when table.status is 'available', the deposit is above 0, and there are fewer than TABLE_SIZE rows or the deposit beats the last row's score (a tie misses); then delete export const __SCAFFOLD__ (nothing imports it). src/game/game.js: g.table { status: 'unknown' | 'available' | 'unavailable', rows } replaces g.highScores, plus the last applied listedAt; the table constants come from ./high-scores.js; game over opens the entry (A A A, the first letter current) only if makesTheTable(g.table, g.score). tableAnswered({ scores, listedAt }) applies the rows only if listedAt >= the last applied (rows replaced, status available, last applied = listedAt), and ignores them otherwise (DDD-12). tableFailed(): unknown becomes unavailable; any other status stays (DDD-9). snapshot(): a fresh, frozen { screen: 'title' | 'play' | 'over' ('dead' and 'clear' are 'play'), table: { status, rows } (rows [] while unknown), entry: { letters as a string such as 'AAA', index } or null, signing, settled, lastListedAt (null before any) }; Tier B reads the rules only through it. src/main.js: the page-load leaderboard.load() hands its whole answer { scores, listedAt } to tableAnswered, or calls tableFailed, from the promise callbacks, between frames (DDD-11); src/platform/leaderboard.js's load resolves the whole answer. Until 05-01 the skeleton's signing path stays: its POST answer's rows go through tableAnswered and its row highlight keeps working; applyLeaderboard and g.signed go in 05-01. index.html gains one field, data-hud=\"initials\". src/view/status.js fills it while initials are entered ('A A A, letter 1 of 3': letters spaced, position 1-3), empties it otherwise, and shows the High scores list's rows only while the table is available. src/view/render.js reads g.table (the title's attract list only while available and with rows). Unit tests in tests/unit/high-scores.spec.js: a makesTheTable property beyond what M4 and M8 cover (status, a deposit of 0, ties, a full table); and every HURDLES value and DREAM_BONUSES entry in src/theme/theme.js is a multiple of SCORE_STEP (DESIGN, Reuse Analysis). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Milestone 5: Every signing has an outcome",
+      "description": "A signing is pending until its answer, then confirmed (rank and marked row), off the table, or unconfirmed (not OK, network error, or the 5000 ms timeout). Initials entry is announced letter by letter, and blocked initials are refused in the game. Split for @sizing-review-needed.",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Pending, confirmed, off-table and unconfirmed, with the 5 s timeout",
+          "criteria": [
+            "Signing FAB shows 'Signing FAB…' until the table answers, with no row marked; the skeleton's optimistic 'Signed FAB.' is gone.",
+            "An answer with the new id says 'Signed FAB, #1.' and marks that row aria-current; without it, 'The table filled up before FAB arrived.'",
+            "A dropped connection, a 503, or no answer within exactly 5000 ms says 'Couldn't confirm FAB's signing.'; at 4.9 s it still says 'Signing FAB…'.",
+            "Each settled outcome, a replaced signing's included, is announced exactly once by the status mirror; a signing is sent once and never retried.",
+            "Enter starts a new game from every signing status, and the walking skeleton stays green in all three browsers.",
+            "game.js has no scaffold throw or scaffold helper left (signingAnswered and signingFailed are real), so grep -rn __SCAFFOLD__ src finds nothing."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+          "scenario_name": "My signing shows as pending until the table answers | The table confirms my signing and marks my row | When the high-score table <trouble>, I am told my signing couldn't be confirmed | The table filled up before my signing arrived | A signing with no answer after <wait> is <verdict>",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/main.js",
+            "src/platform/leaderboard.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+            "tests/unit/status-mirror.spec.js",
+            "tests/unit/support/fake-status-root.js"
+          ],
+          "implementation_notes": "First half of M5 (@sizing-review-needed, 10 scenarios: split into 05-01 and 05-02, 5 + 3 pending; the Enter outline and 'sent exactly once' already run and must stay green). Rules (DESIGN, 'Rules operations' and 'Signing-status lifecycle'): the third Enter with allowed initials numbers a new signing n, makes { n, initials, status: 'pending', id: null, rank: null } the current signing in place of any earlier one (g.signing replaces g.signed), and emits initialsEntered { initials, score, signing: n }. signingAnswered(n, { scores, id, listedAt }): the rows as in tableAnswered (DDD-12); then the outcome from this answer's own rows: confirmed with rank = the id's position + 1, or off-table; g.settled = { n, initials, outcome, rank } is recorded for the status mirror; the current signing changes only if it is n and still pending; the answer settles the signing even when its rows are too old to apply. signingFailed(n): outcome unconfirmed, the same way; the table is unchanged. A replaced signing (n older than the current one) only records g.settled. A new game clears the entry but keeps the signing. Implement the whole table now, so that M7 and M8 pass on enablement. main.js: on initialsEntered, leaderboard.sign(...).then(answer => signingAnswered(event.signing, answer), () => signingFailed(event.signing)), never retried; createLeaderboard({ fetch, setTimeout, clearTimeout }) with the window's timers, so Playwright's clock drives the timeout (DDD-13). leaderboard.js: one request per call and no state between calls; an AbortController aborts it after exactly 5000 ms on the injected setTimeout (cleared once settled); it rejects on a non-OK answer, a network error or the timeout, for GET and POST alike. status.js, wording exactly (DISTILL, Messages; ASCII apostrophes): 'Signing FAB…' (U+2026), 'Signed FAB, #3.', 'The table filled up before FAB arrived.', \"Couldn't confirm FAB's signing.\"; each g.settled is announced once, in any game state; the game-over announcement keeps 'Deposit saved £50' and 'Enter your initials' while entering (the walking skeleton reads them) and describes only a signing made in this game; the row of the confirmed current signing, when shown, gets aria-current=\"true\". render.js: the signing line on game over, and the green row from the confirmed current signing; nothing new is drawn during play. Unit tests: tests/unit/status-mirror.spec.js, over a minimal fake root in tests/unit/support/fake-status-root.js (the unit project has no browser): each settled outcome is announced exactly once across many syncs, a replaced signing's included. Manual check owed by the PO (D10): the compact game-over layout with the signing lines. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        },
+        {
+          "id": "05-02",
+          "name": "Initials field announcements, cadence and the word-filter refusal",
+          "criteria": [
+            "Choosing F and moving on shows 'F A A, letter 2 of 3' in the initials field, and the game says it once.",
+            "Up pressed 3 times a frame apart reads 'D A A' and is announced 3 times; within one frame it reads 'B A A', announced once.",
+            "Blocked initials send nothing and say 'Those initials aren't allowed. Change a letter.', keeping the letters with letter 1 of 3 current.",
+            "The initials field is empty whenever no initials are being entered, and the status-mirror unit tests show one update per change of letter or position."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+          "scenario_name": "The initials field tells me the letters and which one I am choosing | Up pressed 3 times <spacing> is announced <count> times, once per change of letter | Initials on the word filter are refused, and I can change a letter",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+            "tests/unit/status-mirror.spec.js"
+          ],
+          "implementation_notes": "Second half of M5. Rules: on the third Enter, initials that isAllowedInitials refuses make no signing and no event; the entry stays open with the letters kept, the first letter becomes current (DISTILL's choice), and a refusal is shown until the next key. status.js: the data-hud=\"initials\" field reads 'F A A, letter 2 of 3' while entering and is empty otherwise; one live-region update per change of letter or position, so presses of the same key within one frame give one update (the keyboard already collapses them); the refusal says 'Those initials aren't allowed. Change a letter.'. render.js: the refusal line on the initials screen (manual check, D10). BLOCKED_INITIALS was filled in 02-02, so this scenario's DATA GAP is already closed. Unit tests: extend tests/unit/status-mirror.spec.js: one initials update per change of letter or position, none for a sync with no change, and an empty field when not entering. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Milestone 6: The game plays fully without the table",
+      "description": "The table is refreshed in the background on every game start. It is unavailable only while no table has ever loaded; a failed or hung refresh keeps the last good table, and a deposit that makes it is still asked.",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Refresh on game start; unavailable only before any table",
+          "criteria": [
+            "Every game start refreshes the table in the background: a deposit the refreshed table no longer has room for isn't asked, and 10 rows show.",
+            "A refresh that fails, or hangs past 5000 ms, keeps the last good table: 9 rows show, initials are asked, and nothing says unavailable.",
+            "A first load that fails or hangs makes game over say 'High-score table unavailable.', with no initials asked and no rows shown.",
+            "With the table still unknown at game over, the status mirror shows no prompt, no list and no table line (unit test).",
+            "M6's title guard, which shows no table while it can't be reached, stays green."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-6-table-status.feature",
+          "scenario_name": "The table is refreshed when a game starts | A failed refresh keeps the last good table, and I am still asked for initials | A first load that never answers leaves the table unavailable once the game gives up on it | A refresh that never answers keeps the last good table, and I am still asked for initials | When the high-score table can't be reached, the game says so at game over and plays on",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "05-02"
+          ],
+          "files_to_modify": [
+            "src/main.js",
+            "src/game/game.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-6-table-status.feature",
+            "tests/unit/status-mirror.spec.js"
+          ],
+          "implementation_notes": "Order (DISTILL): 'refreshed when a game starts', then 'failed refresh' (RED until the refresh exists), then the two hang scenarios, then 'can't be reached'. main.js: on every gameStarted event, start leaderboard.load() in the background and hand the answer to tableAnswered or the failure to tableFailed, never awaited (DDD-7, ADR-008). The 5000 ms GET timeout from 05-01 gives up on a load that hangs. Rules (from 04-01; check them): unavailable only while no table has ever loaded; a failed refresh keeps the last good table, and a deposit that makes it is still asked (a signing that can't get through then ends unconfirmed). status.js: at game over, unavailable says 'High-score table unavailable.' with no prompt and no rows; unknown shows nothing: no prompt, no list and no table line (DISTILL: no neutral wording). render.js: the unavailable line on game over, and nothing for unknown. Unit tests: extend tests/unit/status-mirror.spec.js: with the table unknown at game over, no prompt, no list items and no table line; unavailable says its line once. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "07",
+      "name": "Milestone 7: Answers that arrive late",
+      "description": "Outcomes that arrive during the next game are announced once; a confirmed row stays marked on later game-over screens until a newer signing replaces it or the row leaves the table; an older copy of the table never undoes a newer one.",
+      "steps": [
+        {
+          "id": "07-01",
+          "name": "Late answers announced once; the mark follows the signing",
+          "criteria": [
+            "A signing confirmed during the next game is announced 'Signed FAB, #1.' exactly once, and FAB's row is marked.",
+            "The next game-over screen keeps FAB's row marked, and its message doesn't mention FAB.",
+            "Signing ABC moves the mark to ABC's row; when newer signings push FAB off the table, no row is marked.",
+            "A table copy listed before the signing's answer but arriving after it is ignored: FAB with £50 stays on top, marked.",
+            "An answer handed to the rules while the game is paused or hidden changes snapshot() at once, with no frame needed (unit test)."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-7-late-answers.feature",
+          "scenario_name": "A signing confirmed during my next game is still announced, once | My confirmed row stays marked on the next game-over screen, which doesn't repeat the outcome | A newer signing moves my mark from the older row to the new one | My row loses its mark when newer signings push it off the table | An older copy of the table that arrives late doesn't undo my signing",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "06-01"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/main.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-7-late-answers.feature",
+            "tests/unit/answers-while-paused.spec.js"
+          ],
+          "implementation_notes": "Order (DISTILL): confirmed during the next game (announced once), the mark on the next game-over screen, a newer signing moves the mark, pushed off the table, an older copy arriving late. Most should pass on enablement after 05-01 and 06-01: confirm each, and fix only real failures. What they check: an outcome arriving during play is announced by the status mirror only, once, and nothing is drawn mid-game; later game-over messages don't repeat it; the mark (aria-current and the canvas green row) follows the current confirmed signing while its id is in the shown rows, and goes when the row leaves (pruned or pushed down), the signing staying confirmed; rows listed before the last applied listedAt are ignored (DDD-12). Unit test: tests/unit/answers-while-paused.spec.js: with the game paused by P or by pause() (a blurred window or hidden tab), tableAnswered and signingAnswered change snapshot() at once, with no update() call (DDD-11); main.js hands answers over from the promise callbacks, never from inside frame(). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "08",
+      "name": "Milestone 8: Rules in any order, and close-out",
+      "description": "The rules on their own, with answers and failures in any order and any listing time, follow DESIGN's rules operations, including what the keyboard can't reach. Then the feature closes: no scaffolds, no pending scenarios, docs updated, every gate green.",
+      "steps": [
+        {
+          "id": "08-01",
+          "name": "Rules in any order, then close out the feature",
+          "criteria": [
+            "Rules alone: a game ending while the table is unknown asks no initials; a replaced signing's answer is announced once and changes nothing else.",
+            "The model-based property passes for any order of games, signings and answers, and reaches every witness state, the refusal included.",
+            "grep -rn __SCAFFOLD__ src netlify finds nothing, and no @pending tag remains in the leaderboard feature files.",
+            "PORT=4174 CI=1 npm test is green in Chromium, Firefox, WebKit, unit and in-memory, and PORT=4174 CI=1 npm run build is green.",
+            "README's file table lists high-scores.js, leaderboard.js, scores.mjs and the smoke script; CLAUDE.md's platform/ entry names the table client. CLAUDE.md no longer mentions an accepted game.js to platform/storage.js import."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-8-signing-rules.feature",
+          "scenario_name": "A game that ends before the table has ever answered asks for no initials | The answer to a signing I have since replaced is announced once and changes nothing else | Whatever order the table's answers arrive in, the signing and the table follow the rules",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "07-01"
+          ],
+          "files_to_modify": [
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-8-signing-rules.feature",
+            "src/game/game.js",
+            "README.md",
+            "CLAUDE.md"
+          ],
+          "implementation_notes": "Enable M8's two examples, then the property (fc.commands over the real rules, 100 runs, seed 20261023, read only through snapshot()). With BLOCKED_INITIALS filled, every witness must be reached, the refusal included. A failure points at the rules, not the model: the model is DESIGN's rules operations, and it is DISTILL's. Close-out: README.md's file table gains src/game/high-scores.js, src/platform/leaderboard.js, netlify/functions/scores.mjs and scripts/smoke-leaderboard.mjs (DESIGN open questions, DELIVER); its events.js row also mentions the table's events; its rollback line says 'Unlock to start auto publishing' and that a rollback leaves the production table as it is (DEVOPS). CLAUDE.md's platform/ entry also names the high-score table client. Both files already say 'no runtime dependencies in the browser': check it, don't rewrite it. Then: grep -rn __SCAFFOLD__ src netlify finds nothing; no @pending is left in tests/e2e/rightmove-invaders-leaderboard/acceptance/*.feature; PORT=4174 CI=1 npm test passes in all five projects, and PORT=4174 CI=1 npm run build passes. Manual checks owed by the PO (D10): the compact game-over layout, the signing, refusal and unavailable lines, and the green row. Not in this roadmap, because each needs the user's OK: pushing the branch, the K10-K14 smoke runs, the Blobs-limit check, the list of live function hostnames and the kill switch (DEVOPS pre-requisites 9 and 10). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser, as on Netlify's build image), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each with RUN_PENDING=1 first, then enable it by deleting its @pending, one at a time; never edit steps, drivers or harnesses. Done when this step's scenarios are green and PORT=4174 CI=1 npm test and PORT=4174 CI=1 npm run build stay green."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/",
+      "netlify/functions/",
+      "scripts/"
+    ],
+    "test_directories": [
+      "tests/e2e/rightmove-invaders-leaderboard/",
+      "tests/unit/"
+    ],
+    "excluded_patterns": [
+      "node_modules/**",
+      "dist/**",
+      ".features-gen/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer",
+    "date": "2026-10-25",
+    "notes": "Conditionally approved (0 blockers, 1 high, 7 low); fixes applied by the orchestrator: scaffold removal owned per step (F1), criteria at driving ports or labelled unit (L3), main.js in 07-01 (L4), partial-removal wording (L2), CLAUDE.md layering sentence (L5), property time budget (L7). Per-answer headers stay in the @server scenarios, as recorded in DISTILL Test placement (L1). des-roadmap validate and des-verify-integrity --roadmap-only pass."
+  }
+}

@@ -1,11 +1,15 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore } from './game/game.js';
+import {
+  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore,
+  tableAnswered, tableFailed, signingAnswered, signingFailed,
+} from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';
 import { createSoundDirector } from './sound/director.js';
 import { loadSettings, saveSetting, loadBest, saveBest } from './platform/storage.js';
+import { createLeaderboard } from './platform/leaderboard.js';
 import { GameEvent } from './game/events.js';
 
 const keyboard = createKeyboard(window);
@@ -23,16 +27,34 @@ const synth = createSynth({
 applySettings(loadSettings());   // before the first frame; g.settings is the one authority from here on
 applyBestStore({ load: loadBest, save: saveBest });   // the best score is read now and written when a game ends on a new best
 const director = createSoundDirector({ ...g.settings });
+
+// The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between
+// frames: the frame never waits on the network (DDD-11). If it can't be reached the game plays exactly as it does
+// without one: the rules make it unavailable while no table has ever loaded, so nobody is asked for initials. The
+// window's timers time it out, so a test's fake clock drives the timeout (DDD-13).
+const leaderboard = createLeaderboard({
+  fetch,
+  setTimeout: (callback, ms) => window.setTimeout(callback, ms),
+  clearTimeout: id => window.clearTimeout(id),
+});
+// Read on page load and again, in the background, whenever a game starts (DDD-7): never awaited (ADR-008).
+const loadTable = () => leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
+loadTable();
+// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it.
+const signTable = ({ initials, score, signing }) =>
+  leaderboard.sign({ initials, score }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 
 // A toggle is saved as it is taken, so the choice is there on the next visit.
 const SAVED_WHEN_TOGGLED = { [GameEvent.SOUND_TOGGLED]: 'sound', [GameEvent.MUSIC_TOGGLED]: 'music' };
 
-function playSounds() {
+function handleEvents() {
   for (const event of takeEvents()) {
     const setting = SAVED_WHEN_TOGGLED[event.type];
     if (setting) saveSetting(setting, event.on);
+    if (event.type === GameEvent.GAME_STARTED) loadTable();
+    if (event.type === GameEvent.INITIALS_ENTERED) signTable(event);
     for (const cue of director.handle(event)) synth.perform(cue);
   }
 }
@@ -41,7 +63,7 @@ function playSounds() {
 function leaveGame() {
   keyboard.releaseAll();   // keyups never arrive while the window is unfocused or hidden
   pause();
-  playSounds();
+  handleEvents();
 }
 
 const MIN_DESKTOP_WIDTH = 640;   // px
@@ -68,7 +90,7 @@ function frame(now) {
     acc += dt;
     while (acc >= STEP) { update(STEP, keyboard); keyboard.endStep(); acc -= STEP; }
   }
-  playSounds();
+  handleEvents();
   renderer.draw();
   syncStatus(g);
   requestAnimationFrame(frame);

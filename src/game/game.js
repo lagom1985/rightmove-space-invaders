@@ -2,6 +2,7 @@ import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { GameEvent } from './events.js';
+import { ALPHABET, INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
 
 // Sizes in logical units, derived from the pixel art.
 export const IW = HURDLES[0].frames[0][0].length * PX, IH = HURDLES[0].frames[0].length * PX;
@@ -25,9 +26,22 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 // state: 'title' | 'play' | 'dead' (respawning) | 'clear' (wave banner) | 'over'
 // settings: the player's sound and music choices, loaded by main.js (applySettings) and flipped by M and N.
 // best: the best score so far, loaded by main.js through the store it hands over (applyBestStore).
+// table: the shared high-score table, { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }]
+//   best first }, from the answers main.js hands over (tableAnswered, tableFailed). Unknown until the first answer,
+//   unavailable only while no table has ever loaded (DDD-9): nobody is asked for initials unless it is available.
+// lastListedAt: when the server listed the rows shown (DDD-12), null before any.
+// initials: while a score that makes the table is being signed, { letters, index (the letter being chosen), refused (the
+//   last Enter's initials are on the word filter, shown until the next key) }.
+// signing: the current signing, { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank },
+//   id and rank set once confirmed; null before the first. A new game keeps it: only the next signing replaces it (DDD-8).
+// signedThisGame: the current signing was made at this game over (the game-over screen describes no earlier one).
+// settled: the latest settled outcome, { n, initials, outcome, rank }, a replaced signing's included; the status mirror
+//   announces each one once.
 export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
+  table: { status: 'unknown', rows: [] }, lastListedAt: null, initials: null,
+  signing: null, signedThisGame: false, settled: null,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -54,6 +68,75 @@ export function applyBestStore(store) {
   g.best = store.load();
 }
 
+// The rules' side of the table outcomes (DESIGN, "Rules operations"). main.js hands every outcome over between frames,
+// from the promise callbacks (DDD-11); only these functions write the table state and settle a signing.
+//   tableAnswered({ scores, listedAt })            a load answered (page load, or the refresh on every gameStarted)
+//   tableFailed()                                  a load failed (not OK, network error, or the 5000 ms timeout)
+//   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
+//   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
+export function tableAnswered({ scores, listedAt }) {
+  applyRows(scores, listedAt);
+}
+
+// Rows listed earlier than the ones shown are older news, and are ignored (DDD-12).
+function applyRows(rows, listedAt) {
+  if (g.lastListedAt !== null && listedAt < g.lastListedAt) return;
+  g.table = { status: 'available', rows };
+  g.lastListedAt = listedAt;
+}
+
+// Unavailable only while no table has ever loaded: a failed refresh keeps the last good table (DDD-9).
+export function tableFailed() {
+  if (g.table.status === 'unknown') g.table = { ...g.table, status: 'unavailable' };
+}
+
+// Signings on their way, n -> initials: a replaced one still needs its initials when it settles. Each settles once.
+const onTheirWay = new Map();
+
+// A signing's answer carries rows like any other table answer. Its outcome comes from those rows, even when they are
+// too old to apply: confirmed at the new row's place, or off the table if the row isn't in them.
+export function signingAnswered(n, { scores, id, listedAt }) {
+  applyRows(scores, listedAt);
+  const at = scores.findIndex(row => row.id === id);
+  if (at < 0) settle(n, 'off-table');
+  else settle(n, 'confirmed', { id, rank: at + 1 });
+}
+
+// A failed signing may still have been saved: the next refresh shows its row, unmarked. The table is unchanged.
+export function signingFailed(n) {
+  settle(n, 'unconfirmed');
+}
+
+// Every outcome is recorded for the status mirror; only the current signing's changes it, and so its row's mark.
+function settle(n, outcome, { id = null, rank = null } = {}) {
+  if (!onTheirWay.has(n)) return;
+  const initials = onTheirWay.get(n);
+  onTheirWay.delete(n);
+  g.settled = { n, initials, outcome, rank };
+  if (g.signing.n === n) g.signing = { ...g.signing, status: outcome, id, rank };   // on its way, so still pending
+}
+
+// The rules' read model for tests; the views read g directly. No production code calls it: the in-memory acceptance
+// model (tier-b/signing-rules.js) and the unit properties read it (DISTILL, "WS strategy"), so they never reach into g.
+// A fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows }, entry: { letters: 'AAA', index } or
+// null, signing, settled, lastListedAt: number or null }.
+const SCREENS = { title: 'title', play: 'play', dead: 'play', clear: 'play', over: 'over' };
+
+const deepFreeze = value => {
+  if (typeof value === 'object' && value !== null) Object.values(value).forEach(deepFreeze);
+  return Object.freeze(value);
+};
+
+export function snapshot() {
+  return deepFreeze({
+    screen: SCREENS[g.state],
+    table: { status: g.table.status, rows: g.table.rows.map(row => ({ ...row })) },
+    entry: g.initials && { letters: g.initials.letters.join(''), index: g.initials.index },
+    signing: g.signing && { ...g.signing }, settled: g.settled && { ...g.settled },
+    lastListedAt: g.lastListedAt,
+  });
+}
+
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;
@@ -65,11 +148,46 @@ const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
 // One-shot keys, handled once per frame.
 export function handlePresses(pressed) {
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
+  else if (g.initials) enterInitials(pressed);   // Enter takes a letter here: it can't start a game by mistake
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
   // M and N work on every screen, and never touch the game itself.
   if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);
   if (pressed.has('KeyN')) toggleSetting('music', GameEvent.MUSIC_TOGGLED);
+}
+
+// Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on.
+const blankInitials = () => ({ letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0, refused: false });
+const turned = (letter, by) => ALPHABET[(ALPHABET.indexOf(letter) + by + ALPHABET.length) % ALPHABET.length];
+
+function enterInitials(pressed) {
+  const entry = g.initials;
+  if (pressed.size) entry.refused = false;   // a refusal shows until the next key
+  entry.letters[entry.index] = turned(entry.letters[entry.index], pressed.has('ArrowUp') - pressed.has('ArrowDown'));
+  if (!pressed.has('Enter')) return;
+  entry.index++;
+  if (entry.index < INITIALS_LENGTH) return;
+  const initials = entry.letters.join('');
+  if (isAllowedInitials(initials)) sign(initials);
+  else refuse(entry);
+}
+
+// Initials on the word filter are refused here, before anything is sent (ADR-007): no signing and no event. The letters
+// are kept and the first one is current again, so one can be changed.
+function refuse(entry) {
+  entry.index = 0;
+  entry.refused = true;
+}
+
+// A new signing n replaces any earlier one as the current signing. main.js takes it to the table once, and hands its
+// answer or failure back (signingAnswered, signingFailed).
+function sign(initials) {
+  const n = (g.signing?.n ?? 0) + 1;
+  g.initials = null;
+  g.signing = { n, initials, status: 'pending', id: null, rank: null };
+  g.signedThisGame = true;
+  onTheirWay.set(n, initials);
+  emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score, signing: n });
 }
 
 function toggleSetting(name, event) {
@@ -89,7 +207,7 @@ function setPaused(paused) {
 }
 
 function startGame() {
-  g.score = 0; g.lives = LIVES; g.newBest = false;
+  g.score = 0; g.lives = LIVES; g.newBest = false; g.initials = null; g.signedThisGame = false;   // the signing is kept
   startWave(0);
   emit(GameEvent.GAME_STARTED);
 }
@@ -287,6 +405,7 @@ function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
+  if (makesTheTable(g.table, g.score)) g.initials = blankInitials();
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

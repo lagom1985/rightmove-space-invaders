@@ -9,3 +9,5 @@ playwright-report/
 .nwave/*
 !.nwave/local-config.json
 dist/
+# Netlify CLI link state (`netlify link` writes .netlify/state.json): never committed
+.netlify/

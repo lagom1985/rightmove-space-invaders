@@ -1238,7 +1238,7 @@ There is no DISCUSS Definition of Done. Checked against DISTILL's "Done when" (D
 | 16 | DEVOPS's DELIVER items 1–8 | **Met** | The DDD-6 headers, `config.rateLimit` and ADR-005 as amended (`1d3b70d`); the catch-all (`fc6a183`); `scripts/serve.mjs` fixed (`1d3b70d`, `fc6a183`); the `config` contract test (`scores-entry`); the smoke script and `.netlify/` ignored (`6f5be2d`) |
 | 17 | DEVOPS's items 9–10: the burst and preview runs with the owner, the Blobs limits, the list of live hostnames, the kill switch | **Owed** | Pre-requisites below |
 | 18 | `README.md` and `CLAUDE.md` updated at close-out | **Met** | `b0da992`, `0d436be` |
-| 19 | The canvas: the compact game-over layout, the signing lines, the green row (D10) | **Owed by the PO** | No test asserts on it (waiver D10) |
+| 19 | The canvas: the compact game-over layout, the signing lines, the green row (D10) | **Pass** (PO, 2026-10-25, on deploy-preview-1) | No test asserts on it (waiver D10); checked by hand on the deploy preview of PR #1 |
 
 ## Wave: DELIVER / [REF] Demo evidence
 
@@ -1284,7 +1284,7 @@ The walking skeleton plays through the real page and keyboard, and the real func
 
 **For whoever ships next**:
 - **Run it**: Node 22; `npm install`; `npx playwright install` for the test browsers; `npm start`, then open http://localhost:4173. Beside another checkout, set `PORT` (for example `PORT=4174`), and never stop servers by name. `npm test` must show 326 passed, and `npm run build` 128. The local server prints one JSON line per request (`scope: local`).
-- **PO manual checks owed (D10)**, to be recorded in this file: the compact game-over layout; the signing, refusal and unavailable lines on the canvas; the green confirmed row; the title's attract table.
+- **PO manual checks (D10): done, passed** (PO, 2026-10-25, on https://deploy-preview-1--make-the-right-move.netlify.app): asked for initials and signed; "Signing FAB…" then "Signed FAB, #1." with the green row; blocked initials refused in the game ("Those initials aren't allowed. Change a letter."); the table shown on the title's attract screen from another browser window.
 - **DEVOPS go/no-go, before the merge to `main`** (DEVOPS Pre-requisites, items 9 and 10; the spec is under "CI/CD pipeline outline"):
   1. Open a pull request from `worktree-leaderboard-spike`, for its deploy preview. With the user's OK, push the throwaway burst branch (`smoke/no-rate-limit`: the candidate commit without `rateLimit`).
   2. The burst run (K11): `node scripts/smoke-leaderboard.mjs --site <name> --burst <throwaway preview URL>`. Then delete that deploy and its branch.

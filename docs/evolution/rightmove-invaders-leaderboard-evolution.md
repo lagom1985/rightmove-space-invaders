@@ -1,6 +1,6 @@
 # Evolution: rightmove-invaders-leaderboard
 
-**Feature**: a shared high-score table for *Make the Right Move* · **Delivered**: 2026-10-25 on branch `worktree-leaderboard-spike` (from `4f9d64f`, the DELIVER roadmap, to `2c53e96`), pushed to origin and not merged to `main` · **Status**: DELIVER complete. The PO's manual checks (D10) and the DEVOPS go/no-go on a deploy preview (K10–K14) are still owed before the merge · **Full record**: [feature-delta.md](../feature/rightmove-invaders-leaderboard/feature-delta.md)
+**Feature**: a shared high-score table for *Make the Right Move* · **Delivered**: 2026-10-25 on branch `worktree-leaderboard-spike` (from `4f9d64f`, the DELIVER roadmap, to `2c53e96`), pushed to origin and not merged to `main` · **Status**: DELIVER complete. The PO's manual checks (D10) passed on the deploy preview (2026-10-25); the DEVOPS go/no-go on a deploy preview (K10–K14) is still owed before the merge · **Full record**: [feature-delta.md](../feature/rightmove-invaders-leaderboard/feature-delta.md)
 
 ## Summary
 
@@ -118,7 +118,7 @@ A DES execution-log commit follows each step's commit. The roadmap is `4f9d64f`.
 
 ## Still owed before the merge to `main`
 
-- **The PO's manual checks (D10)**: the compact game-over layout; the signing, refusal and unavailable lines; the green confirmed row; the title's attract table.
+- ~~**The PO's manual checks (D10)**~~: **done, passed** (PO, 2026-10-25, on the deploy preview of PR #1): signing, the signing lines, the green confirmed row, the in-game refusal and the title's attract table.
 - **The DEVOPS go/no-go** (the commands are in the feature-delta's [DELIVER pre-requisites](../feature/rightmove-invaders-leaderboard/feature-delta.md#wave-deliver--ref-pre-requisites)):
   - the preview smoke run, K10–K14. It needs a pull request and its deploy preview, plus a throwaway preview without the rate limit for the K11 burst run.
   - the account's Blobs limits, checked and recorded

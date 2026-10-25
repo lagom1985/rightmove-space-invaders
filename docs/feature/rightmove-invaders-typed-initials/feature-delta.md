@@ -392,3 +392,317 @@ The leaderboard's documents are not edited. Their originals are quoted here, and
   - Firefox's quick find can take the keyboard.
   - The skeleton's step can flake against the 0.6 s guard unless it waits first.
 - **Handoff**: DESIGN (nw-solution-architect), with the stories, the wording, the Changed assumptions and the Pre-requisites. DEVOPS gets K16–K19 only, and needs no new instrumentation: K19 reads the public table.
+
+---
+
+## Wave: DESIGN / [REF] DDD list
+
+Scope: application (nw-solution-architect) · mode: propose · paradigm: OOP · density: lean · no SPIKE. Every row is **Accepted**: the user approved the DESIGN as written on 2026-10-25. The IDs are `DDD-T…`, so they don't clash with the leaderboard's DDD-1…19, which stand unless a row here says otherwise. ADR: [ADR-009](../../product/architecture/adr-009-keyboard-typed-presses-in-order.md) (accepted).
+
+| ID | Decision | Verdict | One-line rationale |
+|---|---|---|---|
+| DDD-T1 | **Two channels from one keyboard** (ADR-009). The positional channel is unchanged: `isDown(code)`, `takePressed()` (a Set of codes), `endStep()` and `releaseAll()`. New: `takeTyped()` returns every keydown since the last call, in the order it arrived, as `{ key, code }`. Repeats (`e.repeat`) and chords (Cmd, Ctrl or Alt/Option held) are left out. `main.js` drains both channels every frame, paused or not. | Accepted | The printed letter (D8) and every press in order (D15), without touching the game keys (Out of scope) or the fixed step (ADR-000) |
+| DDD-T2 | **One rules entry per frame**: `handlePresses(pressed, typed)`. `typed` defaults to none, so the callers that pass one argument stay valid. A frame that starts with the entry open belongs to the entry: the rules read `typed` in order and ignore `pressed`. Any other frame reads `pressed` only, as today. Presses that come after the entry closes in the same frame (Enter signs, Esc skips) are dropped. | Accepted | The rules decide what keys mean. The Enter that signs can never also restart, and M, N and P can't leak into the entry (D7) |
+| DDD-T3 | **What a letter is** (the rules, `game.js`): the raw `key` is exactly one of the 52 ASCII letters a–z and A–Z, shown and signed in capitals. There is no Unicode normalisation and no case folding, so é, ü, ß, å, ı (dotless i), ſ (long s), K (the Kelvin sign) and a decomposed é are ignored, never turned into a plain letter. The check runs on the raw character, before uppercasing: `'ß'.toUpperCase()` is `'SS'`, and `'ı'.toUpperCase()` is `'I'`. Backspace, Enter and Escape are read by `key`, so the numpad Enter signs too. Every other key is ignored. It uses `ALPHABET` and `INITIALS_LENGTH` from `high-scores.js`, which doesn't change. | Accepted | D6, D8 and US-03, with no transliteration. The server contract (3 letters A–Z) and `isValidSignature` are unchanged (D9) |
+| DDD-T4 | **Repeats and chords** (the adapter): a held key gives one press (D14), Backspace included. A chord is never typed and keeps its browser default (D17). For the typed channel only, Alt/Option counts as a chord, like Cmd and Ctrl: Option letters (å, ß) are ignored as D6 says, and Windows Alt+letter accelerators are left alone. The positional channel keeps today's filter (Cmd and Ctrl only), so holding Option during play still moves and fires. | Accepted | Browser and OS shortcuts are left alone, and nothing changes outside the entry |
+| DDD-T5 | **The stray-key guard** (the rules): while the entry is open and `g.overT ≤ 0.6`, the frame's typed and positional presses are **dropped**, not queued. A key held down from play only repeats, so it never types. | Accepted | D11. A queue would type the very tap the guard exists to stop |
+| DDD-T6 | **Entry operations** (the rules; the table is under Component decomposition):<br>• The entry opens empty (D5).<br>• A letter fills the next slot; a 4th is ignored (D14).<br>• Backspace removes the last letter, and does nothing on an empty entry.<br>• Enter with 3 letters signs, or is refused and empties the entry (D4).<br>• Enter with fewer gives the too-few hint and keeps the letters (D13).<br>• Esc skips (slice 02).<br>**A notice (the refusal or the hint) shows until the next key the entry acts on**, that is a letter, Backspace, Enter or Esc that does something. A key the entry ignores changes nothing, the notice included *(clarified in DESIGN: DISCUSS says "until the next key")*. Notices are numbered, so the mirror announces each one even when the words repeat: Enter pressed twice too early is heard twice. | Accepted | One set of rules, in the only module that writes `g` |
+| DDD-T7 | **The Esc skip** (slice 02) is state only. The entry closes, and the rules record that this game over was skipped, in a flag next to `signedThisGame` that `startGame` clears. There is no signing and no event, so no sound and no request; ADR-001's outbox is unchanged. The current signing, its mark, the settled notice and the table are untouched (DDD-8). The local best was already saved when the game ended. Enter then starts a new game as usual. | Accepted | D3 and D16. Nothing would consume an event, so none is added |
+| DDD-T8 | **Browser defaults** (the adapter, ADR-009), on every screen:<br>• `preventDefault` for each keydown that isn't a chord and whose `key` is one printable character, repeats included.<br>• The same for Backspace.<br>• Space and the arrows are prevented, as before.<br>• Never Enter, Esc, Tab or a chord, so Enter still opens a focused footer link and every shortcut still works.<br>The page has no editable element; if one is ever added, it must be exempt. | Accepted | D17 and US-01's Backspace note, with no mode and no rule in the adapter. It also stops Firefox's find bar taking the keyboard during play |
+| DDD-T9 | **Wording, by owner**:<br>• `messages.js`, for both views: the refusal "Those initials aren't allowed. Type different ones."; the too-few hint, "Type 3 letters to sign." in slice 01 and "Type 3 letters to sign, or press Esc to skip." in slice 02; and "Signing skipped", as a canvas heading and as a sentence for the mirror.<br>• `status.js`, mirror only: the prompt and the field.<br>• `render.js`, canvas only: the slots, the blinking next slot and the help line.<br>"Deposit saved £…" and "Enter your initials" stay in the game-over announcement. | Accepted | D12. Each phrase both views say is declared once |
+| DDD-T10 | **The live region changes at most once per frame**, by the existing mechanism. The rules take the whole frame's typed presses before `status.sync` runs, once. So letters typed within one frame are announced together, as the field they leave: "a" and "l" in one frame give "A L, letter 3 of 3". Within one write, the notice comes first, then the field if it changed. An entry that closes is announced by the game-over announcement ("Signing ALX…", "Signing skipped."). | Accepted | DDD-14 carried over, with no new timer or queue in the view |
+| DDD-T11 | **The testability seam**: the keyboard listens on the window, reads only `key`, `code`, `repeat`, `metaKey`, `ctrlKey` and `altKey`, and never checks `isTrusted`. So a test can dispatch `new KeyboardEvent('keydown', { key: 'a', code: 'KeyQ', bubbles: true, cancelable: true })`, then its keyup, to stand in for AZERTY, and read `defaultPrevented`. The rules take plain data (`[{ key, code }]`), so the unit specs and the in-memory model can type without a browser. | Accepted | US-03 needs a key that differs from its code, and Playwright's `keyboard.press` sends US-layout events only |
+| DDD-T12 | **Earned trust for the keyboard**. A keyboard can't be probed at start-up: it has nothing to report until a key is pressed, and the game never refuses to start over it. Its contract is earned through the catalogued lies below, each with its check. | Accepted | Every browser behaviour the entry relies on is checked somewhere |
+| DDD-T13 | **Unchanged**:<br>• `src/game/high-scores.js`, including its now-stale comment "Up and Down move round it" (D9 and the guardrail)<br>• `netlify/**`, `platform/leaderboard.js`, `platform/storage.js`, `game/events.js`, `sound/**` and `index.html`<br>• the signing lifecycle (DDD-8), the server contract, and ADR-000…008<br>**Layering**: the five rules hold, and a sixth is added: `platform/input.js` imports nothing. | Accepted | The change stays inside one bounded context (DISCUSS, Scope assessment) |
+
+**Catalogued lies** (DDD-T12):
+
+| Lie | How it shows | How the design handles it, and the check |
+|---|---|---|
+| `code` is a position, not the printed letter | AZERTY's A signs Q; QWERTZ's Z signs Y | The entry reads `key`. Acceptance: synthetic `{ key, code }` pairs (`a`/`KeyQ`, `z`/`KeyY`, `m`/`Semicolon`) in three engines. Manual: a real AZERTY or QWERTZ keyboard in Chrome, Firefox and Safari (DoD 5) |
+| Two presses of one key within a frame | A Set merges them | The ordered typed queue. Acceptance: "aax" and Enter within one frame give "Signing AAX…". A unit test of the adapter over a plain `EventTarget` |
+| Auto-repeat | A held key types many letters | Only a press with `repeat` false types. Acceptance: Playwright's second `keyboard.down` on a held key carries `repeat` |
+| `key` isn't one ASCII letter (`Dead`, `Process`, `Unidentified`, `é`, `ß`, `ı`, `ſ`, `K`, a decomposed é) | A stray or transliterated letter | DDD-T3's exact check on the raw character. A unit table of the rules with these values |
+| Chords (Cmd, Ctrl, Alt/Option; on Windows AltGr is Ctrl+Alt) | A shortcut types a letter, or the page blocks a shortcut | Never typed, never prevented. Acceptance: Ctrl+letter and Meta+letter type nothing |
+| Firefox's quick find (`/`, `'`) and typeahead find | The find bar takes the keyboard | `preventDefault` on printable keys. Automated: `defaultPrevented` on a cancelable synthetic keydown. Manual: real Firefox, with typeahead find turned on too (DoD 5) |
+| Backspace navigates back (older browsers, or a pref) | The page is left mid-entry | `preventDefault` on Backspace. Manual, in Firefox and Safari |
+| A key tapped as the game ends, or held down from play | A stray letter on a public table | The 0.6 s guard drops presses, and held keys only repeat. Acceptance: "d" 0.3 s after game over, and Esc 0.3 s after game over (slice 02) |
+| Synthetic events are untrusted and run no default | A test passes that a real browser would fail | The adapter doesn't check `isTrusted`, and defaults are checked through `defaultPrevented` plus the manual checks. DISTILL's 30-minute probe confirms that dispatch works in three engines |
+| A keyup lost on blur | A key stuck down | Unchanged: `releaseAll()` on blur and on a hidden tab |
+
+## Wave: DESIGN / [REF] Component decomposition
+
+Contract shapes as in the leaderboard: **pure** · **bounded-change** (a declared universe and delta) · **composition root** / **static**.
+
+| Component | Path | Change | Contract shape | Notes |
+|---|---|---|---|---|
+| Keyboard | `src/platform/input.js` | EXTEND | bounded-change (adapter) | Universe: its own held, pressed, unseen and release sets, the new typed queue, and `preventDefault` on the events it receives. Delta: `takeTyped()` (DDD-T1, DDD-T4) and the default policy (DDD-T8). The positional API and its meaning are unchanged. It imports nothing (the sixth layering rule) |
+| Rules and state | `src/game/game.js` | EXTEND | bounded-change | Universe: `g.initials` = `{ letters (0–3 capitals, in the order typed), notice (null, or { kind: refused or too-few, n }) }`; the skip flag (slice 02); and, through `sign()`, the leaderboard's signing delta, unchanged. `g.settings` is untouched while the entry is open. `handlePresses(pressed, typed)` (DDD-T2). `index` and the letter wheel (`turned`) go: the next slot is `letters.length`. `snapshot().entry` follows the new shape (DISTILL settles its fields). The names are suggestions; DELIVER may rename them, along with the views and the tests that read them |
+| Loop and wiring | `src/main.js` | EXTEND | composition root | One change: each frame, `handlePresses(keyboard.takePressed(), keyboard.takeTyped())` |
+| Status mirror | `src/view/status.js` | EXTEND | bounded-change | Writes the same `[data-hud]` fields and live region. The prompt and the field change (Player-facing wording). Each notice is announced once, by its number. "Signing skipped." replaces the prompt when Esc closes the entry |
+| Rendering | `src/view/render.js` | EXTEND | bounded-change (canvas pixels) | Three slots, `_` when empty, with the next empty slot blinking (none once all 3 are in). The help line `Type 3 letters   Enter sign   Backspace delete`, plus `   Esc skip` in slice 02. The hint, or the refusal in red, under it. "Signing skipped" on the signing line, then the list |
+| View wording | `src/view/messages.js` | EXTEND | pure (data) | DDD-T9 |
+| Layering test | `tests/unit/layering.spec.js` | EXTEND (DELIVER) | pure (test) | The sixth rule: `src/platform/input.js` imports nothing |
+| README | `README.md` | EXTEND (DELIVER, at close-out) | static | The controls: type the initials, Backspace, Enter and Esc (DoD 7) |
+
+### Rules operations (`src/game/game.js`), the entry only
+
+Everything not listed here is as the leaderboard's Rules operations say.
+
+| Operation | Delta |
+|---|---|
+| Game over, and `makesTheTable` | The entry opens **empty**: no letters and no notice (D5). Everything else as before |
+| A frame while the entry is open and `g.overT ≤ 0.6` | Nothing: the frame's typed and positional presses are dropped (D11) |
+| A frame while the entry is open | `pressed` is ignored: no M or N toggle, no pause, no restart (D7). The typed presses are taken in order, as below |
+| A letter, with fewer than 3 in | Appended, in capitals; the notice is cleared |
+| A letter, with 3 in | Nothing (D14) |
+| Backspace, with letters in | The last one removed; the notice is cleared |
+| Backspace, on an empty entry | Nothing (D14) |
+| Enter, 3 letters, allowed | As the leaderboard's "Third Enter, initials allowed": the entry closes, a new signing n is pending and becomes the current one, and the rules emit `initialsEntered { initials, score, signing: n }`. The rest of the frame is dropped |
+| Enter, 3 letters, on the word filter | No signing and no event. The entry is **emptied**, and shows the refusal notice (D4) |
+| Enter, fewer than 3 | Nothing is sent. The letters are kept, and the entry shows the too-few notice (D13) |
+| Esc (slice 02) | The entry closes and this game over is marked skipped. No signing, no event, no sound. The signing, its mark, the settled notice, the table and the best are unchanged (D3, D16). The rest of the frame is dropped. *In slice 01, Esc is a key the entry ignores* |
+| Any other key | Nothing, the notice included |
+| Enter once the entry has closed (signed or skipped), with `g.overT > 0.6` | A new game, as today; the skip flag is cleared |
+
+### Signing-status lifecycle: the entry rows
+
+These rows replace the leaderboard's entry rows. The rows from pending on are unchanged.
+
+| From | Trigger | To | Status mirror (and the canvas, on game over) |
+|---|---|---|---|
+| no entry | Game over, and `makesTheTable` | entering, empty | The prompt (Player-facing wording); the field reads "No letters yet, letter 1 of 3" |
+| entering | A letter or Backspace that changes the letters | entering | The field, for example "A, letter 2 of 3" |
+| entering | Enter, fewer than 3 | entering | "Type 3 letters to sign." (slice 02: "…, or press Esc to skip.") |
+| entering | Enter, 3, blocked | entering, empty | "Those initials aren't allowed. Type different ones. No letters yet, letter 1 of 3" |
+| entering | Enter, 3, allowed | pending (n) | "Signing ALX…", then the leaderboard lifecycle, unchanged |
+| entering | Esc (slice 02) | skipped: no signing, and an earlier signing unchanged | "Signing skipped. Press Enter to house-hunt again." |
+
+## Wave: DESIGN / [REF] Driving ports
+
+- **The keyboard in the page, while the initials entry is open**: the letters, read as printed (`key`), plus Backspace, Enter and Esc. Every press counts once, in order (D15). Repeats and chords don't type, and no key acts in the first 0.6 s of game over.
+- **The keyboard in the page, outside the entry**: unchanged, by position (Enter, Space, the arrows or A/D, M, N, and P/Esc).
+- **On every screen**: printable keys and Backspace never start a browser feature (DDD-T8).
+- Unchanged, and not driven by this feature: window `blur` and `visibilitychange`, page load, and the server's HTTP `/api/scores`.
+
+## Wave: DESIGN / [REF] Driven ports + adapters
+
+| Port | Adapter | Change | In acceptance tests |
+|---|---|---|---|
+| Accessibility tree | `src/view/status.js` | The prompt, the field, the notices, "Signing skipped." | Real, and asserted on (`data-hud="initials"`, the live region and its writes) |
+| Screen | `src/view/render.js` | The slots, the help line, the notices, "Signing skipped" | Real, not asserted on (the D10 waiver; manual, DoD 5) |
+| Shared high-score table (client) | `src/platform/leaderboard.js` | None: a signing still sends exactly 3 capital letters | Real, through `scripts/serve.mjs`, as in the leaderboard |
+| Audio output | `src/sound/synth.js` | None: typing and skipping make no sound | The journal, unchanged |
+| Persistence | `src/platform/storage.js` | None: the best is saved at game over, before the entry | Unchanged |
+
+**Contract tests for external integrations**: none new. The only external integration, Netlify Blobs behind the Score API, is untouched, and the leaderboard's annotation stands.
+
+## Wave: DESIGN / [REF] Technology choices
+
+- Unchanged: vanilla ES2022 modules, Canvas2D, no bundler, and **no new dependency**, runtime or dev.
+- From the UI Events standard: `KeyboardEvent.key`, `code` and `repeat`, supported in every target browser.
+- Rejected: `navigator.keyboard.getLayoutMap()` (Chromium only), a hidden `<input>` read through `beforeinput` (ADR-009), and dependency-cruiser for the sixth rule (the hand-rolled scan already covers it).
+
+## Wave: DESIGN / [REF] Decisions table
+
+| ID | Decision | Alternatives rejected |
+|---|---|---|
+| DDD-T1 | An ordered typed queue of `{ key, code }` beside the unchanged positional sets (ADR-009) | `takePressed()` as an ordered list (changes every one-shot rule, and the game outside the entry); `e.key` in the existing Set (still loses duplicates and order); a hidden `<input>` (focus, the accessibility tree, event merging); `getLayoutMap()` (Chromium only) |
+| DDD-T2 | `handlePresses(pressed, typed)`; a frame that starts with the entry open is the entry's | `main.js` withholding `pressed` during the entry (the wiring would decide what keys mean); a separate `handleTyped` called before `handlePresses` (the Enter that signs would also restart, since `g.overT > 0.6`) |
+| DDD-T3 | One raw ASCII letter, then capitals; no normalisation, no case folding | `toUpperCase()` before the check (ß gives SS, ı gives I); a case-insensitive Unicode regex (it matches ſ and K); NFD, then stripping the accents (transliteration, out of scope) |
+| DDD-T4 | No repeats and no Cmd/Ctrl/Alt chords in the typed channel; the positional filter unchanged | Typing Alt chords (Windows Alt+letter would type, and its accelerator would be blocked); adding Alt to the positional filter (holding Option during play would stop the pin) |
+| DDD-T5 | Presses during the 0.6 s guard are dropped | Queued until 0.6 s (types the stray tap); dropping letters but keeping Enter, Esc and Backspace (contradicts D11) |
+| DDD-T6 | The entry operations; numbered notices that clear on the next key the entry acts on | Any key clears a notice (a key the entry ignores would then do something); notices without numbers (a second early Enter would be silent) |
+| DDD-T7 | The Esc skip is state only, with no event | A new `initialsSkipped` event (nothing consumes it: no sound and nothing sent, D16); `initialsEntered` with a skip flag (`main.js` would have to filter it, and a stray POST would be one bug away) |
+| DDD-T8 | `preventDefault` on every screen for printable keys and Backspace; never Enter, Esc, Tab or chords | Only while the entry is open, through a mode set by `main.js` or a predicate on the rules' state (a mode in the adapter that mirrors a rule, and quick find would still take the keyboard during play); also preventing Enter (a focused footer link would stop opening) |
+| DDD-T9 | Shared phrases in `messages.js`, mirror-only words in `status.js`, canvas-only words in `render.js` | Everything in `messages.js` (the help line and the field are each said by one view only) |
+| DDD-T10 | One `status.sync` per frame, after the whole queue; letters within one frame are announced together | A queue of announcements, one per letter (more than one write per frame, against DDD-14) |
+| DDD-T11 | Synthetic `KeyboardEvent`s whose key differs from their code; the rules take plain data | Real layouts in the test run (Playwright has none); CDP's `Input.dispatchKeyEvent` (Chromium only) |
+| DDD-T12 | Earned trust through catalogued lies, with no start-up probe for the keyboard | A start-up key probe (there is nothing to probe before a key press, and the game must never refuse to start) |
+| DDD-T13 | Nothing changes beyond the browser game's entry; a sixth layering rule | Moving the letter check into `high-scores.js` (the file must not change, and the server needs no key semantics) |
+
+## Wave: DESIGN / [REF] Reuse Analysis
+
+Searched `src/**` for:
+- key handling: `keydown`, `e.code`, `takePressed`, `isDown`
+- the entry: `initials`, `ALPHABET`, `refuse`, `blankInitials`
+- the wording: `messages.js`, `INITIALS_HELP`
+- browser globals in `src/game/**`: none found
+
+No new component is needed.
+
+| Existing component | File | Overlap | Decision | Contract shape | Universe, and how the crafter checks it | Justification |
+|---|---|---|---|---|---|---|
+| Keyboard | `src/platform/input.js` | Keydown and keyup, the Cmd/Ctrl filter, `preventDefault` for Space and the arrows | EXTEND | bounded-change (adapter) | Its sets, the typed queue, and `defaultPrevented` on each event. A unit test over a plain `EventTarget` checks the order, duplicates, repeats and chords, which events were prevented, and that the positional results are unchanged | Already the only keydown listener; a second listener would split the ordering and the filters |
+| Rules and state | `src/game/game.js` | `handlePresses`, `enterInitials`, `refuse`, `blankInitials`, `sign`, `g.overT`, `isPausable` | EXTEND | bounded-change | `g.initials`, the skip flag, and the signing delta through `sign()`; `g.settings` unchanged during the entry. Checked through `snapshot()` before and after each frame (`tests/common/state-delta.js`), as in Tier B | The only writer of `g`, and the entry already lives here |
+| Loop and wiring | `src/main.js` | The per-frame `handlePresses(keyboard.takePressed())` | EXTEND | composition root | One more argument per frame | Wiring only |
+| Status mirror | `src/view/status.js` | `INITIALS_HELP`, `initialsField`, `initialsAnnouncement`, `set(…, always)` | EXTEND | bounded-change | The `[data-hud]` fields and the live region. `status-mirror.spec.js`, rewritten by DISTILL: the field, one write per frame, each notice once | The field and the cadence already exist; only the words and the notice change |
+| Rendering | `src/view/render.js` | `drawInitialsEntry`, `drawGameOver`, `blink` | EXTEND | bounded-change (pixels) | Canvas only; manual (D10) | The slots and the blink exist; the letter wheel becomes typed slots |
+| View wording | `src/view/messages.js` | `INITIALS_REFUSED`, and the `PLAY_AGAIN` / `PLAY_AGAIN_SENTENCE` pattern | EXTEND | pure | Data, read by both views | The established home for the phrases both views say |
+| High-score rules | `src/game/high-scores.js` | `ALPHABET`, `INITIALS_LENGTH`, `isAllowedInitials` | NONE (reused as is) | pure | Unchanged, and already imported by `game.js` | Must not change (D9); the server contract stays |
+| Event vocabulary | `src/game/events.js` | `INITIALS_ENTERED` | NONE | pure | Unchanged | Nothing would consume a skip event, so there is none |
+| Layering test | `tests/unit/layering.spec.js` | The import scan and its list of rules | EXTEND | pure (test) | One more rule row | Enforces DDD-T8's "the adapter decides nothing" |
+| Page | `index.html` | `data-hud="initials"` | NONE | static | Unchanged | The field already exists |
+
+**No CREATE NEW**: every change extends an existing module, and there is no new file under `src/`.
+
+## Wave: DESIGN / [REF] C4 diagrams
+
+**System context**: unchanged. See the [brief's System context](../../product/architecture/brief.md#c4-system-context).
+
+**Containers**, amended for this feature (the brief's container diagram, with the typed entry):
+
+```mermaid
+C4Container
+  title Containers: Make the Right Move (amended for rightmove-invaders-typed-initials)
+  Person(player, "Player", "Desktop keyboard, any Latin layout: QWERTY, AZERTY, QWERTZ")
+  System_Boundary(sys, "Make the Right Move") {
+    Container(hosting, "Static hosting", "Netlify CDN in production; Node 22 scripts/serve.mjs locally", "Serves index.html and the src/ ES modules. Unchanged")
+    Container(spa, "Browser game", "HTML + ES modules, Canvas2D, Web Audio", "Game loop, rules, rendering, sound, typed initials entry (letters as printed, Backspace, Enter, Esc), accessible status mirror")
+    Container(api, "Score API", "Netlify Function v2, Node 22, netlify/functions/scores.mjs", "GET the top 10, POST a signature. Unchanged")
+    ContainerDb(storage, "localStorage", "Browser storage", "Best deposit; sound and music settings. Unchanged")
+  }
+  System_Ext(blobs, "Netlify Blobs", "The shared high-score table. Unchanged")
+  System_Ext(device, "Audio device")
+  Rel(player, spa, "Plays, and types initials, with the keyboard; sees and hears")
+  Rel(hosting, spa, "Delivers files to", "HTTP")
+  Rel(spa, api, "Signs exactly 3 letters A-Z through", "HTTPS JSON, /api/scores, unchanged")
+  Rel(api, blobs, "Writes, lists and deletes keys in", "restricted store port, unchanged")
+  Rel(spa, storage, "Reads and writes settings and the best score in")
+  Rel(spa, device, "Plays sound through", "Web Audio; typing and skipping are silent")
+```
+
+**Components**: the keyboard → rules → views path inside the browser game.
+
+```mermaid
+C4Component
+  title Components: from the keyboard to the rules to the views (typed initials)
+  Person(player, "Player")
+  System_Ext(browser, "Browser", "Sends keydown and keyup to the window; owns shortcuts, quick find and back navigation")
+  Container_Boundary(spa, "Browser game") {
+    Component(kb, "Keyboard", "src/platform/input.js", "Positions by code: held and pressed. Typed presses in order, key and code, with no repeats or chords. Prevents the default of printable keys and Backspace")
+    Component(main, "Loop and wiring", "src/main.js", "Each frame: handlePresses with the pressed set and the typed presses, then fixed steps, events, draw and sync")
+    Component(rules, "Rules and state", "src/game/game.js", "Owns g. The entry: guard, letters, Backspace, Enter, Esc, notices, skip. The signing is unchanged")
+    Component(hs, "High-score rules", "src/game/high-scores.js", "ALPHABET, INITIALS_LENGTH, isAllowedInitials. Unchanged")
+    Component(status, "Status mirror", "src/view/status.js", "Prompt, initials field and notices; one live-region write per frame")
+    Component(render, "Canvas", "src/view/render.js", "Slots with the next one blinking, help line, notices, Signing skipped")
+    Component(words, "View wording", "src/view/messages.js", "Refusal, too-few hint, Signing skipped. Data only")
+    Component(client, "High-score table client", "src/platform/leaderboard.js", "Unchanged")
+  }
+  Rel(player, browser, "Presses keys on")
+  Rel(browser, kb, "Dispatches keydown and keyup to")
+  Rel(main, kb, "Drains positions and typed presses from, once a frame")
+  Rel(main, rules, "Hands each frame's presses to")
+  Rel(rules, hs, "Checks letters and initials against")
+  Rel(rules, main, "Publishes initialsEntered to", "the outbox, ADR-001")
+  Rel(main, client, "Signs exactly 3 capital letters through")
+  Rel(main, status, "Syncs g into, once a frame")
+  Rel(main, render, "Draws g with, once a frame")
+  Rel(render, rules, "Reads g from")
+  Rel(status, words, "Takes the shared wording from")
+  Rel(render, words, "Takes the shared wording from")
+```
+
+## Wave: DESIGN / [REF] Changed assumptions
+
+The originals are quoted verbatim, with their path, and the new assumption follows the arrow. The leaderboard's documents and the code are not edited by DESIGN. The list starts from DISCUSS's Changed assumptions.
+
+`docs/feature/rightmove-invaders-leaderboard/feature-delta.md`:
+- **Header**: "A deposit that makes the top 10 is signed with three initials (A–Z, Up/Down change the letter, Enter takes it)." → The initials are typed, as printed on the key. Backspace deletes, and Esc skips (slice 02).
+- **DESIGN, Rules operations, Game over**: "As before, plus the initials entry opens (letters A A A, the first letter current) only if `makesTheTable(table state, deposit)` is true." → It opens empty, with no current letter: the next slot is the first empty one (DDD-T6).
+- **DESIGN, DDD-10**: "Blocked initials: the rules refuse the signing, keep the entry open with the letters kept, and ask the player to change them. The server refuses them too (400 `initials-not-allowed`)." → The entry stays open, **emptied**, and asks the player to type different initials. The server is unchanged (D4).
+- **DESIGN, Rules operations**: "Third Enter, initials allowed | The entry closes. A new signing `{ initials, n, pending }` becomes the current signing and replaces the earlier one, including its highlight." → "Enter with 3 letters, allowed", otherwise unchanged. The rest of that frame's presses are dropped (DDD-T2).
+- **DESIGN, Rules operations**: "Third Enter, initials on the word filter | No signing and no event. The entry stays open with the letters kept, and a refusal is shown until the next key. The first letter becomes current (decided in DISTILL)" → "Enter with 3 letters on the word filter": no signing and no event. The entry stays open, emptied, and the refusal shows until the next key the entry acts on (DDD-T6).
+- **DESIGN, Signing-status lifecycle**: the rows "no entry | Game over, and `makesTheTable` is true | entering | "New high score! Enter your initials: Up and Down change the letter, Enter takes it."", "entering | Up/Down | entering | Initials field and announcement, for example "F A A, letter 2 of 3"" and "entering | Third Enter, blocked word | entering | "Those initials aren't allowed. Change a letter."" → The entry rows under Component decomposition.
+- **DESIGN, Driving ports**: "**Keyboard in the page**: as before, plus Up/Down/Enter while the initials are entered (presses of the same key within one frame count once). Enter restarts from every signing status." → While the entry is open: the letters as printed, plus Backspace, Enter and Esc, with every press counting once, in order (DDD-T1, DDD-T2). Enter still restarts from every signing status.
+- **DESIGN, DDD-14**: "Accessibility: a `data-hud="initials"` field while entering, one short live-region update per change of letter or position (at most one per frame), announcements of signing outcomes whenever they arrive, and `aria-current` on the confirmed row in the High scores list." → One update per frame that changes the typed letters or shows a notice, still at most one per frame. Each notice is announced, even when its words repeat (DDD-T6, DDD-T10).
+- **DESIGN, Component decomposition, Status mirror**: "Announces the chosen letter, the refusal, each settled outcome once when it arrives (in any game state, including a replaced signing's) and "High-score table unavailable"" → It announces the typed letters (the field), each notice once, each settled outcome once, "High-score table unavailable." and "Signing skipped.".
+- **DISTILL, Messages**:
+  - "`New high score! Enter your initials: Up and Down change the letter, Enter takes it.`" → the prompt in Player-facing wording
+  - "`F A A, letter 2 of 3` (letters spaced, position 1–3); empty when not entering" → "No letters yet, letter 1 of 3" … "A L X, press Enter to sign"; still empty when not entering
+  - "`Those initials aren't allowed. Change a letter.` The letters are kept, and the **first** letter becomes current" → "Those initials aren't allowed. Type different ones.", and the entry is empty
+  - "Cadence: one live-region update per change of letter or position, so presses of the same key within one frame give one update." → One update per frame; presses within one frame each count, and are announced together (DDD-T10)
+- **DISTILL, Driving adapter coverage**: "Keyboard: Up/Down/Enter on the initials | M5 initials field, cadence outline, refusal; every signing" → Letters, Backspace, Enter and Esc, with synthetic events whose key differs from their code for the layouts (DDD-T11).
+- **Leaderboard evolution document**: "No persona, job, journey step or story was written for the table." → Done in DISCUSS (J-TABLE-SIGN, J-TABLE-SKIP, the journey's steps); nothing for DESIGN.
+
+`docs/product/outcomes/registry.yaml`:
+- **OUT-11** input: "third Enter on the initials entry", and output "blocked initials keep the entry open"; **OUT-14** output: "data-hud=initials field reads "F A A, letter 2 of 3" while entering (empty otherwise); one live-region update per change of letter or position, at most one per frame (same-key presses within a frame count once)" → To be amended or superseded by DISTILL (Open questions).
+
+The code (DELIVER changes it; the quotes record what DESIGN overturns):
+- `src/game/game.js` (`handlePresses`): "// M and N work on every screen, and never touch the game itself." → Except while the initials entry is open (D7, DDD-T2).
+- `src/game/game.js`: "// Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on." → Typed initials (DDD-T6).
+- `src/view/status.js`: "The rules see a frame's presses once, so presses of the same key within a frame are one change." → Every press counts; letters typed within one frame are announced together (DDD-T10).
+- `src/platform/input.js`: "// Keys pressed since the last call, for one-shot actions such as Enter or P." → Still true of the positions; `takeTyped()` is added beside it (DDD-T1).
+- `src/game/high-scores.js`: "export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials, Up and Down move round it" → The comment goes stale. The file is not changed (D9, DDD-T13).
+
+`docs/product/architecture/` (amended in place, marked "typed-initials"):
+- `brief.md`:
+  - "| Keyboard | `src/platform/input.js` | Held and latched keys | Shipped |" → the row now describes the typed presses as well
+  - "browser keyboard (`platform/input.js`), including Up/Down/Enter for the initials" → the typed initials (ADR-009)
+  - "1. `handlePresses` for one-shot keys (Enter, P/Esc, M, N)." → `handlePresses(pressed, typed)`
+  - the Rules, Rendering, Status mirror and View wording rows gain a typed-initials note
+  - ADR-009 is listed, and the sixth layering rule is added
+- ADR-006: "**Five layering rules**" → a sixth is added by ADR-009 and the brief. ADR-006 itself isn't edited, and its five rules stand.
+
+## Wave: DESIGN / [REF] Open questions
+
+**For DISTILL**:
+1. **The 30-minute probe** (slice 01 brief), not run in DESIGN. In Chromium, Firefox and WebKit under Playwright, check that:
+   - a `KeyboardEvent('keydown', { key: 'a', code: 'KeyQ', bubbles: true, cancelable: true })` dispatched on the window (through `page.evaluate` or `page.dispatchEvent`) reaches a window listener with those `key` and `code` values;
+   - `repeat: true`, `ctrlKey`, `metaKey` and `altKey` arrive as given;
+   - `defaultPrevented` reads true for `/`, `'` and Backspace once the game's listener has run.
+
+   If an engine fails, CDP's `Input.dispatchKeyEvent` works in Chromium only: the AZERTY and QWERTZ scenarios would then run there alone, and the other engines would rely on the manual check. The slice brief also asks what each browser reports, on a real Mac, for the É key and for an Option letter.
+2. **Each synthetic keydown needs its keyup.** Otherwise `held` keeps the code, and a QWERTZ "a" (on `KeyA`) would move the pin left in the next game.
+3. **The guard and the walking skeleton**: the walking-skeleton step must type only after 0.7 s of game time (DISCUSS). `leaderboard-game.js` already waits `SETTLE_MS` (700 ms) once game over is announced; keep that wait before typing.
+4. **More test code drives the letter wheel** than the DISCUSS list names: `tests/unit/answers-while-paused.spec.js` and `tests/unit/malformed-answers.spec.js` sign with ArrowUp and Enter, and so do the step files `steps/leaderboard.steps.js` and `steps/high-score-table.steps.js`. Callers that pass only a Set to `handlePresses` stay valid (DDD-T2).
+5. **The new shape of `snapshot().entry`** (the letters, 0 to 3, and the notice) and the skip flag, for Tier B and the status-mirror spec.
+6. **The rules' letter table** (DDD-T3): which values type and which are ignored, including the traps (ß, ı, ſ, K, a decomposed é, `Dead`, `Process`, `Unidentified`, a space, the digits, `/`).
+7. **Outcomes**: OUT-11 ("third Enter", "blocked initials keep the entry open") and OUT-14 ("F A A, letter 2 of 3", "same-key presses within a frame count once", "Change a letter.") need amending or superseding. Register the typed entry, as OUT-14 was registered for the leaderboard. Proposed: OUT-15 for the typed initials (letters as printed, every press in order, the guard, the suspended toggles, the emptied refusal), and OUT-16 for the skip.
+8. Optional: a scenario where a key the entry ignores (Up) leaves a refusal on show (DDD-T6's clarification).
+
+**For DELIVER**:
+1. The sixth layering rule (`platform/input.js` imports nothing), with a broken case and a kept case, like the other five.
+2. A unit test of `createKeyboard` over a plain `EventTarget`. It checks:
+   - the typed order, duplicates included
+   - that repeats and chords are not typed
+   - that the positional results are unchanged
+   - which events had `preventDefault` called
+3. The manual checks (DoD 5):
+   - a real AZERTY or QWERTZ keyboard in Chrome, Firefox and Safari
+   - Firefox's quick find on `/` and `'`, also with "Search for text when you start typing" turned on
+   - Backspace staying on the page in Firefox and Safari
+   - the canvas layout
+4. The wording depends on the slice: slice 01 ships the hint without Esc, and the help line without "Esc skip".
+5. The README controls (DoD 7). The stale comment in `src/game/high-scores.js` stays (DDD-T13).
+
+**For DEVOPS**: nothing new. There is no new instrumentation, and K19 reads the public table.
+
+## Wave: DESIGN / [REF] Wave decisions summary
+
+- **Pattern**: unchanged. A modular monolith with ports and adapters, and the OOP paradigm (`CLAUDE.md`). The keyboard adapter reports and the rules decide (ADR-009, proposed).
+- **Changes**:
+  - **New**: ADR-009. No new source file.
+  - **Extended**: `platform/input.js`, `game/game.js`, `main.js`, `view/status.js`, `view/render.js` and `view/messages.js`; in DELIVER, also `tests/unit/layering.spec.js` and the README.
+  - **Unchanged**: everything server side, `high-scores.js`, `leaderboard.js`, `events.js`, storage and sound.
+- **Constraints**:
+  - The game keys stay positional, and `isDown` and the fixed step are unchanged.
+  - Both keyboard channels are drained every frame.
+  - A frame that starts with the entry open belongs to the entry.
+  - The guard drops presses.
+  - The rules still send exactly 3 capital letters.
+  - Six layering rules (five, plus `platform/input.js` imports nothing).
+- **Quality attributes**:
+  - **Responsiveness**: a keydown is taken by the next frame's `handlePresses` and shown by the same frame's sync, so it shows within one frame. The only added work is a loop over a few presses.
+  - **Accessibility**: one live-region write per frame, and each notice once.
+  - **Portability**: `key`, `code` and `repeat` in all three engines, with the layouts checked by hand.
+  - **Testability**: the rules take plain data, and synthetic events stand in for layouts.
+  - **Maintainability**: one module per concern, and no new file.
+- **Upstream**: no DISCUSS story or AC changes, so there is no `design/upstream-changes.md`. Three clarifications, all compatible with the ACs:
+  - a notice clears on the next key the entry acts on (DDD-T6);
+  - presses after the closing Enter or Esc within the same frame are dropped (DDD-T2);
+  - Alt/Option chords never type (DDD-T4).
+- **Side effect outside the entry** (DDD-T8): Firefox's quick find and typeahead find never open from the game page, and Backspace never navigates back, on any screen.
+- **Review**: the per-wave peer review was not run. The consolidated review runs at the end of DISTILL, as in DISCUSS. A self-check against the critique dimensions found no new technology, at least 2 rejected alternatives per decision, and testability addressed.
+- **Outcomes check**: `nwave-ai outcomes check-delta` could not be run in this session (no shell). DISTILL registers the outcomes (Open questions, DISTILL 7).
+- **Handoff**: DISTILL (nw-acceptance-designer), with the DDD list, the rules operations, the catalogued lies and the Open questions. DEVOPS: nothing new.

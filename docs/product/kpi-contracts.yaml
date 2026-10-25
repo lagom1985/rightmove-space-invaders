@@ -69,6 +69,11 @@ kpis:
   # write guard refuses any POST to a production host or to the published deploy, and any POST before an empty first GET.
   # Release-check triggers: a change to netlify/functions/scores.mjs, the @netlify/blobs version, the functions bundler
   # settings, config.rateLimit or the cache headers re-runs K10, K11 and K14.
+  # local_scenarios (added by DISTILL, 2026-10-24): the @kpi-K… acceptance scenarios that check the same contract
+  # locally, on the Blobs emulator, at the handler's level (project in-memory, tag @server). They are written but tagged
+  # @pending: once DELIVER enables them, they run in every Netlify build. They back a KPI; they never replace its
+  # Netlify measurement, and the targets are unchanged. K10, K13 and K15 have no local scenario: they are
+  # latency, deploy context and quota on Netlify itself (K13's chooseStore case table is a DELIVER unit test).
   - id: K10
     feature: rightmove-invaders-leaderboard
     name: Signing is quick on Netlify
@@ -83,6 +88,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs burst run, steps 1-3; the throwaway preview and its branch are deleted right after"
     window: "as K10"
     gate: hard
+    local_scenarios: "@kpi-K11 'However many signatures arrive at once, none that belongs in the top ten is lost' (tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature): fast-check batches of up to 30 simultaneous signatures (the SPIKE's N = 100 was store-level evidence); every one answered 200 and the table read afterwards equals the true top 10. Not checked locally: each signer finding their own row in their own answer (the emulator can cut a listing short during concurrent writes), which stays K11's"
   - id: K12
     feature: rightmove-invaders-leaderboard
     name: Previews never reach the production table, and the function bundle is complete
@@ -90,6 +96,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 1, 4 and 7, plus the preview's function log read by hand"
     window: "as K10"
     gate: hard
+    local_scenarios: "@kpi-K12 'Initials on the word filter are refused by the table too' (milestone-2-signing-the-table.feature): 400 initials-not-allowed and nothing saved, the local twin of smoke step 4: it proves the handler's refusal, not that the esbuild bundle includes src/game/high-scores.js (that is smoke step 4 on a preview). Preview isolation itself is Netlify's (chooseStore unit table, smoke steps 1 and 7)"
   - id: K13
     feature: rightmove-invaders-leaderboard
     name: Only the published production deploy uses the site-wide store
@@ -104,6 +111,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 5, 8a, 8b and 9, plus the deploy log's post-processing stage"
     window: "the preview before the first merge (go/no-go: no-go = no merge to main); again on every release-check trigger"
     gate: hard
+    local_scenarios: "@kpi-K14 'An empty high-score table is read as empty, and everyone sees it at most 15 seconds old' (milestone-1-reading-the-table.feature) and 'A valid signature is saved, and the answer shows where it ranks' (milestone-2-signing-the-table.feature): the header set of a GET 200 (Netlify-CDN-Cache-Control public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate) and of a POST 200 (no-store), with Netlify-Vary query=table and nosniff; every refusal scenario checks no-store and Netlify-Vary too. The local check is at handler level: it proves what the function sets, not that Netlify honours it. The rate limit and the CDN's real behaviour stay K14's on a preview"
   - id: K15
     feature: rightmove-invaders-leaderboard
     name: Function invocations stay under half the free quota

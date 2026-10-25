@@ -54,6 +54,45 @@ async function readEntry(req) {
   try { return await req.json(); } catch { return null; }
 }
 
+// RED scaffolds, created by DISTILL (rightmove-invaders-leaderboard). Nothing calls them yet, so the function and
+// scripts/serve.mjs behave exactly as before. Contract (DDD-4, ADR-004): the restricted table-store port that the
+// composition roots build around a @netlify/blobs Store, and the only way the handler reaches the store:
+//   list()        -> the well-formed score keys under s/ (^s/\d{7}-\d{15}-[A-Z]{3}-[a-z0-9]+$), in arcade order
+//   putIfNew(key) -> true if written, false if the key already existed (written with onlyIfNew)
+//   remove(key)   -> deletes one score key
+// putIfNew and remove throw a refusal for any key that is not well-formed; there is no deleteAll and no other store
+// access.
+//
+// The handler today is handleScores(req, store). DELIVER changes it to handleScores(req, port, options), which is what
+// the acceptance harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js, a second
+// composition root) already calls, and changes the default export and scripts/serve.mjs in the same step:
+//   options.now    () -> ms, stands in for Date.now (the key's time and listedAt)
+//   options.newId  () -> string, stands in for randomUUID
+//   options.log    receives one entry per request: { event, reason, ms, keys?, scope, context, published } (DDD-17)
+//   options.where  required: { scope, context, published }, what the composition root knows about where the table is
+//                  kept, logged as given. scope is 'site' | 'deploy' | 'local'; context and published are the raw
+//                  context.deploy values, or 'missing'. The Netlify entry builds it from the Context; scripts/serve.mjs
+//                  and the acceptance harness pass { scope: 'local', context: 'missing', published: 'missing' }.
+//                  If a root omits it, the handler still answers, and logs scope, context and published as 'missing',
+//                  so the wiring slip shows in the log like DDD-2's other detection signals.
+// The skeleton's fixed delete-5 in prune() above is replaced in DELIVER by the accepted rule k = min(5, n - 20) (DDD-1).
+export function createTablePort(store) {
+  throw new Error('__SCAFFOLD__: not yet implemented');
+}
+
+// The pure helpers (DESIGN, "Key codec, ranking, prune plan, chooseStore"), exported for DELIVER's unit tests, so that
+// the 12-case chooseStore table and the codec have a RED marker. Contracts:
+//   chooseStore(context)  -> 'site' only for context.deploy.context === 'production' and context.deploy.published === true,
+//                            else 'deploy' (ADR-005)
+//   encodeKey({ initials, score, at, id }) / decodeKey(key) -> the persisted key and back (null if not well-formed)
+//   rankKeys(keys)        -> the well-formed keys in arcade order
+//   planPrune(ranked)     -> the keys to remove: none up to 20 keys; above that k = min(5, n - 20) keys, all ranked 11th or lower
+export function chooseStore(context) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+export function encodeKey(row) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+export function decodeKey(key) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+export function rankKeys(keys) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+export function planPrune(ranked) { throw new Error('__SCAFFOLD__: not yet implemented'); }
+
 export async function handleScores(req, store) {
   if (req.method === 'GET') return Response.json({ scores: table(await rankedKeys(store)) });
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });

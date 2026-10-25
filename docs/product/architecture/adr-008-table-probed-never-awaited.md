@@ -39,7 +39,7 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
   - **unconfirmed**: "Couldn't confirm FAB's signing", after a non-OK answer, a network error or the timeout. The signing may still have been saved.
 - **A signing lives until the next signing** (orchestrator, 2026-10-24).
   - A new game does not drop it. If the outcome arrives during play, the status mirror announces it, and nothing new is drawn on the canvas mid-game.
-  - A confirmed row stays highlighted (canvas green, DOM `aria-current`) wherever the list is shown (title attract, game over), until the next signing replaces it or the row leaves the shown table. A row leaves when it is pruned or pushed down by newer signings; the highlight then disappears, and the signing stays confirmed.
+  - A confirmed row stays highlighted (canvas green, DOM `aria-current`) wherever the list is shown (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), until the next signing replaces it or the row leaves the shown table. A row leaves when it is pruned or pushed down by newer signings; the highlight then disappears, and the signing stays confirmed.
   - The game-over messages of a later game don't repeat an earlier outcome.
 - **A replaced signing is still announced** (orchestrator, 2026-10-24). When the answer (or failure) of a signing that a newer signing has replaced arrives:
   - its outcome (confirmed "#r" from its own rows, off-table or unconfirmed) is announced once, through the status mirror
@@ -62,7 +62,7 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
 - **Retrying the POST automatically**: a retry after a lost answer would add the score twice. Making it idempotent would need a client-chosen key, which isn't worth it for a table of 10 rows.
 
 ## Consequences
-- A qualification decision uses a table as old as the last successful refresh (normally this game's start), plus up to 15 s of CDN caching on GET (amended in DEVOPS (user, 2026-10-24)). Another computer sees a new row up to about 15 s late; the signer sees it at once, in the POST answer. Rows apply in server listing order, apart from the accepted clock-skew edge.
+- A qualification decision uses a table as old as the last successful refresh (normally this game's start), plus up to 15 s of CDN caching on GET (amended in DEVOPS (user, 2026-10-24)). Another computer sees a new row up to about 15 s late; the signer sees it at once, in the POST answer (K11 checks on Netlify that a signer finds their own row in their own answer; the local emulator can cut a listing short under concurrency: clarified in DISTILL). Rows apply in server listing order, apart from the accepted clock-skew edge.
 - The player learns what happened to every signing, even during the next game or after signing again, and the game never claims more than it knows. A slow or absent server costs at most a message.
 - A highlight is not a promise: a confirmed row can later leave the table, and its highlight goes with it.
 - **Saved but unconfirmed** (accepted): the player is told "Couldn't confirm FAB's signing" although the score was saved, and the next refresh shows the row, without a highlight because the client never learned its id. This happens in two ways:

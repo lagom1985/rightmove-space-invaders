@@ -22,6 +22,13 @@ export async function withDeterministicChance(play) {
 const hasOwn = (target, key) => expect(Object.hasOwn(target, key), `the game state no longer has "${key}"`).toBe(true);
 
 export const arrange = {
+  // The deposit saved so far in the game in play: the next game over is decided on it (the high-score acceptance model,
+  // tests/e2e/rightmove-invaders-leaderboard/acceptance/tier-b/signing-rules.js).
+  deposit({ g }, amount) {
+    hasOwn(g, 'score');
+    g.score = amount;
+    expect(g.score, 'the deposit did not take').toBe(amount);
+  },
   // A bolt right on the pin: the next step loses a home.
   boltOnPin({ g, PW }) {
     const bolt = { x: g.player.x + PW / 2 - 1, y: g.player.y, vy: 240, color: '#ffffff' };

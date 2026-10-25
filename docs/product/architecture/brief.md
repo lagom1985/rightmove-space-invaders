@@ -126,7 +126,7 @@ Nothing in a frame waits on the network. An outcome that arrives during play is 
 | High-score rules | `src/game/high-scores.js` | Pure, imports nothing: table size, initials alphabet and length, £50 step, maximum, signature validity, 3-letter word filter (also used by the Score API), and qualification `makesTheTable` (browser only; it requires an available table) |
 | Vocabulary | `src/game/events.js` | `GameEvent` (including `initialsEntered`), `CueOp`, `Sound` |
 | Keyboard | `src/platform/input.js` | Held and latched keys |
-| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (title attract, game over), initials entry and the signing messages on game over. Nothing new is drawn during play |
+| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), initials entry and the signing messages on game over. Nothing new is drawn during play |
 | Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` |
 | Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) |
 | High-score table client | `src/platform/leaderboard.js` | One request per call to `/api/scores`; rejects on a non-OK answer, a network error or the 5000 ms timeout; never retries |

@@ -66,6 +66,31 @@ export function applyLeaderboard(scores, signedId) {
   if (signedId && g.signed) g.signed = { ...g.signed, id: signedId };
 }
 
+// The rules' side of the table outcomes (DESIGN, "Rules operations"). RED scaffolds, created by DISTILL
+// (rightmove-invaders-leaderboard): main.js doesn't call them yet, so the game behaves exactly as before. main.js
+// will hand every outcome over between frames; only these functions write the table state and the signing.
+//   tableAnswered({ scores, listedAt })            a load answered (page load, or the refresh on every gameStarted)
+//   tableFailed()                                  a load failed (not OK, network error, or the 5000 ms timeout)
+//   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
+//   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
+// The state they keep, read by the views and by the in-memory acceptance model (tier-b/signing-rules.js):
+//   g.table   { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }] }
+//   g.signing { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank }, or null
+//   g.settled { n, initials, outcome, rank }: the latest settled outcome, for the status mirror to announce once
+//   the last applied listedAt (DDD-12), a number or none yet
+// And the one read-only view the in-memory acceptance model uses, so that it never reaches into those fields:
+//   snapshot() -> a fresh, frozen { screen: 'title' | 'play' | 'over',
+//                                   table: { status, rows: [{ initials, score, id }] },
+//                                   entry: { letters: 'AAA', index } or null,        (the initials being entered)
+//                                   signing, settled,                                (as above, or null)
+//                                   lastListedAt: number or null }
+const scaffold = () => { throw new Error('__SCAFFOLD__: not yet implemented'); };
+export function tableAnswered(answer) { return scaffold(answer); }
+export function tableFailed() { return scaffold(); }
+export function signingAnswered(n, answer) { return scaffold(n, answer); }
+export function signingFailed(n) { return scaffold(n); }
+export function snapshot() { return scaffold(); }
+
 const TABLE_SIZE = 10;   // rows on the high-score table
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', INITIALS_LENGTH = 3;
 

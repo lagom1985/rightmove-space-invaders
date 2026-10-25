@@ -138,7 +138,7 @@ outcomes:
       Date.now() in ms taken right after the listing that follows the write (also when
       best-effort pruning failed); function errors are JSON {error}: 415 json-required
       (content type), 413 payload-too-large (over 1 KB), 400 invalid-signature (any other
-      shape error) or initials-not-allowed, 405 with Allow, 503 not-saved, 500 unexpected
+      shape error) or initials-not-allowed, 405 method-not-allowed with Allow: GET, POST (clarified in DISTILL), 503 not-saved, 500 unexpected
       (including a port refusal of a key that is not well-formed); every answer from the
       function other than a GET 200 is no-store, and every answer carries Netlify-Vary
       query=table. 429 comes from Netlify only, above 10 requests per 60 s per IP and
@@ -158,12 +158,11 @@ outcomes:
   summary: No signature is lost when players sign at the same moment
   feature: rightmove-invaders-leaderboard
   inputs:
-  - shape: N valid signatures posted at once (verified up to N = 100 on the emulator)
+  - shape: N valid signatures posted at once (verified up to N = 100 at store level in the SPIKE; the local acceptance property caps at 30 per batch and checks the table read afterwards; each signer finding their own row in their own answer is checked on Netlify by K11, because the emulator can cut a listing short during concurrent writes; clarified in DISTILL)
   output:
     shape: 'every saved signature that belongs in the true top 10 is in the table; through
       the restricted table-store port (list, putIfNew, remove of well-formed keys only,
-      no deleteAll) each POST adds one well-formed key under s/ and deletes, best-effort,
-      at most 5 well-formed keys ranked 11th or lower, only when more than 20 exist;
+      no deleteAll) each POST adds one well-formed key under s/ and deletes, best-effort, k = min(5, n - 20) well-formed keys ranked 11th or lower, n being the well-formed keys in the listing after its write, and none unless n is above 20 (exact rule accepted: user, 2026-10-24);
       other keys are never touched'
   keywords:
   - no-lost-score
@@ -182,9 +181,7 @@ outcomes:
       id}] best first}, deposit; signature {initials, score}'
   output:
     shape: 'makesTheTable (browser only) = status available and deposit > 0 and (fewer
-      than 10 rows or deposit above the 10th; a tie misses). Valid signature (browser
-      and function) = initials of 3 letters A-Z not on the word filter, score a positive
-      integer multiple of 50 up to 9999999. The function never decides qualification'
+      than 10 rows or deposit above the 10th; a tie misses). Valid signature shape (isValidSignature, browser and function) = exactly {initials, score}, initials of 3 letters A-Z, score a positive integer multiple of 50 up to 9999999; allowed initials (isAllowedInitials) = not on the word filter. The browser needs both; the function maps a bad shape to 400 invalid-signature and blocked initials to 400 initials-not-allowed (clarified in DISTILL). The function never decides qualification'
   keywords:
   - qualification
   - makes-the-table
@@ -204,7 +201,7 @@ outcomes:
   output:
     shape: 'blocked initials keep the entry open; allowed initials -> pending (signing
       n, replacing any earlier signing as the current one) -> confirmed (rank from the
-      answer''s own rows; row highlighted wherever the table is shown until the next
+      answer''s own rows; row highlighted wherever the table is shown (not the title: clarified in DISTILL) until the next
       signing or until the row leaves the shown table, pruned or pushed down, while
       the signing stays confirmed) | off-table | unconfirmed ("Couldn''t confirm FAB''s
       signing": it may have been saved; any not-OK answer, 429 included); a new game
@@ -274,4 +271,31 @@ outcomes:
   - production-table
   artifact: netlify/functions/scores.mjs
   related: [OUT-7, OUT-8]
+  superseded_by: null
+- id: OUT-14
+  kind: specification
+  summary: Accessible initials entry and signing outcomes in the status mirror
+  feature: rightmove-invaders-leaderboard
+  inputs:
+  - shape: 'the game state g read each frame: the initials entry {letters, index}, the
+      current signing {initials, status, id, rank}, the latest settled outcome {n, initials,
+      outcome, rank}, the table {status, rows}'
+  output:
+    shape: 'data-hud=initials field reads "F A A, letter 2 of 3" while entering (empty
+      otherwise); one live-region update per change of letter or position, at most one
+      per frame (same-key presses within a frame count once); the messages DISTILL fixed
+      (Signing FAB…, Signed FAB, #3., The table filled up before FAB arrived., Couldn''t
+      confirm FAB''s signing., Those initials aren''t allowed. Change a letter., High-score
+      table unavailable.); each settled outcome announced once whenever it arrives, a replaced
+      signing''s included; aria-current=true on the current confirmed signing''s row in the
+      High scores list while that row is shown; a later game''s game-over message never
+      repeats an earlier outcome'
+  keywords:
+  - accessibility
+  - initials-field
+  - live-region
+  - aria-current
+  - signing-announcement
+  artifact: src/view/status.js
+  related: [OUT-11, OUT-12]
   superseded_by: null

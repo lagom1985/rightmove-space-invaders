@@ -193,7 +193,7 @@ deployment_assumptions:
   - "A rollback publishes the chosen deploy, which then writes the site store (published true); check the log line after every rollback (K13)"
   - "Every deploy keeps its own callable copy of the function at its permalink until it is deleted; only the published production deploy writes the site store, so old copies write their own deploy stores"
   - "The GET cache is invalidated per deploy context by each new deploy; otherwise an answer is at most 15 s old"
-  - "Build gate: bddgen + Playwright projects unit and in-memory (no browsers); browser projects and K5/K7 run locally with npm test"
+  - "Build gate: bddgen + Playwright projects unit and in-memory (no browsers); browser projects and K5/K7 run locally with npm test. Playwright's global webServer also starts scripts/serve.mjs, and with it a BlobsServer emulator in a temp directory, on the Netlify build machine for every run of these projects (it cannot be skipped per project; clarified in DISTILL). The gate adds the @server scenarios, which start emulators of their own in Node. Measured wall clock of npm run build on the developer machine: about 2 s today for 46 tests (and 4.2 s for the 34 in-memory acceptance runs once DELIVER enables them: measured with RUN_PENDING)"
   - "Release-check triggers: a change to scores.mjs, the @netlify/blobs version, the bundler settings, config.rateLimit or the cache headers re-runs K10, K11 and K14"
   - "Data: 3 initials, a score and a time per signature, kept until pruned or deleted by the owner, with no backup; Netlify processes client IPs for rate limiting; the function logs none; production sets no cookies"
 

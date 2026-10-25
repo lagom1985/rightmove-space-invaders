@@ -13,7 +13,7 @@ Three constraints shape where shared code can go:
 ## Decision
 - **New pure module `src/game/high-scores.js`.** It imports nothing and holds:
   - the table size (10), the initials alphabet (A–Z) and length (3), the score step (£50) and the maximum (£9,999,999)
-  - signature validity
+  - signature validity as two questions (clarified in DISTILL): `isValidSignature` is shape only (exactly `{ initials, score }`, three letters A–Z, a positive multiple of £50 up to the maximum), and `isAllowedInitials` is the word filter. The browser needs both; the function maps a bad shape to 400 `invalid-signature` and blocked initials to 400 `initials-not-allowed`
   - the 3-letter word filter
   - the qualification rule `makesTheTable(table state, deposit)`. It is true only when the table state's status is `available`, the deposit is above 0, and there are fewer than 10 rows or the deposit is above the 10th row's (a tie misses).
 - **Who uses what**: `src/game/game.js` uses all of it. `netlify/functions/scores.mjs` uses the table size and signature validity, word filter included. Only the browser uses `makesTheTable`: the server ranks every valid signature and never decides qualification (ADR-008).

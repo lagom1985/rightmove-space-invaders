@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
+import { isAllowedInitials } from '../../src/game/high-scores.js';
 import { createTablePort, encodeKey, handleScores, logToConsole } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
@@ -55,7 +56,8 @@ async function capturingConsole(call) {
 // A player whose initials and id appear in every key the store holds or names: the rows held are theirs too. Ids start
 // with "zq", which no log line's fixed text contains, so finding one in a line means it leaked.
 const player = fc.record({
-  initials: fc.stringMatching(/^[A-Z]{3}$/),
+  // Never on the word filter: a POST with those is refused 400 before a row's time is read, so the clock test's 500 can't come.
+  initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials),
   id: fc.stringMatching(/^zq[a-z0-9]{4,10}$/),
   score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50),
 });

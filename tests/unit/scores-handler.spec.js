@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
-import { TABLE_SIZE } from '../../src/game/high-scores.js';
+import { TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
 import { createTablePort, decodeKey, encodeKey, handleScores } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
@@ -49,7 +49,8 @@ test('a GET handed only the listing answers 200 with the best ten rows held, and
 // A body's size is what is read from it, never what its Content-Length claims (DDD-5): a valid signature padded past
 // 1 KB (1,024 bytes), claiming to be 1 KB or less and arriving in any chunks, is answered 413 and saves nothing.
 const KB = 1024;
-const signature = fc.record({ initials: fc.stringMatching(/^[A-Z]{3}$/), score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50) });
+// Never on the word filter: a POST with those is refused 400 before anything is saved, which no signing below expects.
+const signature = fc.record({ initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials), score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50) });
 const claimed = fc.integer({ min: 1, max: KB });
 const pastOneKB = fc.integer({ min: KB + 1, max: 4 * KB });
 const cuts = fc.uniqueArray(fc.integer({ min: 1, max: 4 * KB }), { maxLength: 6 });

@@ -1,12 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { getStore } from '@netlify/blobs';
-import { BlobsServer } from '@netlify/blobs/server';
+import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { createTablePort, encodeKey, handleScores, logToConsole } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
@@ -26,24 +21,10 @@ const STORE_OPERATIONS = ['list', 'set', 'delete'];
 const A_KEY = /s\/\d{7}-/;
 
 let emulator;
+test.beforeAll(async () => { emulator = await startBlobsEmulator('scores-log-leak'); });
+test.afterAll(() => emulator.stop());
 
-test.beforeAll(async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'make-the-right-move-scores-log-leak-'));
-  const token = randomUUID();
-  const server = new BlobsServer({ directory, token });
-  const { port } = await server.start();
-  emulator = { directory, server, token, url: `http://localhost:${port}` };
-});
-
-test.afterAll(async () => {
-  await emulator.server.stop();
-  await rm(emulator.directory, { recursive: true, force: true });
-});
-
-const freshStore = () => getStore({
-  name: `leaderboard-${randomUUID()}`, siteID: 'local', token: emulator.token,
-  edgeURL: emulator.url, uncachedEdgeURL: emulator.url, consistency: 'strong',
-});
+const freshStore = () => emulator.freshStore();
 const snapshot = async store => ({ 'table.keys': (await store.list()).blobs.map(blob => blob.key).sort() });
 
 // The real store, with the chosen operations throwing an error that names a key: the key it was given, or for a

@@ -262,13 +262,24 @@ const failSigning = pick => command(`failSigning(#${pick})`, m => m.inFlight.len
   m.settle(signing, SigningOutcome.UNCONFIRMED);
 }));
 
+// A whole signed game as one command: startNewGame, finishGameWith(deposit) and signAs(initials), each checked and
+// stepped on both sides exactly as on its own. Drawn one at a time, those three nearly always lose the race to the
+// older signing's answer, so a newer signing seldom overtook it and, for most seeds, no replaced signing ever settled.
+// Its initials are never on the word filter: signAs on its own covers refusals.
+const anotherSignedGame = (deposit, initials) => command(`anotherSignedGame(${deposit}, ${initials})`, m => startNewGame().check(m), (m, r) => {
+  for (const next of [startNewGame(), finishGameWith(deposit), signAs(initials)]) if (next.check(m)) next.run(m, r);
+});
+
 const deposit = fc.integer({ min: 0, max: 40 }).map(units => units * 50);
 const rowsOfOthers = fc.array(fc.record({ initials: fc.constantFrom('KIM', 'LEO', 'MAX', 'NED'), score: deposit.filter(d => d > 0) }), { maxLength: TABLE_SIZE })
   .map(rows => rows.sort((a, b) => b.score - a.score).map((row, i) => ({ ...row, id: `r${i}` })));
 const listedAt = fc.integer({ min: 0, max: 20 });
-const initials = fc.constantFrom('FAB', 'ABC', 'ZZY', ...BLOCKED_INITIALS);
+const ALLOWED_INITIALS = ['FAB', 'ABC', 'ZZY'];
+const allowedInitials = fc.constantFrom(...ALLOWED_INITIALS);
+const initials = fc.constantFrom(...ALLOWED_INITIALS, ...BLOCKED_INITIALS);
 
-// Weighted by repetition: games, signings and answers often enough that replaced signings and late answers happen.
+// Weighted by repetition: games, signings and answers often enough that replaced signings and late answers happen, for
+// any seed (anotherSignedGame is what lets a newer signing overtake an older one's answer).
 const COMMANDS = [
   fc.constant(startNewGame()), fc.constant(startNewGame()), fc.constant(startNewGame()),
   deposit.map(finishGameWith), deposit.map(finishGameWith), deposit.map(finishGameWith),
@@ -279,6 +290,7 @@ const COMMANDS = [
   fc.constant(failTable()),
   ...Array.from({ length: 3 }, () => fc.tuple(fc.nat(), rowsOfOthers, fc.option(fc.integer({ min: 1, max: TABLE_SIZE }), { nil: null }), listedAt).map(args => answerSigning(...args))),
   fc.nat().map(failSigning), fc.nat().map(failSigning),
+  ...Array.from({ length: 2 }, () => fc.tuple(deposit, allowedInitials).map(([amount, letters]) => anotherSignedGame(amount, letters))),
 ];
 
 // States every run together must reach, or the property is not exploring what it claims to. The refusal needs the

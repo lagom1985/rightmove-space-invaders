@@ -116,9 +116,9 @@ function settle(n, outcome, { id = null, rank = null } = {}) {
   if (g.signing.n === n) g.signing = { ...g.signing, status: outcome, id, rank };   // on its way, so still pending
 }
 
-// The one read-only view of the rules' state that the in-memory acceptance model reads (tier-b/signing-rules.js), so
-// it never reaches into g: a fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows },
-// entry: { letters: 'AAA', index } or null, signing, settled, lastListedAt: number or null }.
+// The one read-only view of the rules' state that the in-memory acceptance model (tier-b/signing-rules.js) and the unit
+// properties read, so they never reach into g: a fresh, frozen { screen: 'title' | 'play' | 'over',
+// table: { status, rows }, entry: { letters: 'AAA', index } or null, signing, settled, lastListedAt: number or null }.
 const SCREENS = { title: 'title', play: 'play', dead: 'play', clear: 'play', over: 'over' };
 
 const deepFreeze = value => {
@@ -156,12 +156,13 @@ export function handlePresses(pressed) {
 }
 
 // Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on.
+const blankInitials = () => ({ letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0, refused: false });
+const turned = (letter, by) => ALPHABET[(ALPHABET.indexOf(letter) + by + ALPHABET.length) % ALPHABET.length];
+
 function enterInitials(pressed) {
   const entry = g.initials;
   if (pressed.size) entry.refused = false;   // a refusal shows until the next key
-  const turn = pressed.has('ArrowUp') - pressed.has('ArrowDown');
-  const at = ALPHABET.indexOf(entry.letters[entry.index]);
-  entry.letters[entry.index] = ALPHABET[(at + turn + ALPHABET.length) % ALPHABET.length];
+  entry.letters[entry.index] = turned(entry.letters[entry.index], pressed.has('ArrowUp') - pressed.has('ArrowDown'));
   if (!pressed.has('Enter')) return;
   entry.index++;
   if (entry.index < INITIALS_LENGTH) return;
@@ -403,7 +404,7 @@ function gameOver(reason) {
   g.state = 'over'; g.overReason = reason; g.overT = 0;
   g.newBest = g.score > g.best;
   if (g.newBest) { g.best = g.score; bestStore.save(g.best); }
-  if (makesTheTable(g.table, g.score)) g.initials = { letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0, refused: false };
+  if (makesTheTable(g.table, g.score)) g.initials = blankInitials();
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
 }

@@ -1,6 +1,9 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed } from './game/game.js';
+import {
+  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore,
+  tableAnswered, tableFailed, signingAnswered, signingFailed,
+} from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';

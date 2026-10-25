@@ -29,7 +29,7 @@ npx playwright install   # first time only
 npm test
 ```
 
-The acceptance test lives in `tests/e2e/rightmove-invaders/acceptance/`. It drives the real page with keyboard events in Chromium, Firefox and WebKit, and uses Playwright's fake clock to fast-forward game time.
+The acceptance suites live in `tests/e2e/<feature>/acceptance/`, one per feature: `rightmove-invaders` (the game), `rightmove-invaders-sound` (sound and music) and `rightmove-invaders-leaderboard` (the shared high-score table). They drive the real page with keyboard events in Chromium, Firefox and WebKit, and use Playwright's fake clock to fast-forward game time. Scenarios tagged `@in-memory` or `@server` need no browser and run once, in the `in-memory` project; the unit properties are in `tests/unit/`.
 
 ## Deploy
 
@@ -59,6 +59,7 @@ Plain Canvas2D and ES modules, with no runtime dependencies in the browser and n
 | `src/sound/recipes.js` | Sound data: pitches, the mix, the tune and each sound's recipe |
 | `src/view/render.js` | Drawing |
 | `src/view/status.js` | Mirrors the HUD into the page for screen readers |
+| `src/view/messages.js` | The words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once (data only, no imports) |
 | `src/platform/input.js` | Keyboard, including holding very quick taps so they aren't lost |
 | `src/platform/storage.js` | Best score and the sound and music settings in `localStorage` |
 | `src/platform/leaderboard.js` | The high-score table client: reads and signs `/api/scores`, one request per call with a 5-second timeout |

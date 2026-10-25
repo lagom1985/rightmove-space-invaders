@@ -1,6 +1,7 @@
 // Shared high-score rules (ADR-006, DDD-3): one rule on both sides of the wire. Pure: imports nothing.
-// src/game/game.js uses all of it; netlify/functions/scores.mjs uses the table size and signature validity (word filter
-// included); only the browser uses makesTheTable.
+// src/game/game.js uses the initials rules and makesTheTable (only the browser does); netlify/functions/scores.mjs uses
+// the table size, the score field's maximum and signature validity (word filter included); scripts/smoke-leaderboard.mjs
+// builds its signatures from these rules too.
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
 export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials, Up and Down move round it
@@ -12,9 +13,6 @@ export const MAX_SCORE = 9_999_999;                    // the 7-digit score fiel
 // their blocked example from here.
 export const BLOCKED_INITIALS = Object.freeze(['ASS', 'COK', 'CUM', 'DIK', 'FAG', 'FCK', 'FUC', 'FUK', 'KKK', 'NAZ', 'NGR', 'NIG', 'PIS', 'SEX', 'SHT', 'TIT']);
 
-// { initials, score } (exactly these two fields) -> true when the initials are 3 letters A-Z (word filter aside) and the
-// score is a positive integer multiple of SCORE_STEP up to MAX_SCORE. The function refuses blocked initials separately
-// (400 initials-not-allowed), so validity and the word filter are two questions.
 const SIGNATURE_FIELDS = Object.freeze(['initials', 'score']);
 
 const hasExactlyTheFields = signature => typeof signature === 'object' && signature !== null &&
@@ -23,6 +21,9 @@ const isInitialsShape = initials => typeof initials === 'string' && initials.len
   [...initials].every(letter => ALPHABET.includes(letter));
 const isScore = score => Number.isSafeInteger(score) && score > 0 && score % SCORE_STEP === 0 && score <= MAX_SCORE;
 
+// { initials, score } (exactly these two fields) -> true when the initials are 3 letters A-Z (word filter aside) and the
+// score is a positive integer multiple of SCORE_STEP up to MAX_SCORE. The function refuses blocked initials separately
+// (400 initials-not-allowed), so validity and the word filter are two questions.
 export function isValidSignature(signature) {
   return hasExactlyTheFields(signature) && isInitialsShape(signature.initials) && isScore(signature.score);
 }

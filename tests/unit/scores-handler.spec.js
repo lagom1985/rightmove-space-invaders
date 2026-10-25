@@ -1,12 +1,7 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { getStore } from '@netlify/blobs';
-import { BlobsServer } from '@netlify/blobs/server';
+import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE } from '../../src/game/high-scores.js';
 import { createTablePort, encodeKey, handleScores } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
@@ -21,24 +16,10 @@ const NOW = 1_767_225_600_000;
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
 
 let emulator;
+test.beforeAll(async () => { emulator = await startBlobsEmulator('scores-handler'); });
+test.afterAll(() => emulator.stop());
 
-test.beforeAll(async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'make-the-right-move-scores-handler-'));
-  const token = randomUUID();
-  const server = new BlobsServer({ directory, token });
-  const { port } = await server.start();
-  emulator = { directory, server, token, url: `http://localhost:${port}` };
-});
-
-test.afterAll(async () => {
-  await emulator.server.stop();
-  await rm(emulator.directory, { recursive: true, force: true });
-});
-
-const freshStore = () => getStore({
-  name: `leaderboard-${randomUUID()}`, siteID: 'local', token: emulator.token,
-  edgeURL: emulator.url, uncachedEdgeURL: emulator.url, consistency: 'strong',
-});
+const freshStore = () => emulator.freshStore();
 const snapshot = async store => ({ 'table.keys': (await store.list()).blobs.map(blob => blob.key).sort() });
 
 // Rows as they are held; no two share a score and a moment, so arcade order has one answer.

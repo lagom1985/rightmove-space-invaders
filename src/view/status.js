@@ -1,4 +1,5 @@
 import { ladderName, pounds } from '../theme/theme.js';
+import { INITIALS_REFUSED, PLAY_AGAIN as PLAY_AGAIN_HEADING, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
 
 const SETTING_MESSAGES = {
   sound: { on: 'Sound on.', off: 'Sound off. Press M to turn it on.' },
@@ -6,9 +7,7 @@ const SETTING_MESSAGES = {
 };
 
 const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
-const REFUSAL = 'Those initials aren\'t allowed. Change a letter.';
-const PLAY_AGAIN = 'Press Enter to house-hunt again.';
-const TABLE_UNAVAILABLE = 'High-score table unavailable.';
+const PLAY_AGAIN = `${PLAY_AGAIN_HEADING}.`;
 const NO_ROWS = Object.freeze([]);
 
 // What game over says about the table (DISTILL, Messages): only that it can't be reached. While it is unknown (at most
@@ -18,17 +17,10 @@ const tableLine = g => (g.state === 'over' && g.table.status === 'unavailable' ?
 // The letters spaced, so a screen reader spells them, and the one being chosen: 'F A A, letter 2 of 3'.
 const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${index + 1} of ${letters.length}`;
 
-// What a settled signing ended as (DISTILL, Messages), a replaced signing's included.
-const OUTCOME_MESSAGES = {
-  confirmed: ({ initials, rank }) => `Signed ${initials}, #${rank}.`,
-  'off-table': ({ initials }) => `The table filled up before ${initials} arrived.`,
-  unconfirmed: ({ initials }) => `Couldn't confirm ${initials}'s signing.`,
-};
-
 // While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again. Only a
 // signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
-  if (g.signedThisGame) return g.signing.status === 'pending' ? `Signing ${g.signing.initials}… ${PLAY_AGAIN}` : PLAY_AGAIN;
+  if (g.signedThisGame) return g.signing.status === 'pending' ? `${SIGNING_MESSAGES.pending(g.signing)} ${PLAY_AGAIN}` : PLAY_AGAIN;
   return [`Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.`, g.newBest ? 'New best!' : '',
     tableLine(g), g.initials ? INITIALS_HELP : PLAY_AGAIN].filter(Boolean).join(' ');
 }
@@ -78,7 +70,7 @@ export function createStatus(root) {
   // first. The rules see a frame's presses once, so presses of the same key within a frame are one change.
   const initialsAnnouncement = (g, field) => {
     if (!g.initials || !last.entering || field === last.field) return '';
-    return g.initials.refused ? `${REFUSAL} ${field}` : field;
+    return g.initials.refused ? `${INITIALS_REFUSED} ${field}` : field;
   };
 
   // The table line on its own, once, when the table turns unavailable on the game-over screen; game over itself says it
@@ -86,7 +78,7 @@ export function createStatus(root) {
   const tableAnnouncement = (line, changed) => (!changed && line !== last.line ? line : '');
 
   // Each settled outcome once, when it arrives, in any game state.
-  const outcomeAnnouncement = settled => (settled && settled.n !== last.settled ? OUTCOME_MESSAGES[settled.outcome](settled) : '');
+  const outcomeAnnouncement = settled => (settled && settled.n !== last.settled ? SIGNING_MESSAGES[settled.outcome](settled) : '');
 
   // Only a change is announced: the settings loaded at page load are shown but not spoken.
   function settingAnnouncements(g) {
@@ -96,13 +88,18 @@ export function createStatus(root) {
       .map(name => SETTING_MESSAGES[name][g.settings[name] ? 'on' : 'off']);
   }
 
-  return function sync(g) {
+  // The canvas HUD's fields, as it shows them.
+  function showHud(g) {
     set('deposit', pounds(g.score));
     set('ladder', ladderName(g.level));
     set('best', pounds(Math.max(g.best, g.score)));
     set('homes', String(g.lives));
     set('sound', g.settings.sound ? 'On' : 'Off');
     set('music', g.settings.music ? 'On' : 'Off');
+  }
+
+  return function sync(g) {
+    showHud(g);
     const rows = g.table.status === 'available' ? g.table.rows : NO_ROWS;
     const mine = g.signing?.id ?? null;   // the current signing's row: its id is set once it is confirmed
     showHighScores(rows, mine);

@@ -1,12 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { getDeployStore, getStore } from '@netlify/blobs';
-import { BlobsServer } from '@netlify/blobs/server';
+import { startBlobsEmulator } from './support/blobs-emulator.js';
 import scores, { config, encodeKey } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta } from '../common/state-delta.js';
 
@@ -25,22 +21,15 @@ const SITE_ROW = { initials: 'SIT', score: 1000, at: 1_767_225_600_000, id: 'sit
 const DEPLOY_ROW = { initials: 'DEP', score: 500, at: 1_767_225_600_000, id: 'deploy1' };
 const CONSOLE = ['log', 'info', 'warn', 'error', 'debug', 'trace'];
 
-let emulator;
+let emulator, blobs;
 
 test.beforeAll(async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'make-the-right-move-scores-entry-'));
-  const token = randomUUID();
-  const server = new BlobsServer({ directory, token });
-  const { port } = await server.start();
-  const url = `http://localhost:${port}`;
-  emulator = { directory, server, blobs: { edgeURL: url, uncachedEdgeURL: url, siteID: 'local', token, primaryRegion: 'us-east-2' } };
-  await inEnvironment(emulator.blobs, () => getStore({ name: 'leaderboard', consistency: 'strong' }).set(encodeKey(SITE_ROW), ''));
+  emulator = await startBlobsEmulator('scores-entry');
+  blobs = { ...emulator.context, primaryRegion: 'us-east-2' };
+  await inEnvironment(blobs, () => getStore({ name: 'leaderboard', consistency: 'strong' }).set(encodeKey(SITE_ROW), ''));
 });
 
-test.afterAll(async () => {
-  await emulator.server.stop();
-  await rm(emulator.directory, { recursive: true, force: true });
-});
+test.afterAll(() => emulator.stop());
 
 // The Blobs context as Netlify sets it for one invocation, put back as it was afterwards.
 async function inEnvironment(blobs, check) {
@@ -76,7 +65,7 @@ async function snapshot(deployID) {
 
 // One GET through the entry, as Netlify would make it.
 async function readThroughEntry({ deployID, context }) {
-  return inEnvironment({ ...emulator.blobs, ...(deployID ? { deployID } : {}) }, async () => {
+  return inEnvironment({ ...blobs, ...(deployID ? { deployID } : {}) }, async () => {
     if (deployID) await getDeployStore({ name: 'leaderboard', consistency: 'strong' }).set(encodeKey(DEPLOY_ROW), '');
     const before = await snapshot(deployID);
     const { answer, lines } = await capturingConsole(async () => readAnswer(await scores(new Request(URL), context)));

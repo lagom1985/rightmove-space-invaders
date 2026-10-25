@@ -15,7 +15,7 @@ import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
-import { createTablePort, handleScores, logToConsole } from '../netlify/functions/scores.mjs';
+import { createTablePort, handleScores, logToConsole, newId } from '../netlify/functions/scores.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.env.PORT) || 4173;
@@ -26,12 +26,7 @@ const types = {
 const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
 // What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
-const tableOptions = Object.freeze({
-  now: Date.now,
-  newId: () => randomUUID().replaceAll('-', ''),
-  log: logToConsole,
-  where: LOCAL,
-});
+const tableOptions = Object.freeze({ now: Date.now, newId, log: logToConsole, where: LOCAL });   // the production clock, ids and logger
 const STOP_WITHIN_MS = 1000;   // a request still in flight can hold the emulator open; the directory goes regardless
 
 // The Blobs client finds the emulator through this context. Strong consistency needs `uncachedEdgeURL` as well.

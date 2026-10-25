@@ -2,6 +2,7 @@ import { W, H, PX, GROUND } from '../game/config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
 import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
+import { INITIALS_REFUSED, PLAY_AGAIN, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
@@ -180,20 +181,16 @@ function drawInitialsEntry(ctx, y) {
     if (i !== index || blink()) text(ctx, letter, W / 2 + (i - 1) * 64, y + 80, 40, i === index ? COLORS.green : COLORS.text, 'center');
   });
   text(ctx, 'Up / Down  change the letter     Enter  take it', W / 2, y + 130, 8, COLORS.dim, 'center');
-  if (refused) text(ctx, 'Those initials aren\'t allowed. Change a letter.', W / 2, y + 160, 8, COLORS.danger, 'center');
+  if (refused) text(ctx, INITIALS_REFUSED, W / 2, y + 160, 8, COLORS.danger, 'center');
 }
 
-// What became of the signing made at this game over (DISTILL, Messages); an earlier one shows only as its green row.
-const SIGNING_LINES = {
-  pending: ({ initials }) => [`Signing ${initials}…`, COLORS.dim],
-  confirmed: ({ initials, rank }) => [`Signed ${initials}, #${rank}.`, COLORS.green],
-  'off-table': ({ initials }) => [`The table filled up before ${initials} arrived.`, COLORS.text],
-  unconfirmed: ({ initials }) => [`Couldn't confirm ${initials}'s signing.`, COLORS.danger],
-};
+// What became of the signing made at this game over (DISTILL, Messages), in its status's colour; an earlier one shows
+// only as its green row.
+const SIGNING_COLORS = { pending: COLORS.dim, confirmed: COLORS.green, 'off-table': COLORS.text, unconfirmed: COLORS.danger };
 
 function drawSigning(ctx, y) {
-  const [line, color] = SIGNING_LINES[g.signing.status](g.signing);
-  text(ctx, line, W / 2, y, 8, color, 'center');
+  const { status } = g.signing;
+  text(ctx, SIGNING_MESSAGES[status](g.signing), W / 2, y, 8, SIGNING_COLORS[status], 'center');
 }
 
 function drawWaveCleared(ctx) {
@@ -213,8 +210,8 @@ function drawGameOver(ctx) {
   if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
   if (hasHighScores()) drawHighScores(ctx, top + 200);
   // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
-  if (g.table.status === 'unavailable') text(ctx, 'High-score table unavailable.', W / 2, top + 200, 8, COLORS.dim, 'center');
-  if (g.overT > 0.6 && blink()) text(ctx, 'Press Enter to house-hunt again', W / 2, again, 16, COLORS.green, 'center');
+  if (g.table.status === 'unavailable') text(ctx, TABLE_UNAVAILABLE, W / 2, top + 200, 8, COLORS.dim, 'center');
+  if (g.overT > 0.6 && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
 }
 
 function drawPaused(ctx) {

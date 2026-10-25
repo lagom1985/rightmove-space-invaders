@@ -46,7 +46,8 @@ function openTable(scope) {
   try { return createTablePort(STORES[scope]()); } catch { return null; }   // MissingBlobsEnvironmentError, for one
 }
 
-const newId = () => randomUUID().replaceAll('-', '');
+// The production id source: a new row's id, [a-z0-9]+ as the key codec wants it (also scripts/serve.mjs's).
+export const newId = () => randomUUID().replaceAll('-', '');
 
 // The production logger: one JSON line per entry on the console, which Netlify keeps as the function's log (DDD-17).
 export const logToConsole = entry => console.log(JSON.stringify(entry));
@@ -161,16 +162,18 @@ async function route(request, port, options, record) {
 }
 
 async function read({ list }, { now }, record) {
-  const keys = await listing(list);
-  if (!keys) return failed(record, 'list-failed');
-  const listedAt = now();   // right after the listing returns (DDD-12)
-  record('scores.read', 'ok', { keys: keys.length });
-  return answer(200, { scores: table(keys), listedAt }, SHARED_15_SECONDS);
+  const listed = await listing(list, now);
+  if (!listed) return failed(record, 'list-failed');
+  record('scores.read', 'ok', { keys: listed.keys.length });
+  return answer(200, { scores: table(listed.keys), listedAt: listed.listedAt }, SHARED_15_SECONDS);
 }
 
-// The well-formed keys, or null when the table can't be looked at.
-async function listing(list) {
-  try { return await list(); } catch { return null; }
+// { keys: the well-formed keys, listedAt: taken right after the listing returns (DDD-12) }, or null when the table
+// can't be looked at.
+async function listing(list, now) {
+  let keys;
+  try { keys = await list(); } catch { return null; }
+  return { keys, listedAt: now() };
 }
 
 function table(keys) {
@@ -193,12 +196,11 @@ async function save({ initials, score }, port, { now, newId }, record) {
   const saved = await saving(port, encodeKey({ initials, score, at: now(), id }));
   if (saved === null) return failed(record, 'put-failed');
   if (!saved) return notSaved(record);
-  const keys = await listing(port.list);
-  if (!keys) return failed(record, 'list-failed');
-  const listedAt = now();   // right after the listing returns (DDD-12)
-  const tidied = await prune(port, planPrune(keys));
-  record('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: keys.length });
-  return answer(200, { scores: table(keys), id, listedAt });
+  const listed = await listing(port.list, now);
+  if (!listed) return failed(record, 'list-failed');
+  const tidied = await prune(port, planPrune(listed.keys));
+  record('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: listed.keys.length });
+  return answer(200, { scores: table(listed.keys), id, listedAt: listed.listedAt });
 }
 
 // true if saved, false if the key already existed, null when the store failed. A key the port refuses is no store

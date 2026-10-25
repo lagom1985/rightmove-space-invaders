@@ -65,15 +65,22 @@ kpis:
   # rightmove-invaders-leaderboard, added by DEVOPS on 2026-10-24 and revised after the platform review (iteration 2):
   # operational contracts for the Score API on Netlify (legacy Free plan). Each row names its own feature; the top-level
   # `feature` above is the file's first one. scripts/smoke-leaderboard.mjs is specified in that feature's feature-delta.md
-  # ("Wave: DEVOPS / [REF] CI/CD pipeline outline"). DELIVER implements it and runs it, with the user's OK to push. Its
+  # ("Wave: DEVOPS / [REF] CI/CD pipeline outline"). DELIVER wrote it (2026-10-25: 6f5be2d, revised in 78e0a0f), and it
+  # has not run yet. It runs on a deploy preview before the first merge to main, with the user's OK to push. Its
   # write guard refuses any POST to a production host or to the published deploy, and any POST before an empty first GET.
   # Release-check triggers: a change to netlify/functions/scores.mjs, the @netlify/blobs version, the functions bundler
   # settings, config.rateLimit or the cache headers re-runs K10, K11 and K14.
   # local_scenarios (added by DISTILL, 2026-10-24): the @kpi-K… acceptance scenarios that check the same contract
-  # locally, on the Blobs emulator, at the handler's level (project in-memory, tag @server). They are written but tagged
-  # @pending: once DELIVER enables them, they run in every Netlify build. They back a KPI; they never replace its
+  # locally, on the Blobs emulator, at the handler's level (project in-memory, tag @server). DELIVER enabled them
+  # (2026-10-25), and they run in every Netlify build. They back a KPI; they never replace its
   # Netlify measurement, and the targets are unchanged. K10, K13 and K15 have no local scenario: they are
-  # latency, deploy context and quota on Netlify itself (K13's chooseStore case table is a DELIVER unit test).
+  # latency, deploy context and quota on Netlify itself (K13's chooseStore case table is a DELIVER unit test,
+  # tests/unit/choose-store.spec.js).
+  # baseline (added by DELIVER, 2026-10-25): what has been measured so far, and where. The targets are unchanged.
+  # Nothing has been measured on Netlify yet: K10, K11, K12 and K14 wait for the preview smoke run, K13 for the first
+  # production deploy with the function, and K15 for the first day after the merge. Pipeline baselines on the
+  # developer machine, for the build-minute and release-check estimates: npm run build (bddgen, then the unit and
+  # in-memory projects: 128 tests) takes about 2-3 s; npm test (326 tests, three browsers) takes about 14 min.
   - id: K10
     feature: rightmove-invaders-leaderboard
     name: Signing is quick on Netlify
@@ -81,6 +88,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 1 and 6"
     window: "the preview before the first merge to main; again on every release-check trigger"
     gate: hard
+    baseline: "none measured: waits for the preview run. There is no local twin: the emulator's submit p95 (20 ms for 20 players in the SPIKE) says little about Netlify, where every Blobs call is a network round trip"
   - id: K11
     feature: rightmove-invaders-leaderboard
     name: No signature lost on real Netlify Blobs
@@ -89,6 +97,7 @@ kpis:
     window: "as K10"
     gate: hard
     local_scenarios: "@kpi-K11 'However many signatures arrive at once, none that belongs in the top ten is lost' (tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-3-no-signature-lost.feature): fast-check batches of up to 30 simultaneous signatures (the SPIKE's N = 100 was store-level evidence); every one answered 200 and the table read afterwards equals the true top 10. Not checked locally: each signer finding their own row in their own answer (the emulator can cut a listing short during concurrent writes), which stays K11's"
+    baseline: "local twin only, measured 2026-10-25 (DELIVER, enabled in 6f5be2d): the @kpi-K11 property ran in 126 ms in the build gate (20 batches of up to 30 simultaneous POSTs, seed 20261023), with every POST answered 200 and 0 signatures lost from the top 10. No Netlify measurement until the burst run"
   - id: K12
     feature: rightmove-invaders-leaderboard
     name: Previews never reach the production table, and the function bundle is complete
@@ -97,6 +106,7 @@ kpis:
     window: "as K10"
     gate: hard
     local_scenarios: "@kpi-K12 'Initials on the word filter are refused by the table too' (milestone-2-signing-the-table.feature): 400 initials-not-allowed and nothing saved, the local twin of smoke step 4: it proves the handler's refusal, not that the esbuild bundle includes src/game/high-scores.js (that is smoke step 4 on a preview). Preview isolation itself is Netlify's (chooseStore unit table, smoke steps 1 and 7)"
+    baseline: "local twin only: the @kpi-K12 scenario has been green in every build since 2026-10-25 (enabled in f91dc92), and the write guard's refusals are unit-tested (tests/unit/smoke-write-guard.spec.js). None measured on Netlify: waits for the preview run"
   - id: K13
     feature: rightmove-invaders-leaderboard
     name: Only the published production deploy uses the site-wide store
@@ -104,6 +114,7 @@ kpis:
     measured_by: "scripts/smoke-leaderboard.mjs --production, and once --unpublished <permalink> (API route with NETLIFY_AUTH_TOKEN and --site-id, or interactive confirmation); then Netlify > Cloud compute > Functions > scores (retention unverified, so the same day); until the older deploy exists, the chooseStore unit table covers the unpublished case"
     window: "after every production deploy and every rollback, the same day; the unpublished check once, after the second production deploy with the function"
     gate: hard
+    baseline: "none measured: waits for the first production deploy with the function. Locally, the chooseStore case table (12 cases) and the entry over a fake deploy environment are green (tests/unit/choose-store.spec.js, tests/unit/scores-entry.spec.js)"
   - id: K14
     feature: rightmove-invaders-leaderboard
     name: The rate limit and the GET cache hold on Netlify
@@ -112,6 +123,7 @@ kpis:
     window: "the preview before the first merge (go/no-go: no-go = no merge to main); again on every release-check trigger"
     gate: hard
     local_scenarios: "@kpi-K14 'An empty high-score table is read as empty, and everyone sees it at most 15 seconds old' (milestone-1-reading-the-table.feature) and 'A valid signature is saved, and the answer shows where it ranks' (milestone-2-signing-the-table.feature): the header set of a GET 200 (Netlify-CDN-Cache-Control public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate) and of a POST 200 (no-store), with Netlify-Vary query=table and nosniff; every refusal scenario checks no-store and Netlify-Vary too. The local check is at handler level: it proves what the function sets, not that Netlify honours it. The rate limit and the CDN's real behaviour stay K14's on a preview"
+    baseline: "local twins only: both @kpi-K14 scenarios have been green in every build since 2026-10-25 (enabled in 1d3b70d and 8952f9b), and the exported config is pinned by a unit test (tests/unit/scores-entry.spec.js). None measured on Netlify: the rule, the real cap of one fast IP (step 8b) and the CDN cache wait for the preview run"
   - id: K15
     feature: rightmove-invaders-leaderboard
     name: Function invocations stay under half the free quota
@@ -119,3 +131,4 @@ kpis:
     measured_by: "Netlify > Cloud compute > Functions > Usage (a cumulative count for the billing period; what it shows on legacy Free is recorded on day 1); Netlify's usage emails at 50/75/90/100%; the account's billing and usage pages for Blobs"
     window: "daily, on every usage email, and every few hours while abuse is suspected"
     gate: soft
+    baseline: "none measured: the first reading is the Usage total on the first day after the merge"

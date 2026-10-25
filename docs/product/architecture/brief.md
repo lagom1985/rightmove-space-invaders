@@ -4,7 +4,7 @@ SSOT for the game's architecture. Each architect owns one section. Decisions are
 
 ## Application Architecture
 
-*Owner: nw-solution-architect · Last updated: 2026-10-24 (rightmove-invaders-leaderboard)*
+*Owner: nw-solution-architect · Last updated: 2026-10-25 (rightmove-invaders-leaderboard, DELIVER: the components marked shipped)*
 
 *File layout note (2026-10-24): `src/` was reorganised into `game/`, `sound/`, `view/`, `platform/` and `theme/`; paths below are the current ones, while ADRs and wave records keep the paths they had at the time. A later refactor the same day moved the sound recipes to `sound/recipes.js`, handed the best-score store in from `main.js` and split the synth into `voices.js`, `effects.js`, `music.js` and `journal.js`.*
 
@@ -92,6 +92,8 @@ flowchart LR
   api --> blobsLib["@netlify/blobs<br/>Store client (server only)"]
   main -->|draw state| render["view/render.js<br/>Canvas2D adapter"]
   main -->|sync state| status["view/status.js<br/>DOM status mirror"]
+  render -. wording .-> messages["view/messages.js<br/>Words both views show (data only)"]
+  status -. wording .-> messages
   main -->|events → cues| director["sound/director.js<br/>Sound director (policy)"]
   director --> events
   main -->|perform cues, unlock, diagnostics| synth["sound/synth.js<br/>Web Audio adapter: lifecycle, cue routing"]
@@ -119,26 +121,30 @@ Nothing in a frame waits on the network. An outcome that arrives during play is 
 
 ### Components
 
-| Component | Path | Responsibility |
-|---|---|---|
-| Loop and wiring | `src/main.js` | Composition root: fixed-step loop, adapter wiring, synth capabilities (context factory, clock, timers), settings load/`applySettings`/save, best-score store (`applyBestStore`), the high-score table client (injected `fetch` and timers; load on page load and on `gameStarted`, sign on `initialsEntered`, outcomes handed to the rules), audio unlock on keydown, immediate flush on blur/hidden, `window.makeTheRightMove` |
-| Rules and state | `src/game/game.js` | Game state `g`: `g.settings` (set via `applySettings`), `g.best` (loaded and saved through the store given to `applyBestStore`), and the high-score table state `{ status, rows }`, the last applied `listedAt`, the initials entry, the latest signing and the settled-outcome notice. The table outcomes are handed in by `main.js`. Also the rules, M/N/P handling and the event outbox (`emit`, `takeEvents`) |
-| High-score rules | `src/game/high-scores.js` | Pure, imports nothing: table size, initials alphabet and length, £50 step, maximum, signature validity, 3-letter word filter (also used by the Score API), and qualification `makesTheTable` (browser only; it requires an available table) |
-| Vocabulary | `src/game/events.js` | `GameEvent` (including `initialsEntered`), `CueOp`, `Sound` |
-| Keyboard | `src/platform/input.js` | Held and latched keys |
-| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), initials entry and the signing messages on game over. Nothing new is drawn during play |
-| Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` |
-| View wording | `src/view/messages.js` | Data: the words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once so the canvas says what the tested mirror says; imports nothing |
-| Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) |
-| High-score table client | `src/platform/leaderboard.js` | One request per call to `/api/scores`; rejects on a non-OK answer, a network error or the 5000 ms timeout; never retries |
-| Score API | `netlify/functions/scores.mjs` | The Netlify entry: `chooseStore`, `getStore` or `getDeployStore`, the restricted table-store port, routing (GET gets `list` only), `config.path` and `config.rateLimit`. The port factory. The request handler: validation (415, 413, 400), one key per score, bounded best-effort pruning, rows stamped with `listedAt`, cache headers (a GET 200 cached for 15 s at the CDN, everything else `no-store`), JSON errors (a port refusal is a 500), one log line with a fixed reason. The pure key codec, ranking, prune plan and `chooseStore` |
-| Local server | `scripts/serve.mjs` | Dev and test only: static files, plus the Score API's handler on a `BlobsServer` emulator (temporary directory deleted on exit), with one store per `test-board` cookie behind the same restricted port |
-| Theme | `src/theme/theme.js` | Data: hurdles, colours, art, ladder, plus pure derivations; imports nothing |
-| Sound recipes | `src/sound/recipes.js` | Data: hit pitch, march notes, the mix (`BUS_LEVELS`), the tune (`MUSIC`) and `SOUND_RECIPES` |
-| Shields | `src/game/shields.js` | Destructible shield grids |
-| Sound director | `src/sound/director.js` | Sound policy: event → cue plan (mute, pause, rate limits, march cycle, siren, music) |
-| Synth | `src/sound/synth.js` | Web Audio adapter: lifecycle (locked, running, suspended, unavailable), cue routing, fail-safe, diagnostics |
-| Synth parts | `src/sound/voices.js`, `effects.js`, `music.js`, `journal.js` | Voice building (noise buffer, siren), effect voices (voice cap, loops), music look-ahead scheduler, journal of the last 100 sounds |
+Every component below is shipped: implemented, tested and committed. The leaderboard's parts were delivered on 2026-10-25 (rightmove-invaders-leaderboard DELIVER, `4f9d64f` → `2c53e96`) on branch `worktree-leaderboard-spike`. That branch is pushed but not merged, so they reach production with the merge to `main`, after the DEVOPS go/no-go on a deploy preview (K10–K14, Platform and Delivery).
+
+| Component | Path | Responsibility | Status |
+|---|---|---|---|
+| Loop and wiring | `src/main.js` | Composition root: fixed-step loop, adapter wiring, synth capabilities (context factory, clock, timers), settings load/`applySettings`/save, best-score store (`applyBestStore`), the high-score table client (injected `fetch` and timers; load on page load and on `gameStarted`, sign on `initialsEntered`, outcomes handed to the rules), audio unlock on keydown, immediate flush on blur/hidden, `window.makeTheRightMove` | Shipped; the table wiring 2026-10-25 |
+| Rules and state | `src/game/game.js` | Game state `g`: `g.settings` (set via `applySettings`), `g.best` (loaded and saved through the store given to `applyBestStore`), and the high-score table state `{ status, rows }`, the last applied `listedAt`, the initials entry, the latest signing and the settled-outcome notice. The table outcomes are handed in by `main.js`. Also the rules, M/N/P handling, the event outbox (`emit`, `takeEvents`) and `snapshot()`, a frozen read model for tests | Shipped; the table state and signing 2026-10-25 |
+| High-score rules | `src/game/high-scores.js` | Pure, imports nothing: table size, initials alphabet and length, £50 step, maximum, signature validity, 3-letter word filter (also used by the Score API), and qualification `makesTheTable` (browser only; it requires an available table) | Shipped 2026-10-25 (new) |
+| Vocabulary | `src/game/events.js` | `GameEvent` (including `initialsEntered`), `CueOp`, `Sound` | Shipped |
+| Keyboard | `src/platform/input.js` | Held and latched keys | Shipped |
+| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), initials entry and the signing messages on game over. Nothing new is drawn during play | Shipped; the table lines 2026-10-25 |
+| Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` | Shipped; the table announcements 2026-10-25 |
+| View wording | `src/view/messages.js` | Data: the words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once so the canvas says what the tested mirror says; imports nothing | Shipped 2026-10-25 (new, from the DELIVER refactor) |
+| Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) | Shipped |
+| High-score table client | `src/platform/leaderboard.js` | One request per call to `/api/scores`; rejects on a non-OK answer, an OK answer that isn't the promised table (rows of `{ initials, score, id }` and a `listedAt`, plus a string `id` for a signing), a network error or the 5000 ms timeout; never retries | Shipped 2026-10-25 |
+| Score API | `netlify/functions/scores.mjs` | The Netlify entry: a method other than GET or POST is refused (405) before any store is opened; `chooseStore`, `getStore` or `getDeployStore`, the restricted table-store port, routing (GET gets `list` only), `config.path` and `config.rateLimit`. The port factory. The request handler: validation (415, 413, 400), one key per score, bounded best-effort pruning, rows stamped with `listedAt`, cache headers (a GET 200 cached for 15 s at the CDN, everything else `no-store`), JSON errors (a port refusal is a 500), one log line with a fixed reason. The pure key codec, ranking, prune plan and `chooseStore` | Shipped 2026-10-25 |
+| Local server | `scripts/serve.mjs` | Dev and test only: static files, plus the Score API's handler on a `BlobsServer` emulator (temporary directory deleted on exit, SIGINT and SIGTERM), with one store per `test-board` cookie behind the same restricted port. It answers a path that doesn't decode with 400 and other methods with 405, and streams a signing's body to the handler, whose 1 KB cap is the read limit | Shipped; the Score API mount 2026-10-25 |
+| Theme | `src/theme/theme.js` | Data: hurdles, colours, art, ladder, plus pure derivations; imports nothing | Shipped |
+| Sound recipes | `src/sound/recipes.js` | Data: hit pitch, march notes, the mix (`BUS_LEVELS`), the tune (`MUSIC`) and `SOUND_RECIPES` | Shipped |
+| Shields | `src/game/shields.js` | Destructible shield grids | Shipped |
+| Sound director | `src/sound/director.js` | Sound policy: event → cue plan (mute, pause, rate limits, march cycle, siren, music) | Shipped |
+| Synth | `src/sound/synth.js` | Web Audio adapter: lifecycle (locked, running, suspended, unavailable), cue routing, fail-safe, diagnostics | Shipped |
+| Synth parts | `src/sound/voices.js`, `effects.js`, `music.js`, `journal.js` | Voice building (noise buffer, siren), effect voices (voice cap, loops), music look-ahead scheduler, journal of the last 100 sounds | Shipped |
+
+Release tooling, not part of the game: `scripts/smoke-leaderboard.mjs`, the DEVOPS smoke test of the Score API on a deploy preview and on production, behind a write guard (shipped 2026-10-25, not yet run; Platform and Delivery).
 
 ### Ports
 
@@ -170,7 +176,7 @@ The handler reaches the store only through the restricted table-store port; unit
 
 ## Platform and Delivery
 
-*Owner: nw-platform-architect · Last updated: 2026-10-24 (rightmove-invaders-leaderboard, DEVOPS)*
+*Owner: nw-platform-architect · Last updated: 2026-10-25 (rightmove-invaders-leaderboard, DELIVER: the smoke test is written; the go/no-go is still owed)*
 
 ### Deployment
 
@@ -204,6 +210,9 @@ The game is published on **Netlify** from the GitHub repo `lagom1985/rightmove-s
   - `Netlify-Vary: query=table` keeps arbitrary query strings from splitting the cache.
   - POSTs and errors are `no-store`.
   - Other computers see a new row up to about 15 s late. The signer sees it at once, in the POST answer (ADR-008).
+- **Smoke test**: `scripts/smoke-leaderboard.mjs` (Node 22, no dependencies) measures K10–K14 on a deploy preview, and K13 on production with GETs only.
+  - Its write guard refuses any POST to a production host or to the published deploy, and any POST before a first GET that found an empty table.
+  - It was written and unit-tested in DELIVER (2026-10-25), and has not run on Netlify yet. Its first run, on the pull request's preview, is the go/no-go for the merge to `main`.
 - **Nothing else**: no secrets, no environment variables beyond `NODE_VERSION`, and no scheduled jobs.
 
 ### Quotas and the outage risk

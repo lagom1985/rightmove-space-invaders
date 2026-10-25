@@ -5,7 +5,8 @@ An arcade high-score table that everyone shares. A deposit that makes the top 10
 - **Type**: user-facing, new functionality, brownfield. It builds on the walking skeleton at commit `2e108db` on branch `worktree-leaderboard-spike`.
 - **No DISCUSS wave.** The brief came straight from the user (2026-10-24): "save the score in Netlify Blobs; when a player finishes, ask for their name, then show the list like every arcade". Decided with the user before DESIGN: 3 arcade initials, a top 10 shared by everyone, only a qualifying deposit is asked for initials, and the local best stays.
 - **SPIKE**: [findings](spike/findings.md) · [wave decisions](spike/wave-decisions.md). The verdict: one blob key per score loses nothing under concurrency.
-- **Do not push `worktree-leaderboard-spike` until ADR-005 is implemented.** The skeleton writes to the site-wide store from any branch deploy.
+- **Do not push `worktree-leaderboard-spike` until ADR-005 is implemented.** The skeleton writes to the site-wide store from any branch deploy. *(Met in DELIVER: ADR-005 landed in 01-01, `1d3b70d`, and the branch was pushed to origin with the user's OK. It is not merged to `main`.)*
+- **DELIVER**: 2026-10-25, `4f9d64f` → `2c53e96`. [Evolution document](../../evolution/rightmove-invaders-leaderboard-evolution.md).
 - **Density**: lean (Tier-1 only). **Revision**: 3 (after the solution-architect review and re-review).
 - **SSOT**: [architecture brief](../../product/architecture/brief.md) · ADR-004…008 · [outcomes registry](../../product/outcomes/registry.yaml) (OUT-7…OUT-14) · [journey](../../product/journeys/play-a-session.yaml) · [ATDD policy](../../architecture/atdd-infrastructure-policy.md)
 
@@ -382,7 +383,7 @@ This is a spec only. DELIVER implements it and runs it once ADR-005 and the amen
      - Refused: the custom domain; `<site>.netlify.app`; the production branch's subdomain (`main--<site>.netlify.app`); any host whose prefix is a 24-character deploy ID (a permalink); and any other host.
      - The one exception is the unpublished check, under rule 2.
   2. **Unpublished check**: the host must be a permalink, `<24-character deploy ID>--<site>.netlify.app`. The guard never relies on an ID typed on the command line. It learns the published deploy's ID in one of two ways, and refuses if that ID equals the permalink's, or if it can't get it:
-     - **API (preferred)**: with `NETLIFY_AUTH_TOKEN` in the environment and `--site-id`, the script reads `published_deploy.id` from `GET https://api.netlify.com/api/v1/sites/<site ID>`. A failed or empty answer refuses. The token is the owner's personal access token: it lives only in the owner's shell, and is never logged, written or committed. DELIVER confirms the field name against Netlify's API reference before relying on it.
+     - **API (preferred)**: with `NETLIFY_AUTH_TOKEN` in the environment and `--site-id`, the script reads `published_deploy.id` from `GET https://api.netlify.com/api/v1/sites/<site ID>`. A failed or empty answer refuses. The token is the owner's personal access token: it lives only in the owner's shell, and is never logged, written or committed. *Confirmed in DELIVER (review M2, `78e0a0f`) against Netlify's OpenAPI reference, operation `getSite`: `Site.published_deploy` is a Deploy object, and its `id` is a string. The reference doesn't document the id's format, so the guard fails closed: anything but 24 hex digits refuses. A fixture test pins the field path.*
      - **Interactive**: without a token, the script prints the target permalink's deploy ID, and asks the owner to type back the published deploy's ID, read in Netlify → Deploys. It refuses unless the answer is a 24-character deploy ID that differs from the target's.
   3. **First GET**: the run's first request to the host is a GET. A POST is allowed only if that GET answered 200 with an empty table (`scores: []`). The production table has rows, so it never passes.
 - **Pacing**: every step stays under 10 requests per 60 s per hostname, except the deliberate over-limit runs: step 2 (with no rule), 8a, 8b and 9. A 61 s wait follows each of them.
@@ -1073,3 +1074,245 @@ Each is marked "clarified in DISTILL" in place; the orchestrator may record them
 - (4) step-reuse ratio, for information: 229 step lines over 91 new step definitions (plus 2 reused from the skeleton), **2.5×**. That is the natural ceiling for two driving ports plus a rules tier, each with its own vocabulary.
 
 **Completeness (15-item check)**: 15/15, **COMPLETE**. C6b counts the entry's `store-unavailable` as the DELIVER unit test's, with that rationale.
+
+---
+
+## Wave: DELIVER / [REF] Implementation summary
+
+Delivered on 2026-10-25 on branch `worktree-leaderboard-spike`, from `4f9d64f` (the roadmap) to `2c53e96`: 12 roadmap steps (one with a fix cycle), an L1–L6 refactor, one review revision and one generator fix. The branch is pushed to origin and not merged to `main`. The summary and lessons are in the [evolution document](../../evolution/rightmove-invaders-leaderboard-evolution.md).
+
+The table follows DESIGN (DDD-1…19) as amended by DEVOPS. The DELIVER amendments are under Changed assumptions.
+- **Score API** (`netlify/functions/scores.mjs`, 284 lines):
+  - **The Netlify entry**: refuses any method but GET and POST (405) before it opens a store; runs `chooseStore` on the request's `Context`; opens `getStore` or `getDeployStore` (`leaderboard`, strong) and wraps it in the restricted port; builds `where` = `{ scope, context, published }` for the log. `config` is `/api/scores` with 10 requests per 60 s by IP and domain.
+  - **`createTablePort(store)`**: `list` (well-formed keys only), and `putIfNew` and `remove`, which refuse any other key.
+  - **`handleScores(request, port, { now, newId, log, where })`**:
+    - other methods first (405), then the DDD-5 checks in order: 415, the 1,024-byte read cap (413), 400 `invalid-signature`, then 400 `initials-not-allowed`
+    - one key per signature, then `planPrune` (k = min(5, n − 20)), best effort
+    - `listedAt` read after each listing
+    - the DDD-6 headers on every answer, and one log line with a fixed reason
+    - a catch-all, so that it always resolves
+  - **Pure helpers**: the key codec (`encodeKey`, `decodeKey`), `rankKeys`, `planPrune` and `chooseStore`.
+- **Shared rules** (`src/game/high-scores.js`, 41 lines, imports nothing): the constants, `isValidSignature` (shape only), `BLOCKED_INITIALS` (the 16 owner-reviewed initials), `isAllowedInitials` and `makesTheTable`.
+- **Rules** (`src/game/game.js`):
+  - the table state `{ status, rows }` and the last applied `listedAt` (`tableAnswered`, `tableFailed`)
+  - the current signing `{ initials, n, status, id, rank }` and the settled notice (`signingAnswered`, `signingFailed`)
+  - the word-filter refusal
+  - `snapshot()`, the frozen read model for tests
+- **Wiring** (`src/main.js`): one load on page load and one per `gameStarted`, and one sign per `initialsEntered`. Each outcome reaches the rules from a promise callback. `fetch` and the window's timers are injected into the client.
+- **Client** (`src/platform/leaderboard.js`, 38 lines): one request per call, with a 5000 ms timeout through `AbortController`. It rejects a not-OK answer, an answer of the wrong shape, a network error and the timeout, and never retries.
+- **Views**:
+  - `status.js`: the initials field, one live-region update per change, each settled outcome once, `aria-current` on the confirmed row, and the unavailable line
+  - `render.js`: the signing, refusal and unavailable lines on game over, the green row, and the attract list only while the table is available
+  - `messages.js`: the wording both views use
+- **Local server** (`scripts/serve.mjs`): one port per `test-board` store (scope `local`); the function's own headers passed through; a fixed log reason; the emulator's directory deleted on exit, SIGINT and SIGTERM; 400 and 405 at its own edges.
+- **Smoke test** (`scripts/smoke-leaderboard.mjs`, 501 lines; written and unit-tested, not yet run): the four DEVOPS modes and one JSON summary. It exits 1 on a failed or inconclusive check and 2 on a guard refusal. The write guard is the pure `decidePost`.
+
+| Milestone | Steps (commit) |
+|---|---|
+| M1 Reading the table | 01-01 (`1d3b70d`) · 01-02 (`fc6a183`; ranking and strays passed as soon as they were enabled) |
+| M2 Signing the table | 02-01 (`8952f9b`) · 02-02 (`f91dc92`) |
+| M3 No signature lost | 03-01 (`2d3c6e8`) · 03-02 (`6f5be2d`; then the fix cycle `2674324`, after 04-01) |
+| M4 Who is asked | 04-01 (`2a13edd`) |
+| M5 Signing outcomes | 05-01 (`3760fa4`) · 05-02 (`14fece5`) |
+| M6 Table status | 06-01 (`e478b5d`) |
+| M7 Late answers | 07-01 (`2f0e529`; all five passed as soon as they were enabled) |
+| M8 Rules in any order | 08-01 (`b0da992`; all three passed as soon as they were enabled) |
+| — | L1–L6 refactor and test hardenings (`0d436be`) |
+| — | Review revision (`78e0a0f`) |
+| — | Word-filter generator fix (`2c53e96`) |
+
+Each step is followed by a DES execution-log commit.
+
+## Wave: DELIVER / [REF] Files modified
+
+`git diff --stat 4f9d64f..2c53e96`: 44 files, +3,431 / −265, the execution log included.
+
+**Production** (and the dev tooling that ships in the repo):
+
+| File | Change | Commits |
+|---|---|---|
+| `netlify/functions/scores.mjs` | From the skeleton to the Score API: the entry, the port, the handler and the pure helpers | `1d3b70d` `fc6a183` `8952f9b` `f91dc92` `2d3c6e8` `0d436be` `78e0a0f` |
+| `src/game/high-scores.js` | From the RED scaffold to the shared rules and the 16-word filter | `8952f9b` `f91dc92` `2a13edd` `0d436be` |
+| `src/game/game.js` | The table state, `listedAt`, the signing lifecycle, the settled notice, the refusal, `snapshot()` | `2a13edd` `3760fa4` `14fece5` `0d436be` `78e0a0f` |
+| `src/main.js` | Load on page load and on `gameStarted`, sign on `initialsEntered`, outcomes from promise callbacks, injected timers | `2a13edd` `3760fa4` `e478b5d` `0d436be` |
+| `src/platform/leaderboard.js` | The 5000 ms timeout and abort; rejects an answer of the wrong shape | `2a13edd` `3760fa4` `78e0a0f` |
+| `src/view/status.js` | The initials field, announcements once, `aria-current`, the unavailable line | `2a13edd` `3760fa4` `14fece5` `e478b5d` `0d436be` `78e0a0f` |
+| `src/view/render.js` | The signing, refusal and unavailable lines on game over; the green row; the attract list only while available | `2a13edd` `3760fa4` `14fece5` `e478b5d` `0d436be` |
+| `src/view/messages.js` | New (refactor L3): the words both views show | `0d436be` `78e0a0f` |
+| `index.html` | `data-hud="initials"` | `2a13edd` |
+| `scripts/serve.mjs` | The port per board, headers passed through, the fixed log reason, cleanup on exit and on a doubled signal, 400/405 at its edges, the body streamed | `1d3b70d` `fc6a183` `0d436be` `78e0a0f` |
+| `scripts/smoke-leaderboard.mjs` | New: the DEVOPS preview smoke test and its write guard (dev tooling, not deployed) | `6f5be2d` `78e0a0f` |
+| `playwright.config.js` | The web server stops with SIGTERM (2000 ms), so its cleanup runs | `fc6a183` |
+| `.gitignore` | `.netlify/` | `6f5be2d` |
+
+**Tests**:
+
+| File | Change | Commits |
+|---|---|---|
+| `tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-*.feature` (8 files) | `@pending` removed, nothing else | One per step |
+| `…/acceptance/steps/fixtures.js` | The `table` fixture carries the tripled timeout | `b0da992` |
+| `…/acceptance/tier-b/signing-rules.js` | A weighted `anotherSignedGame` command, so every witness state is reached for any seed | `0d436be` |
+| `tests/e2e/rightmove-invaders/acceptance/walking-skeleton.feature` | `@timeout:90000` on the game's original walking skeleton | `0d436be` |
+| `tests/unit/support/fake-status-root.js`, `blobs-emulator.js`, `local-server.js` | A DOM stand-in for the status mirror; one Blobs emulator lifecycle for the Score API specs; the helpers that spawn the local server | `3760fa4` `0d436be` `78e0a0f` |
+
+The new unit specs are 13 files with 49 tests, mostly fast-check properties, each replayable with `FC_SEED`:
+
+| Spec | Proves | Added in |
+|---|---|---|
+| `choose-store.spec.js` | The 12 ADR-005 cases; the site store only for the published production deploy | `1d3b70d` |
+| `score-keys.spec.js` | The key codec round trip; anything that isn't a score key reads as no row; ranking; `planPrune` = min(5, n − 20), all ranked 11th or lower | `1d3b70d` `2d3c6e8` |
+| `scores-entry.spec.js` | The entry over a fake deploy environment on a real `BlobsServer`: scope and the raw context in the log; no deploy ID → 500 `store-unavailable`; 405 before any store; the `config` contract | `1d3b70d` `78e0a0f` |
+| `scores-handler.spec.js` | GET with `list` alone; a POST claiming to be small but past 1 KB → 413; a refusal while pruning → 500; the forced duplicate → 503; `listedAt` after the listing | `1d3b70d` `8952f9b` `2d3c6e8` `78e0a0f` `2c53e96` |
+| `scores-log-leak.spec.js` | Whatever part of the store fails, every request is answered and no console method sees a key or initials; a failing clock too | `fc6a183` `2c53e96` |
+| `layering.spec.js` | The import scan finds all four forms; each of the five rules reports a breach; `src` and `netlify` keep them | `fc6a183` |
+| `serve-cleanup.spec.js` | Stopped by SIGTERM or SIGINT through `npm start`, the local server deletes its emulator directory | `fc6a183` `78e0a0f` |
+| `high-scores.spec.js` | The word filter; `makesTheTable` (status, no deposit, room, a tie on a full table); the theme's values on the £50 step; rows apply only when listed no earlier | `f91dc92` `2a13edd` |
+| `smoke-write-guard.spec.js` | Every refusal the DEVOPS spec names; no POST before an empty first GET; the unpublished check; `published_deploy.id` read from `getSite`, fail-closed | `6f5be2d` `2674324` `78e0a0f` |
+| `status-mirror.spec.js` | Each settled outcome announced once, a replaced signing's included; the initials field and its cadence; unavailable or unknown at game over | `3760fa4` `14fece5` `e478b5d` |
+| `answers-while-paused.spec.js` | An answer handed to a paused game shows in `snapshot()` at once, with no frame (DDD-11) | `2f0e529` |
+| `malformed-answers.spec.js` | `load()` and `sign()` reject a 200 of the wrong shape; through the rules, the signing settles unconfirmed and the table is unchanged (M1) | `78e0a0f` |
+| `serve-edges.spec.js` | A path that doesn't decode → 400; TRACE and CONNECT → 405 with `Allow`; a body past 1 KB → 413 at once (m3) | `78e0a0f` |
+
+**Docs**:
+
+| File | Change | Commits |
+|---|---|---|
+| `README.md` | The file table (`high-scores.js`, `leaderboard.js`, `messages.js`, `scores.mjs`, the smoke script); the rollback line; the Test section's three suites | `b0da992` `0d436be` |
+| `CLAUDE.md` | `platform/` names the high-score table client | `b0da992` |
+| `docs/product/architecture/brief.md` | The `messages.js` row; then the shipped status, the client's shape check and the smoke test | `0d436be`, this record |
+| `docs/product/kpi-contracts.yaml` | The measured local baselines | this record |
+| `docs/feature/rightmove-invaders-leaderboard/deliver/execution-log.json` | The DES log | One per step |
+
+**Unchanged in DELIVER**: `src/game/events.js`, `src/platform/storage.js`, `src/theme/`, `src/sound/`, the DISTILL step definitions, `steps/leaderboard-game.js` and `steps/table-service.js`, `package.json` and `package-lock.json` (`@netlify/blobs` 11.1.6 since the SPIKE), `netlify.toml` and `environments.yaml`.
+
+## Wave: DELIVER / [REF] Scenarios green count
+
+**44 of 44** leaderboard scenarios (**64 of 64** runnable examples), plus the walking skeleton in three browsers: green on 2026-10-25. `PORT=4174 CI=1 npm test`: 326 passed after `78e0a0f`. `npm run build` (unit + in-memory): 128 passed. `2c53e96` changed only two unit generators.
+
+| Feature file | Scenarios | Runs | Project | Green |
+|---|---|---|---|---|
+| walking-skeleton | 1 | 3 | chromium, firefox, webkit | 3 |
+| milestone-1-reading-the-table | 4 | 4 | in-memory (`@server`) | 4 |
+| milestone-2-signing-the-table | 10 | 21 | in-memory (`@server`) | 21 |
+| milestone-3-no-signature-lost | 3 | 5 | in-memory (`@server`) | 5 |
+| milestone-4-who-is-asked | 3 | 4 × 3 | browsers | 12 |
+| milestone-5-signing-outcomes | 10 | 16 × 3 | browsers | 48 |
+| milestone-6-table-status | 6 | 6 × 3 | browsers | 18 |
+| milestone-7-late-answers | 5 | 5 × 3 | browsers | 15 |
+| milestone-8-signing-rules | 3 | 3 | in-memory (`@in-memory`) | 3 |
+
+The whole suite, by project:
+
+| Project | Tests | Green |
+|---|---|---|
+| unit | 72 (26 specs: 49 leaderboard tests in 13 specs, 23 sound) | 72 |
+| in-memory | 56 (33 leaderboard, 23 sound) | 56 |
+| chromium | 66 (32 leaderboard; 34 sound and the game's walking skeleton) | 66 |
+| firefox | 66 | 66 |
+| webkit | 66 | 66 |
+| **Total** | **326** | **326** |
+
+No `@pending` tag remains in the leaderboard's feature files, and `grep -rn __SCAFFOLD__ src netlify` finds nothing. The DISTILL RED baseline had 10 of 65 runs green (Chromium and in-memory: [red-classification.md](distill/red-classification.md)). All 65 now pass, and so do the Firefox and WebKit runs.
+
+## Wave: DELIVER / [REF] DoD check
+
+There is no DISCUSS Definition of Done. Checked against DISTILL's "Done when" (DELIVER handoff), DESIGN's constraints and layering rules (Wave decisions summary), and the DELIVER items that DISTILL and DEVOPS listed.
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | All scenarios enabled and green in the three browsers and the build gate | **Met** | 44 of 44 scenarios, 64 of 64 runs, plus the walking skeleton in 3 engines (Scenarios green count) |
+| 2 | `grep -rn __SCAFFOLD__ src netlify` finds nothing | **Met** | 0 matches at `2c53e96`; the last one in `src` went in 05-01 |
+| 3 | `BLOCKED_INITIALS` is the owner-reviewed list | **Met** | The 16 initials the user approved (`f91dc92`); the M2, M5 and M8 data gaps are closed |
+| 4 | The K10–K14 smoke runs have their go | **Owed** (DEVOPS go/no-go) | The script exists and its write guard is unit-tested (`6f5be2d`, `78e0a0f`). Running it needs a pull request and a deploy preview (Pre-requisites) |
+| 5 | The network never sits on the frame path, and only `game.js` writes `g` | **Met** | `main.js` hands each outcome over from promise callbacks; `answers-while-paused.spec.js`; layering rule 1 |
+| 6 | Only the published deploy of an explicit `'production'` context uses the site store | **Met** locally · **owed** on Netlify (K12, K13) | `choose-store.spec.js` (the 12 ADR-005 cases and properties); `scores-entry.spec.js` (a fake deploy environment; no deploy ID → 500) |
+| 7 | The handler reaches the store only through the restricted port | **Met** | `createTablePort`; "A new row the table can't file is refused, and nothing is written"; GET handed `list` alone and a refusal while pruning → 500 (`scores-handler.spec.js`) |
+| 8 | One key per score, well-formed keys only, bounded best-effort pruning | **Met** | M1 strays, the M3 outline and property; `score-keys.spec.js` (`planPrune`) |
+| 9 | Rows apply in server listing order (`listedAt`) | **Met** | M7 "An older copy of the table that arrives late doesn't undo my signing"; the M8 property; `high-scores.spec.js`; `listedAt` after the listing (`scores-handler.spec.js`) |
+| 10 | The function sets its own cache headers | **Met** at handler level · **owed** on Netlify (K14) | The `@kpi-K14` M1 and M2 scenarios, and `no-store` plus `Netlify-Vary` in every refusal scenario |
+| 11 | No POST retry | **Met** | M5 "A signing that was dropped is sent exactly once, never retried" |
+| 12 | The client's timers are injected (5000 ms) | **Met** | The M5 timeout outline (4.9 s pending, 5 s unconfirmed) and the M6 hang scenarios, on Playwright's clock |
+| 13 | Logs carry fixed reasons and nothing about the player | **Met** | `scores-log-leak.spec.js` over every console method; the log assertions in M1–M3 |
+| 14 | The five layering rules, in the build gate | **Met** | `layering.spec.js` (four import forms) |
+| 15 | DISTILL's list of DELIVER unit tests | **Met** | Each bullet has a spec: `choose-store`, `score-keys`, `scores-handler` (the declared length, a refusal while pruning), `scores-entry` (the entry, `config`), `scores-log-leak`, `layering`, `high-scores` (the step multiple), `status-mirror`, `answers-while-paused`, `smoke-write-guard` |
+| 16 | DEVOPS's DELIVER items 1–8 | **Met** | The DDD-6 headers, `config.rateLimit` and ADR-005 as amended (`1d3b70d`); the catch-all (`fc6a183`); `scripts/serve.mjs` fixed (`1d3b70d`, `fc6a183`); the `config` contract test (`scores-entry`); the smoke script and `.netlify/` ignored (`6f5be2d`) |
+| 17 | DEVOPS's items 9–10: the burst and preview runs with the owner, the Blobs limits, the list of live hostnames, the kill switch | **Owed** | Pre-requisites below |
+| 18 | `README.md` and `CLAUDE.md` updated at close-out | **Met** | `b0da992`, `0d436be` |
+| 19 | The canvas: the compact game-over layout, the signing lines, the green row (D10) | **Owed by the PO** | No test asserts on it (waiver D10) |
+
+## Wave: DELIVER / [REF] Demo evidence
+
+There was no DISCUSS wave, so there are no elevator pitches and no demo commands to run. The evidence is the walking skeleton and the acceptance runs. One scenario per milestone, all green in the final `PORT=4174 CI=1 npm test` run (326 passed, after `78e0a0f`):
+
+| Milestone | Scenario | Where it ran |
+|---|---|---|
+| WS | A house-hunter signs the high-score table and another house-hunter sees it (`@walking_skeleton @driving_port`) | Chromium, Firefox, WebKit |
+| M1 | An empty high-score table is read as empty, and everyone sees it at most 15 seconds old | in-memory (`@server`) |
+| M2 | A valid signature is saved, and the answer shows where it ranks | in-memory (`@server`) |
+| M3 | However many signatures arrive at once, none that belongs in the top ten is lost (126 ms in the build gate) | in-memory (`@server`) |
+| M4 | A deposit is asked for initials while the table has room | Chromium, Firefox, WebKit |
+| M5 | The table confirms my signing and marks my row | Chromium, Firefox, WebKit |
+| M6 | When the high-score table can't be reached, the game says so at game over and plays on | Chromium, Firefox, WebKit |
+| M7 | A signing confirmed during my next game is still announced, once | Chromium, Firefox, WebKit |
+| M8 | Whatever order the table's answers arrive in, the signing and the table follow the rules | in-memory (`@in-memory`) |
+
+The walking skeleton plays through the real page and keyboard, and the real function and Blobs client on the emulator: a fresh table, a £50 deposit, F A B signed, and a second browser context sees FAB £50 at the top. The raw list output was captured in the delivery session and is not committed. To re-run one: `npx bddgen && PORT=4174 npx playwright test --reporter=list -g "<title>"`. By hand: `npm start`, open http://localhost:4173, play to game over, sign, then open the game in a private window.
+
+## Wave: DELIVER / [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| Roadmap review | Conditionally approved (0 blockers, 1 high, 7 low); the orchestrator applied the fixes. `des-roadmap validate` and `des-verify-integrity --roadmap-only` pass |
+| Per-step TDD (DES RED → GREEN → COMMIT) | 12 of 12 steps, plus one fix cycle on 03-02 |
+| Full suite and build gate | `PORT=4174 CI=1 npm test`: 326/326 after `78e0a0f`; `npm run build`: 128/128 |
+| Design compliance | Every production file is in DESIGN's component table, except `src/view/messages.js` (refactor L3, accepted by the orchestrator) and `scripts/smoke-leaderboard.mjs` (DEVOPS's spec). The layering test is green. No new runtime dependency: `@netlify/blobs` 11.1.6 has been there since the SPIKE |
+| Refactor L1–L6 | `0d436be`: behaviour unchanged, no assertion changed |
+| Adversarial review | **Approved with changes**: 0 blockers, 2 majors, 7 minors. M1, M2, m2, m3, m4, m6 and m7 fixed in `78e0a0f`; m1 and m5 accepted (Changed assumptions) |
+| Mutation testing (Phase 5) | **Skipped**: disabled per `CLAUDE.md` |
+| DES integrity | `des-verify-integrity` exits 0: all 12 steps have complete traces |
+| Build-gate stability | Three flaky generators (a punycode host, about 1 run in 300; word-filter initials, about 0.7% and 2%), fixed in the generators with no assertion weakened (`2674324`, `2c53e96`) |
+| Local KPI twins | K11 (the M3 property: 20 batches of up to 30 simultaneous POSTs, 126 ms), K12 and K14: green in every build |
+| Not run | The K10–K14 smoke on Netlify; the canvas (D10); CI (there is none: the Netlify build is the only automated gate) |
+
+## Wave: DELIVER / [REF] Pre-requisites
+
+**What the implementation depended on**:
+- DISTILL: the 44 scenarios, the walking skeleton inherited from the SPIKE, the scaffolds, Tier B, the drivers and the [RED classification](distill/red-classification.md).
+- DESIGN: the component decomposition, the handler delta, the rules operations, the signing lifecycle, the table status and the five layering rules.
+- DEVOPS: DELIVER items 1–8 (done; DoD item 16), the smoke-test spec and the environment matrix.
+- The user's decisions: the 16-word list, and the OK to push the branch.
+
+**For whoever ships next**:
+- **Run it**: Node 22; `npm install`; `npx playwright install` for the test browsers; `npm start`, then open http://localhost:4173. Beside another checkout, set `PORT` (for example `PORT=4174`), and never stop servers by name. `npm test` must show 326 passed, and `npm run build` 128. The local server prints one JSON line per request (`scope: local`).
+- **PO manual checks owed (D10)**, to be recorded in this file: the compact game-over layout; the signing, refusal and unavailable lines on the canvas; the green confirmed row; the title's attract table.
+- **DEVOPS go/no-go, before the merge to `main`** (DEVOPS Pre-requisites, items 9 and 10; the spec is under "CI/CD pipeline outline"):
+  1. Open a pull request from `worktree-leaderboard-spike`, for its deploy preview. With the user's OK, push the throwaway burst branch (`smoke/no-rate-limit`: the candidate commit without `rateLimit`).
+  2. The burst run (K11): `node scripts/smoke-leaderboard.mjs --site <name> --burst <throwaway preview URL>`. Then delete that deploy and its branch.
+  3. The preview run (K10, K12, K14): `node scripts/smoke-leaderboard.mjs --site <name> --preview <preview URL> --production https://maketherightmove.fabiodamico.xyz --permalink <preview permalink>`. Also read by hand: the `published` flag in the preview's log line, the full header set, and the `Cache-Status` header's name.
+  4. Record the account's Blobs limits (Quota and outage risk).
+  5. Start the list of live function hostnames: the smoke-test previews, and any branch deploy that the push of `worktree-leaderboard-spike` made.
+  6. The user decides whether to move the game to a Netlify team of its own.
+  7. On the merge day, before the merge is pushed: arm the kill switch and record it (Kill switch, item 3).
+  8. After the first production deploy: production mode (K13), the day-1 log-retention check, and the start of the daily check (K15).
+- **Optional cleanup**: the `make-the-right-move-blobs-*` directories in the OS temp folder, left by local servers before 01-02.
+- Not part of the record: the uncommitted DES resume file `deliver/.develop-progress.json`.
+
+## Wave: DELIVER / [REF] Changed assumptions
+
+- **The client rejects an OK answer of the wrong shape** (review M1, `78e0a0f`).
+  - DESIGN's client row said: "Resolves with the parsed answer, or rejects on a non-OK answer, a network error or the 5000 ms timeout". It now also rejects a 200 whose body isn't `{ scores: [{ initials, score, id }], listedAt }`, or, for a signing, has no string `id`.
+  - The rules then take `tableFailed` or `signingFailed`, so the signing settles as unconfirmed and the table is unchanged.
+  - The brief's client row is updated. ADR-008 ("after a non-OK answer, a network error or the timeout"), OUT-11 and OUT-12 still name only those three. The client still tells only OK from not OK: a malformed 200 counts as not OK.
+- **Refused methods come first** (m2): the Netlify entry answers 405 before it opens a store, so a DELETE without a deploy ID gets 405, not 500 `store-unavailable`. The handler delta's row "Any other method → 405" now holds at the entry too.
+- **The local server answers at its own edges** (m3): a path that doesn't decode gets 400; TRACE and CONNECT get 405 with `Allow`; the body is streamed to the handler, so its 1 KB cap is the read limit; and the server's own 500 carries the handler's headers. DESIGN's local-server row didn't cover these.
+- **A new module, `src/view/messages.js`** (refactor L3, `0d436be`; accepted by the orchestrator). It holds the words both views show, so the canvas, which no test reads, says exactly what the tested status mirror says. It is data and imports nothing, and it lives in `view/`, which no layering rule restricts. It is not in DESIGN's component table; the brief lists it.
+- **Playwright's web server stops with SIGTERM** (`fc6a183`). DISTILL left the `webServer` config "as it is". `gracefulShutdown: { signal: 'SIGTERM', timeout: 2000 }` was added, so that the local server's cleanup also runs after `npm test` and `npm run build`. `scripts/serve.mjs` keeps listening while it stops, because `npm start` relays a group signal and it arrives twice.
+- **Test budgets**: DISTILL's "`game` triples the test timeout" → the `table` fixture carries it (`b0da992`), so the leaderboard walking skeleton gets it too. The game's original walking skeleton has its own `@timeout:90000` (`0d436be`).
+- **Tier B weighting** (`0d436be`): a weighted `anotherSignedGame` command makes "a replaced signing settled" reachable for any seed (FC_SEED 1–500 checked). Before, it depended on the seed.
+- **The smoke script's exit code**: DEVOPS's "exits 1 if a hard check fails" → also 1 on an inconclusive step (never a pass) and on a malformed command. 2 is still a guard refusal.
+- **`published_deploy.id` confirmed** (M2): marked in place in the DEVOPS write guard, rule 2.
+- **DEVOPS hand-offs that DELIVER couldn't finish**: "DELIVER implements it and runs it" (the smoke test, also in `environments.yaml`) and "DELIVER fills this in" (the kill-switch record). DELIVER wrote the script. Running it needs a pull request and a deploy preview, and the kill switch is armed on the merge day. Both are under Pre-requisites; the DEVOPS text stays as its wave's record.
+- **The push condition is met**: "Do not push `worktree-leaderboard-spike` until ADR-005 is implemented." ADR-005 landed in 01-01 (`1d3b70d`), and the user gave the OK to push. Marked in place in the header.
+- **Accepted residuals** from the review:
+  - m1: the rules keep one settled slot (`g.settled`), so if two outcomes settle within one frame, the status mirror can miss one announcement.
+  - m5: the unused predicates in `tests/common/state-delta.js` stay, as the predicate library.

@@ -3,7 +3,7 @@
 // included); only the browser uses makesTheTable.
 //
 // RED scaffold, created by DISTILL (rightmove-invaders-leaderboard). The constants are DESIGN's values. isValidSignature
-// is implemented (DELIVER 02-01); isAllowedInitials and makesTheTable throw until DELIVER implements them (02-02, 04-01).
+// and isAllowedInitials are implemented (DELIVER 02-01, 02-02); makesTheTable throws until DELIVER implements it (04-01).
 export const __SCAFFOLD__ = true;
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
@@ -12,14 +12,11 @@ export const INITIALS_LENGTH = 3;
 export const SCORE_STEP = 50;                          // every hurdle value and Dream Home bonus is a multiple of £50
 export const MAX_SCORE = 9_999_999;                    // the 7-digit score field of a row's key (ADR-004)
 
-// The 3-letter word filter: short, public (it ships to the browser) and reviewed by the owner. DELIVER fills it in;
-// the acceptance tests take their blocked example from here, so they stay RED while it is empty.
-export const BLOCKED_INITIALS = Object.freeze([]);
+// The 3-letter word filter: short, public (it ships to the browser) and reviewed by the owner. The acceptance tests take
+// their blocked example from here.
+export const BLOCKED_INITIALS = Object.freeze(['ASS', 'COK', 'CUM', 'DIK', 'FAG', 'FCK', 'FUC', 'FUK', 'KKK', 'NAZ', 'NGR', 'NIG', 'PIS', 'SEX', 'SHT', 'TIT']);
 
 const notYetImplemented = () => { throw new Error('__SCAFFOLD__: not yet implemented'); };
-
-// initials -> true when they are INITIALS_LENGTH letters of ALPHABET and not in BLOCKED_INITIALS.
-export function isAllowedInitials(initials) { return notYetImplemented(initials); }
 
 // { initials, score } (exactly these two fields) -> true when the initials are 3 letters A-Z (word filter aside) and the
 // score is a positive integer multiple of SCORE_STEP up to MAX_SCORE. The function refuses blocked initials separately
@@ -34,6 +31,11 @@ const isScore = score => Number.isSafeInteger(score) && score > 0 && score % SCO
 
 export function isValidSignature(signature) {
   return hasExactlyTheFields(signature) && isInitialsShape(signature.initials) && isScore(signature.score);
+}
+
+// initials -> true when they are INITIALS_LENGTH letters of ALPHABET and not in BLOCKED_INITIALS.
+export function isAllowedInitials(initials) {
+  return isInitialsShape(initials) && !BLOCKED_INITIALS.includes(initials);
 }
 
 // table state { status: 'unknown' | 'available' | 'unavailable', rows: [{ initials, score, id }] best first }, deposit

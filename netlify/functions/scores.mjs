@@ -10,7 +10,7 @@
 // harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
-import { MAX_SCORE, TABLE_SIZE, isValidSignature } from '../../src/game/high-scores.js';
+import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isValidSignature } from '../../src/game/high-scores.js';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
 // a minute per client, by IP and domain (DEVOPS).
@@ -111,7 +111,7 @@ const SHARED_15_SECONDS = Object.freeze({ 'Netlify-CDN-Cache-Control': 'public, 
 const NEVER_KEPT = Object.freeze({ 'Cache-Control': 'no-store' });
 const EVERY_ANSWER = Object.freeze({ 'Netlify-Vary': 'query=table', 'X-Content-Type-Options': 'nosniff' });
 
-const answer = (status, body, caching = NEVER_KEPT) => Response.json(body, { status, headers: { ...caching, ...EVERY_ANSWER } });
+const answer = (status, body, headers = NEVER_KEPT) => Response.json(body, { status, headers: { ...headers, ...EVERY_ANSWER } });
 
 // One log line per request (DDD-17): a fixed reason, how long it took and where the table is kept, as the root said
 // (all three 'missing' if it didn't). Never a key, initials, an id, a body or an error message. A clock that throws
@@ -141,9 +141,13 @@ export async function handleScores(request, port, options) {
   }
 }
 
+// The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at.
+const METHODS = Object.freeze(['GET', 'POST']);
+const READ_OR_SIGN_ONLY = Object.freeze({ ...NEVER_KEPT, Allow: METHODS.join(', ') });
+
 async function route(request, port, options, record) {
+  if (!METHODS.includes(request.method)) return refuse(record, 'method-not-allowed', READ_OR_SIGN_ONLY);
   if (request.method === 'GET') return read(port, options, record);
-  if (request.method !== 'POST') return answer(405, { error: 'method-not-allowed' });
   return sign(request, port, options, record);
 }
 
@@ -165,27 +169,55 @@ function table(keys) {
 }
 
 // A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
-// The rows are logged as a count, after the tidy-up, so a tidy-up that throws leaves one line (the catch-all's).
-async function sign(request, port, { now, newId }, record) {
+async function sign(request, port, options, record) {
   const { signature, refused } = await readSignature(request);
   if (refused) return refuse(record, refused);
+  return save(signature, port, options, record);
+}
+
+// A key that already exists is turned away (503, no second row). A save that throws may or may not have written its
+// row, and a listing that throws after the save leaves the row there: both are 500 unexpected, and the signer's game
+// shows the signing as unconfirmed (ADR-008). The rows are logged as a count, after the tidy-up, so a tidy-up that
+// throws leaves one line (the catch-all's).
+async function save({ initials, score }, port, { now, newId }, record) {
   const id = newId();
-  const saved = await port.putIfNew(encodeKey({ initials: signature.initials, score: signature.score, at: now(), id }));
-  if (!saved) return answer(503, { error: 'not-saved' });
-  const keys = await port.list();
+  const saved = await saving(port, encodeKey({ initials, score, at: now(), id }));
+  if (saved === null) return failed(record, 'put-failed');
+  if (!saved) return notSaved(record);
+  const keys = await listing(port.list);
+  if (!keys) return failed(record, 'list-failed');
   const listedAt = now();   // right after the listing returns (DDD-12)
   await prune(port, keys);
   record('scores.signed', 'ok', { keys: keys.length });
   return answer(200, { scores: table(keys), id, listedAt });
 }
 
-// ---- what a POST must be (ADR-007, DDD-5), checked in this order; a refusal saves nothing ----
-const REFUSAL_STATUS = Object.freeze({ 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400 });
+// true if saved, false if the key already existed, null when the store failed. A key the port refuses is no store
+// failure: it goes on to the catch-all (500 unexpected, logged as unexpected).
+async function saving(port, key) {
+  try {
+    return await port.putIfNew(key);
+  } catch (error) {
+    if (error instanceof KeyRefused) throw error;
+    return null;
+  }
+}
+
+function notSaved(record) {
+  record('scores.not_saved', 'key-exists');
+  return answer(503, { error: 'not-saved' });
+}
+
+// ---- refusals: a method the table doesn't take, then what a POST must be (ADR-007, DDD-5), checked in this order ----
+// A refusal saves nothing.
+const REFUSAL_STATUS = Object.freeze({
+  'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400, 'initials-not-allowed': 400,
+});
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
-function refuse(record, error) {
+function refuse(record, error, headers = NEVER_KEPT) {
   record('scores.rejected', error);
-  return answer(REFUSAL_STATUS[error], { error });
+  return answer(REFUSAL_STATUS[error], { error }, headers);
 }
 
 // { signature } or { refused: the error code }. The body is read only once the format is right.
@@ -194,7 +226,8 @@ async function readSignature(request) {
   const body = await readUpTo(BODY_CAP, request.body);
   if (body === null) return { refused: 'payload-too-large' };
   const signature = parsed(body);
-  return isValidSignature(signature) ? { signature } : { refused: 'invalid-signature' };
+  if (!isValidSignature(signature)) return { refused: 'invalid-signature' };
+  return isAllowedInitials(signature.initials) ? { signature } : { refused: 'initials-not-allowed' };
 }
 
 // The media type alone, its parameters (a charset, say) ignored; media types are case-insensitive.

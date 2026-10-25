@@ -57,7 +57,7 @@ Feature: Signing the shared high-score table
       | the signature FAB with £0                | as not a signature |
       | the signature FAB with £10,000,000       | as not a signature |
 
-  @OUT-8 @OUT-10 @DDD-10 @DDD-17 @server @real-io @error @kpi-K12 @pending
+  @OUT-8 @OUT-10 @DDD-10 @DDD-17 @server @real-io @error @kpi-K12
   Scenario: Initials on the word filter are refused by the table too
     Given nobody has signed the high-score table yet
     When the high-score table receives a signature with initials on the word filter
@@ -65,7 +65,7 @@ Feature: Signing the shared high-score table
     And the owner can see why it was refused
     And the table is left as it was
 
-  @OUT-8 @DDD-6 @DDD-17 @server @real-io @error @pending
+  @OUT-8 @DDD-6 @DDD-17 @server @real-io @error
   Scenario Outline: Asking the table to <demand> is refused, because it can only be read or signed
     Given the high-score table holds FAB with £1,000
     When someone asks the high-score table to <demand>
@@ -78,7 +78,7 @@ Feature: Signing the shared high-score table
       | wipe itself      |
       | replace its rows |
 
-  @OUT-8 @DDD-1 @DDD-4 @DDD-17 @server @real-io @error @edge @pending
+  @OUT-8 @DDD-1 @DDD-4 @DDD-17 @server @real-io @error @edge
   Scenario: A signature that would land on an existing row is turned away, not saved twice
     Given the high-score table puts every new signature in the same row
     And the high-score table has saved the signature FAB with £1,000
@@ -87,7 +87,7 @@ Feature: Signing the shared high-score table
     And the owner can see it was a duplicate
     And the table is left as it was
 
-  @OUT-8 @DDD-4 @DDD-6 @DDD-17 @server @real-io @error @pending
+  @OUT-8 @DDD-4 @DDD-6 @DDD-17 @server @real-io @error
   Scenario: A signature the table fails to save is reported as an unexpected failure
     Given nobody has signed the high-score table yet
     And saving to the high-score table fails
@@ -97,7 +97,7 @@ Feature: Signing the shared high-score table
     And what the owner sees says nothing about the player
     And the table gains at most one row
 
-  @OUT-8 @DDD-17 @server @real-io @error @pending
+  @OUT-8 @DDD-17 @server @real-io @error
   Scenario: A signature saved just before the table can't be looked at stays saved, though the signer isn't told
     Given nobody has signed the high-score table yet
     And looking at the high-score table fails
@@ -107,7 +107,7 @@ Feature: Signing the shared high-score table
     And the owner can see it was a failed look at the table
     And what the owner sees says nothing about the player
 
-  @OUT-8 @DDD-4 @server @real-io @error @edge @pending
+  @OUT-8 @DDD-4 @server @real-io @error @edge
   Scenario: A new row the table can't file is refused, and nothing is written
     Given the high-score table makes new rows it can't file
     When the high-score table receives the signature FAB with £1,000

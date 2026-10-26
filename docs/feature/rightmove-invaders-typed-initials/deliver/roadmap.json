@@ -1,0 +1,301 @@
+{
+  "roadmap": {
+    "project_id": "rightmove-invaders-typed-initials",
+    "created_at": "2026-10-26T00:00:00Z",
+    "total_steps": 9
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01: Type your initials (US-01 to US-04)",
+      "description": "Typed initials replace the letter wheel in one release: letters as printed, every press in order, Backspace, Enter, refusals that empty the entry, only letters typing, the 0.6 s guard, and no browser feature on any screen. Ends with the wheel retired from code and tests.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Typed letters and Enter sign; switch flipped, retirement begun",
+          "criteria": [
+            "With 2 rows of £1,000 on the table, typing alx and pressing Enter says 'Signing ALX…', then 'Signed ALX, #3.', and marks ALX's row.",
+            "A game over whose deposit makes the table opens an empty entry: the typed prompt, 'Deposit saved £50', and the field 'No letters yet, letter 1 of 3'.",
+            "The walking skeleton, now typing FAB, stays green in Chromium, Firefox and WebKit, with every leaderboard scenario that signs and the leaderboard's Tier B.",
+            "The switch is gone: no INITIALS_ENTRY, EntryMethod or wheel signing path remains; leaderboard M4's wheel field scenario is deleted and M5's three wheel scenarios are parked.",
+            "(unit) The four rewritten unit specs pass on the typed entry, and the rules' fixed step reads the keyboard only through isDown."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature | tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-4-who-is-asked.feature | tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+          "scenario_name": "Typed initials sign the table | The entry opens empty",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "src/platform/input.js",
+            "src/game/game.js",
+            "src/main.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-4-who-is-asked.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/domain-types.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/initials-entry.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/leaderboard-game.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/leaderboard.steps.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/tier-b/signing-rules.js",
+            "tests/unit/answers-while-paused.spec.js",
+            "tests/unit/malformed-answers.spec.js",
+            "tests/unit/status-mirror.spec.js",
+            "tests/unit/high-scores.spec.js",
+            "tests/unit/update-keyboard.spec.js",
+            "tests/unit/keyboard.spec.js"
+          ],
+          "implementation_notes": "Not split (DISTILL, DELIVER handoff, finding H1): flipping the switch without the typed core, or shipping the core without the flip, breaks the walking skeleton and every leaderboard signing, so this is the smallest step that is green on its own. DDD-T1 and DDD-T4: the keyboard gains takeTyped(), which returns every keydown with repeat false and no Cmd, Ctrl or Alt/Option held since the last call, in arrival order, as { key } only (the chord rule lands here, so no chord ever types, even before 01-06 enables its scenarios); the positional API and its meaning are unchanged. DDD-T2: handlePresses(pressed, typed) takes plain data, with typed defaulting to none; a frame that starts with the entry open applies the entry step to each typed press in order and ignores pressed; once a press closes the entry, the rest of the frame is dropped. DDD-T6, in part: the entry step is a pure export of game.js that returns { entry′, notice′, skip′, signing } and emits nothing; handlePresses is its shell and signs through sign(). This step's rows: game over opens the entry empty; a letter, with fewer than 3 in, appends its capital; Enter with 3 allowed letters signs; Enter with 3 on the word filter never signs and sends nothing (emptying the entry and the new wording are 01-08's). State: g.initials = { letters, notice }; index and the wheel go; snapshot().entry = { letters, notice } or null, plus skipped (false until 02-01). DDD-T9, in part: status.js's typed prompt and field ('No letters yet, letter 1 of 3' … 'A L X, press Enter to sign'); render.js's three slots, the first empty one blinking, and the slice-01 help line. DDD-T14: main.js calls handlePresses(keyboard.takePressed(), keyboard.takeTyped()) every frame, paused or not, and hands update an { isDown } view, never the keyboard. Retirement list item 1, in one commit: set INITIALS_ENTRY = EntryMethod.TYPED; delete leaderboard M4's 'A deposit is asked for initials while the table has room'; add @pending to three leaderboard M5 scenarios: 'Initials on the word filter are refused, and I can change a letter' (line 57), 'The initials field tells me the letters and which one I am choosing' (65) and the 'Up pressed 3 times <spacing>…' outline (72); delete the wheel branch of LeaderboardGame.enterLetters, chooseOnTheLetterWheel and the method table in steps/initials-entry.js, and rewrite enterInitials(page, initials) to call the typed sign (typeAndSign) directly, dropping its method parameter, so the walking skeleton's 'I enter the initials' step types; delete the wheel side of every TYPED ? branch in tier-b/signing-rules.js, along with rotate, turn, takeLetter, the wheel's typeLetter, pressUp, pressDown and TYPED; then delete EntryMethod, INITIALS_ENTRY and the prompt table in domain-types.js (Message.INITIALS_PROMPT becomes the typed prompt); and update the stale switch comment in leaderboard.steps.js. Unit specs (Retirement list item 4): answers-while-paused.spec.js (lines 51–53) and malformed-answers.spec.js (123–126) let update(0.7) pass, then hand over handlePresses(new Set([code]), [{ key }]); status-mirror.spec.js's entry model (NEW_ENTRY, rotate, keysDo, FIELD, REFUSAL, ABOUT_THE_INITIALS, signLetters, playAndSign) moves to typed presses, with the field wording and one write per frame, its restarts (playAndSign 110–111, startNewGame 122–123, openEntry 219–220) press Enter only once no entry is open, and its refusal case is parked with test.fixme until 01-08; high-scores.spec.js line 111 gains skipped: false. New unit checks, closing the gaps until their scenarios are enabled (roadmap review H1): in keyboard.spec.js (created here, extended in 01-06), a keydown with Ctrl, Cmd or Alt held, or with repeat true, is not returned by takeTyped(); in a rules spec, three letters on the word filter then Enter leave the entry open and emit no initialsEntered. New: tests/unit/update-keyboard.spec.js (the name is a suggestion; DESIGN Open questions, DELIVER 2): update, handed a keyboard that records each member read, over play steps that move and fire, reads only isDown. Enable M1's 'Typed initials sign the table' and 'The entry opens empty'. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green. Also: npx bddgen export --unused-steps lists none."
+        },
+        {
+          "id": "01-02",
+          "name": "Letters heard, Backspace, fourth letter, held keys, fast typing",
+          "criteria": [
+            "A typed letter shows in the initials field one frame later; letters typed within one frame are announced once, together, as the field they leave.",
+            "Backspace after 'alc' leaves 'A L, letter 3 of 3'; on an empty entry Backspace changes nothing and announces nothing.",
+            "A fourth letter changes nothing; a key held for a second acts once, so holding A, X or Backspace among typed letters signs ALX, AXQ or ALC.",
+            "'aax' and Enter within one frame say 'Signing AAX…': every press counts once, in order, a repeated letter included.",
+            "Leaderboard M5's parked field and cadence scenarios, their three wheel steps and their helpers are deleted; PressSpacing stays."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature | tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+          "scenario_name": "Letters show, and are heard, as they are typed: \"<letters>\" <spacing> | Backspace takes back the last letter | Backspace on an empty entry does nothing | A fourth letter changes nothing | Holding <key> down for a second acts on the initials once: \"<before>\", then \"<after>\" | Fast typing keeps every letter, in order",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/platform/input.js",
+            "src/game/game.js",
+            "src/view/status.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/high-score-table.steps.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/leaderboard-game.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/domain-types.js",
+            "tests/unit/status-mirror.spec.js"
+          ],
+          "implementation_notes": "DDD-T1 and DDD-T4 (repeats): a keydown with repeat true never types (Backspace included), while two presses of one key in one frame both count, in order (D14, D15). DDD-T6 rows: a letter with 3 in → identity; Backspace with letters in → the last one removed, the notice cleared; Backspace on an empty entry → identity. DDD-T10: the rules take the whole frame's typed presses before status.sync runs once, so letters typed within one frame make one live-region write, the field they leave. 'Holding <key>…' and 'Fast typing…' should pass once repeats are left out and the queue keeps duplicates: confirm each, then un-pend. Retirement list item 2, with M1 'Letters show, and are heard…': delete leaderboard M5's parked field scenario and its 'Up pressed 3 times…' outline; in steps/high-score-table.steps.js, the steps at line 31 'I choose the letter {word} and move on to the next letter', line 32 'I press Up {int} times {pressSpacing}' and line 44 'the letters I chose were announced {int} times'; and the helpers chooseLetter, chooseLetterAndMoveOn, pressUp, expectInitialsAnnouncedTimes, INITIALS_FIELD_PATTERN (domain-types.js) and leaderboard-game.js's ALPHABET import. Keep PressSpacing: typed-initials uses it. Unit: add Backspace and two letters in one frame (one write, the field they leave) to status-mirror.spec.js. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green. Also: npx bddgen export --unused-steps lists none."
+        },
+        {
+          "id": "01-03",
+          "name": "Enter too early, with globally numbered notices",
+          "criteria": [
+            "Enter after 'al' says 'Type 3 letters to sign.', keeps 'A L, letter 3 of 3' and sends nothing to the table.",
+            "Every early Enter is announced, even in the same words: twice for two in one game, and again for the first in the next game.",
+            "On the rules alone, keys after the Enter that signs in the same frame are dropped: only ALX leaves, no game key acts, nothing else changes.",
+            "(unit) The status mirror announces each notice once by its number, within a game and across two, with at most one live-region write per frame."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+          "scenario_name": "Enter with fewer than 3 letters sends nothing | Enter pressed again too early gives the hint again | Enter pressed too early in my next game gives the hint again | Keys after the Enter that signs, in the same go, are dropped",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "src/view/messages.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+            "tests/unit/status-mirror.spec.js"
+          ],
+          "implementation_notes": "DDD-T6 row: Enter with fewer than 3 letters → the same letters and a fresh { kind: too-few } without n, even when a hint is already on show (D13). Notices are numbered globally and monotonically by a counter that is module-level in game.js, outside g, so neither blankInitials() nor startGame() resets it. handlePresses numbers any notice that has no n, and a notice returned unchanged keeps its number. snapshot().entry.notice is { kind, n } or null. DDD-T10: status.js announces a notice when its number differs from the last one it announced, writing with always (set() skips unchanged text): the notice first, then the field if it changed. Accepted edge: a notice created and cleared within one frame is never shown. DDD-T9: messages.js gains the slice-01 hint 'Type 3 letters to sign.'; render.js shows it under the help line until the next key the entry acts on (canvas checked by hand, DoD 5). DDD-T2: M6's 'Keys after the Enter that signs…' should pass on enablement if 01-01 drops the rest of the frame after the closing Enter: confirm it. Unit: status-mirror.spec.js announces each notice once, by its number, within a game and across two (a hint in game 2 is heard even after game 1's hint). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green."
+        },
+        {
+          "id": "01-04",
+          "name": "Only letters A to Z type during the entry",
+          "criteria": [
+            "Typing 'mnp' or 'adm' fills the field as typed, while the HUD keeps Sound On and Music On and nothing pauses or moves.",
+            "Up, Down, Left, 7, Space, full stop, hyphen and slash, pressed one after another, each leave 'No letters yet, letter 1 of 3' and announce nothing.",
+            "Once MNP is signed, M turns the sound off and the game says 'Sound off. Press M to turn it on.'",
+            "Keys that only look like letters A to Z after uppercasing or a substring test (ß, ı, ſ, the Kelvin sign, 'ab') never type.",
+            "The in-memory properties hold: initials are the first three letters typed, in capitals, less those taken back, and non-letters never change them."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+          "scenario_name": "Game keys type their letters: \"<typed>\" | Keys that aren't letters don't type | The game keys work again once the entry closes | Whatever I type, my initials are the first three letters, in capitals, less any I took back | A key that isn't a letter A to Z never changes my initials",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature"
+          ],
+          "implementation_notes": "DDD-T3, the letter check (DISTILL N4): a key types only if it is exactly one character and that character, unchanged, is one of A–Z or a–z; only then is it uppercased, shown and signed. Never call toUpperCase() or ALPHABET.includes first: 'ı'.toUpperCase() is 'I', 'ß'.toUpperCase() is 'SS', and includes tests for a substring. No normalisation and no case folding. Backspace, Enter and Escape are read by key (the numpad Enter signs too). Every other key gives the identity plan. D7 and DDD-T2: in an entry frame, pressed is ignored, so M, N and P neither toggle nor pause and A and D don't move; they work again from the frame after the entry closes. Change handlePresses' comment 'M and N work on every screen' to add: except while the entry is open. If 01-01's routing already ignores pressed, 'Game keys type their letters' and 'The game keys work again…' pass on enablement: confirm. Enable M6's first two properties in the in-memory project; their whole-g closed world (Tier B) checks that nothing outside the entry's delta changes. No new unit test here: the entry step's enumerated table, with DDD-T3's traps, belongs to 01-07. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green."
+        },
+        {
+          "id": "01-05",
+          "name": "Stray-key guard and losing focus mid-entry",
+          "criteria": [
+            "'d' typed 0.3 s after game over doesn't type; typed 0.7 s after, the field reads 'D, letter 2 of 3'.",
+            "A key held down from play, still repeating a second after game over, never types.",
+            "On the rules alone, 'a' or Enter at exactly 0.6 s is dropped with nothing else changed; at 0.61 s 'a' types and Enter gives the too-few hint.",
+            "After switching window or hiding the tab mid-entry, the letters stay, a key caught by the leaving is dropped, and the next letter follows them."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+          "scenario_name": "A letter typed <gap> after the game ends <outcome> | A key held down from play never types | My letters stay when I <leaving> mid-entry, and a key caught by it doesn't count | <keys> pressed <gap> after the game ends <outcome>",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-04"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/platform/input.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-1-typing-the-initials.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+            "tests/unit/keyboard.spec.js"
+          ],
+          "implementation_notes": "DDD-T5: in handlePresses, before any entry step, while the entry is open and g.overT ≤ 0.6, the frame's typed and positional presses are dropped, not queued (a queue would type the very tap the guard exists to stop). 0.6 is the boundary itself: the rules add the wait to an overT of 0, and 0 + 0.6 is exactly 0.6, so implement ≤ as written. A key held down from play only repeats, so it never types (repeats have been left out since 01-02). D20 and DDD-T1: releaseAll(), which main.js already calls on blur and on a hidden tab, also empties the typed queue; the entry stays open with its letters and its notice (game over isn't pausable), and typing goes on when the player comes back. M6's guard outline: remove the @pending of its slice-01 Examples block only (a and Enter at 0.6 s and 0.61 s); the Esc block waits for 02-01. The unit check of releaseAll() comes with the keyboard's EventTarget test in 01-06 (DISTILL, Retirement list item 4). TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green. Unit (roadmap review L6): in keyboard.spec.js, after releaseAll() isDown is false for every key that was held and takeTyped() returns nothing; this check lands here with the change, not in 01-06. Shared outlines (roadmap review L7): this step enables the slice-01 Examples block only; run with --grep on each row's rendered name."
+        },
+        {
+          "id": "01-06",
+          "name": "Chords and browser defaults on every screen, keyboard unit tests",
+          "criteria": [
+            "A letter typed with Ctrl, Cmd, Option or Alt held types nothing, and the game leaves its default to the browser.",
+            "Slash, apostrophe and Backspace are default-prevented on the entry, the title, during play, and on game over after a non-qualifying deposit or after signing.",
+            "Enter keeps its browser default during the entry, so a focused link can still open, and the early Enter leaves 'A L, letter 3 of 3'.",
+            "(unit) The default policy passes its enumerated table; over a plain EventTarget the keyboard keeps typed order, types no repeat or chord, and releaseAll empties both channels.",
+            "(unit) The layering scan enforces a sixth rule, platform/input.js imports nothing, shown broken once and kept once."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+          "scenario_name": "A letter typed with <modifier> held types nothing, and the game leaves the shortcut to the browser | The <key> key never starts a browser feature while I sign | The <key> key never starts a browser feature on the title screen | The <key> key never starts a browser feature during play | The slash, apostrophe and Backspace keys never start a browser feature on the game-over screen <situation> | The game leaves Enter to the browser, so a focused link can still open with it",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-05"
+          ],
+          "files_to_modify": [
+            "src/platform/input.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+            "tests/unit/layering.spec.js",
+            "tests/unit/keyboard.spec.js",
+            "CLAUDE.md"
+          ],
+          "implementation_notes": "DDD-T8, the default policy (its table is under DESIGN's DDD list): one pure export of input.js decides from key, code, repeat, metaKey, ctrlKey and altKey whether the keydown's default is prevented; the listener only applies the answer, on every screen (D19). Rows, in order: Space or an arrow (by code) is prevented unless Cmd or Ctrl is held (Alt alone still prevents, so Alt+Left stays blocked, as it already is); a key of one code point, or Backspace, is prevented with no modifier or with Shift, and kept with Cmd, Ctrl or Alt; Enter, Escape, Tab and every other key name are kept. repeat never changes the answer. DDD-T4: for the typed channel, Alt/Option is a chord like Cmd and Ctrl, so a chord never types; the positional channel keeps today's Cmd/Ctrl filter, so holding Option during play still moves and fires. M2's game-over outline: remove the @pending of its first Examples block only; the after-skip block waits for 02-01. Layering (DDD-T13): add a sixth rule row, 'platform/input.js imports nothing', with a broken case and a kept case, and update the spec's 'five rules' wording. Extend tests/unit/keyboard.spec.js (created in 01-01): (1) the policy, enumerated over each key class of its table × no modifier, Shift, Cmd, Ctrl, Alt, Ctrl+Alt × repeat false and true, plus a property that repeat never changes the answer; (2) createKeyboard over a plain EventTarget (Node has EventTarget but no KeyboardEvent): the typed order with duplicates, no repeat or chord typed, each event's defaultPrevented equal to the policy's answer, the positional results unchanged, and releaseAll() forgetting held keys and emptying the typed queue. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green. CLAUDE.md (the orchestrator's decision): in its layering paragraph, after '`high-scores.js` imports nothing (ADR-006)', add that `platform/input.js` imports nothing (ADR-009), matching the sixth rule; change nothing else in CLAUDE.md. Shared outlines (roadmap review L7): this step enables the first Examples block only (no deposit, after signing); run with --grep on each row's rendered name."
+        },
+        {
+          "id": "01-07",
+          "name": "Letters as printed, and the entry step's enumerated table",
+          "criteria": [
+            "Keys printed C, A, M on French AZERTY, then Enter, say 'Signing CAM…'; keys printed J, A, Z on German QWERTZ say 'Signing JAZ…'.",
+            "The keys typing é on AZERTY, ü and ß on QWERTZ and å on Swedish leave the field empty and announce nothing.",
+            "C with Shift held, A with Caps Lock on and a plain m read 'C A M, press Enter to sign'.",
+            "(unit) Over every entry state and press class, DDD-T3's traps included, the entry step returns exactly the Rules operations table's plan, compared whole.",
+            "(unit) Any key outside the table gives the identity plan, its notice the very object passed in, so a notice is never renumbered."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-3-letters-as-printed.feature",
+          "scenario_name": "Letters on a French AZERTY keyboard | Letters on a German QWERTZ keyboard | The key that types <character> on a <layout> keyboard types nothing | Capitals, however they are typed",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-06"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-3-letters-as-printed.feature",
+            "tests/unit/entry-step.spec.js"
+          ],
+          "implementation_notes": "DDD-T3 and DDD-T11: the entry reads key, never code; the listener reads only key, code, repeat, metaKey, ctrlKey and altKey, and never checks isTrusted, so synthetic { key, code } pairs stand in for AZERTY and QWERTZ. M3 should pass on enablement after 01-01 (key, not code) and 01-04 (the raw-key check): confirm each, and fix only real failures. New tests/unit/entry-step.spec.js (the name is a suggestion; DESIGN Open questions, DELIVER 2; the oracle is the Rules operations table under Component decomposition): entry states (empty; 1, 2 or 3 allowed letters; no notice, a hint or a refusal) × press classes (a lower- and an upper-case ASCII letter; é, ü, ß, å, ı, ſ, the Kelvin sign, a decomposed é, Dead, Process, Unidentified, a space, the digits, '/', 'ab'; Backspace; Enter; Esc, identity in slice 01; other key names), the plan { entry′, notice′, skip′, signing } compared whole, as a `// bypass:` table; plus a property that every other key gives the identity plan, its notice′ the very object passed in. The word-filter rows join the table in 01-08, and the Esc rows change in 02-01. Production: game.js, for any row the table or M3 finds wrong; by now the entry step must be a pure export. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green."
+        },
+        {
+          "id": "01-08",
+          "name": "Refused initials start again empty; letter-wheel retirement ends",
+          "criteria": [
+            "Initials on the word filter, then Enter, say 'Those initials aren't allowed. Type different ones.', empty the field and send nothing.",
+            "After a refusal, 'sam' and Enter say 'Signing SAM…'; the next letter ends the refusal without repeating it; Enter at once gives the too-few hint and sends nothing.",
+            "On the rules alone, Up leaves the refusal on show, and only three letters A to Z, never on the word filter, ever leave for the table.",
+            "No letter-wheel scenario, step or helper remains; npx bddgen export --unused-steps lists none; high-scores.js differs from main by one comment line.",
+            "README's controls tell how to type the initials, take one back with Backspace and sign with Enter."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-4-refused-initials.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature | tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+          "scenario_name": "Refused initials are cleared | Other initials sign after a refusal | The refusal is over with the next letter | Enter straight after a refusal sends nothing | A key the entry ignores leaves the refusal on show | Only three letters A to Z, never on the word filter, ever leave for the table",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-07"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/view/messages.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "src/game/high-scores.js",
+            "README.md",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-4-refused-initials.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-5-signing-outcomes.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/high-score-table.steps.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/leaderboard-game.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/domain-types.js",
+            "tests/unit/status-mirror.spec.js",
+            "tests/unit/entry-step.spec.js"
+          ],
+          "implementation_notes": "D4 and DDD-T6: Enter with 3 letters on the word filter (isAllowedInitials, unchanged) → no letters and a fresh { kind: refused } without n, which handlePresses numbers; no signing, no event, nothing sent. A notice shows until the next key the entry acts on (a letter, Backspace, Enter or Esc that does something); a key the entry ignores, such as Up, leaves it on show. DDD-T9: messages.js's refusal becomes 'Those initials aren't allowed. Type different ones.'; status.js writes it and then the field 'No letters yet, letter 1 of 3', in one write; render.js shows it in red under the help line, over empty slots. Retirement list item 3, with M4's 'Refused initials are cleared': delete leaderboard M5's parked refusal scenario; in steps/high-score-table.steps.js, line 30 'I sign the table with initials on the word filter' and line 43 'the initials field still shows those initials, with letter {int} of 3 to change'; and the helpers signWithBlockedInitials, expectBlockedInitialsKept and Message.initialsField. Then npx bddgen export --unused-steps must list none. Unit: un-park status-mirror.spec.js's refusal case, now the typed refusal, announced once by its number; entry-step.spec.js gains the word-filter rows. DDD-T13: the comment-only edit to src/game/high-scores.js: its ALPHABET line loses 'Up and Down move round it'. No word, export or behaviour changes, and its diff is one comment line (DoD 3). DoD 7, slice-01 part: README's controls table gains typing the initials, Backspace to take one back and Enter to sign, so the README is true if slice 01 ships alone (D18); 02-01 adds Esc. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02: Skip with Esc (US-05)",
+      "description": "Esc skips signing: nothing is sent, the deposit stays off the table, and an earlier mark and the best are kept. Slice 02's wording ships with it, then the feature closes: no @pending, no unused steps, README controls complete.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Esc skips signing, and the feature closes",
+          "criteria": [
+            "Esc on an empty, partly typed or full entry says 'Signing skipped. Press Enter to house-hunt again.', sends nothing and plays no sound.",
+            "After a skip the table gains no row, an earlier confirmed row stays marked, the best is kept for the next visit, and Enter and M act as usual.",
+            "Esc 0.3 s after game over, or at exactly 0.6 s on the rules alone, does nothing: the entry stays open and no skip is announced.",
+            "The prompt ends 'Esc skips.', the early-Enter hint offers Esc, and slash, apostrophe and Backspace stay default-prevented on the game-over screen after a skip.",
+            "No @pending remains in the typed-initials features, the journey property holds, the README names Esc's skip, and PORT=4174 CI=1 npm test and npm run build are green."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-5-skip-with-esc.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature | tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+          "scenario_name": "Esc skips signing | Letters already typed are dropped: \"<typed>\" | Enter plays again after a skip | The game keys work again after a skip | An earlier signing keeps its mark | Esc pressed as the game ends doesn't skip | The hint offers the way out | The invitation to sign says how to skip | Whatever I type, press and wait whenever a game ends, the entry and the game keys follow the rules | <keys> pressed <gap> after the game ends <outcome> | The slash, apostrophe and Backspace keys never start a browser feature on the game-over screen <situation>",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-08"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/view/messages.js",
+            "src/view/status.js",
+            "src/view/render.js",
+            "README.md",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-5-skip-with-esc.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-6-entry-rules.feature",
+            "tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-2-only-letters-type.feature",
+            "tests/unit/status-mirror.spec.js",
+            "tests/unit/entry-step.spec.js"
+          ],
+          "implementation_notes": "@sizing-review-needed: 9 scenarios plus 2 Examples blocks (12 runs). Kept as one step: DISTILL's handoff names one slice-02 step, slice 02 is about 2 h (DISCUSS), and every item rests on the one Esc row and its wording. If a split is wanted, the seam is all of M5 first, then M2's after-skip block, M6's journey property and M6's Esc block. DDD-T7: Esc is state only: the entry closes and g.skipped is set (startGame clears it; snapshot().skipped shows it); no signing, no event, no sound and no request; the current signing, its mark, g.settled, the table and the best are untouched (DDD-8, D16). The entry step's Esc row becomes entry′ null, notice′ null, skip′ true; the rest of the frame is dropped (DDD-T2), and the guard drops Esc up to 0.6 s (DDD-T5). DDD-T9, slice-02 wording: the prompt gains ' Esc skips.'; the hint becomes 'Type 3 letters to sign, or press Esc to skip.'; the canvas help line gains '   Esc skip'; 'Signing skipped' is a canvas heading on the signing line, and 'Signing skipped. Press Enter to house-hunt again.' is the mirror's announcement, in place of the prompt. Enable all of M5, M2's game-over outline's after-skip Examples block, M6's journey property and the Esc Examples block of M6's guard outline. Unit: entry-step.spec.js's Esc rows give the skip plan; status-mirror.spec.js announces 'Signing skipped.' once. DoD 7: README's controls name Esc's skip at the initials entry. Close-out: no @pending left under tests/e2e/rightmove-invaders-typed-initials/acceptance/; npx bddgen export --unused-steps lists none; nothing under netlify/ changed, and no new dependency (DoD 8). Owed by hand, not automated (DoD 5–6): a real AZERTY or QWERTZ keyboard in Chrome, Firefox and Safari; Firefox's quick find on / and ', with typeahead find on too; Backspace in Firefox and Safari; the canvas against DESIGN's Rendering universe; VoiceOver on macOS. Not in this roadmap, because each needs the user's OK: pushing the branch, the deploy preview, the playtest (K16–K18), K19's baseline and the merge. TEST PARADIGM: new unit tests go in tests/unit (the unit project: Node only, no browser), import ./support/seed.js so FC_SEED replays a failure, and are fast-check properties, with assertStateDelta (tests/common/state-delta.js) over a declared universe wherever a call changes state; an enumerated table or a single example needs a `// bypass:` reason. Acceptance scenarios are DISTILL's: run each first with RUN_PENDING=1 npx playwright test --project=chromium --grep \"<title>\" (--project=in-memory for @in-memory ones), then enable it by deleting its @pending, one at a time; never edit the typed-initials steps, drivers or harnesses except to follow a rename DISTILL allows (Scaffolds), and change the leaderboard's test code only as the Retirement list says. Done when this step's scenarios are green in Chromium, Firefox and WebKit (@in-memory ones in the in-memory project), and PORT=4174 CI=1 npm test and npm run build stay green. Shared outlines (roadmap review L7): this step enables the Esc / after-skip Examples blocks only; run with --grep on each row's rendered name."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/"
+    ],
+    "test_directories": [
+      "tests/e2e/rightmove-invaders-typed-initials/",
+      "tests/e2e/rightmove-invaders-leaderboard/",
+      "tests/unit/"
+    ],
+    "excluded_patterns": [
+      "node_modules/**",
+      "dist/**",
+      ".features-gen/**",
+      "netlify/**"
+    ],
+    "other_files": [
+      "README.md",
+      "CLAUDE.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (conditionally_approved, conditions applied)",
+    "approved_at": "2026-10-26T03:40:00Z",
+    "notes": "Filled in by nw-solution-architect from DISTILL's DELIVER handoff and Retirement list. Orchestrator ran des-roadmap validate (exit 0) and des-verify-integrity --roadmap-only (exit 0). Reviewed by nw-acceptance-designer-reviewer: conditionally_approved (0 blockers); H1, H2, L3, L6, L7, L8 and L9 applied by the orchestrator. New files: tests/unit/keyboard.spec.js (01-01), tests/unit/update-keyboard.spec.js (01-01), tests/unit/entry-step.spec.js (01-07). test_file lists acceptance features; unit specs are in files_to_modify."
+  }
+}

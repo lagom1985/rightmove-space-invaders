@@ -52,7 +52,9 @@ Every deploy keeps its own copy of the function, reachable at its permalink unti
 ## Consequences
 - The production table is shared by every production deploy, so it survives deploys and rollbacks. Only the deploy that is published at the time writes it.
 - **Old production deploys can't sign the real table with old code.** Reached through their permalinks, they write a deploy store of their own, which Netlify deletes with the deploy. A production deploy built while auto publishing is locked does the same, until it is published.
-  - *Qualified by ADR-010 (user, 2026-10-26)*: an older production deploy shares production's session secret, so a session it issues is accepted by the published deploy. That deploy checks the signing with its own code (its replay and its rules version), so old code still decides nothing on the real table.
+  - *Qualified by ADR-010 (user, 2026-10-26; corrected after the DEVOPS review)*: each deploy keeps the session secret's value it was built with.
+    - A page on an older permalink signs to that permalink's own function, which stores the row in its own deploy store.
+    - A session an older production deploy issued verifies on the published deploy only if both were built with the same value. The published deploy then checks the signing with its own code (its replay and its rules version), so old code still decides nothing on the real table.
 - **A rollback publishes the chosen deploy, which then writes normally**: `published` is true for it from that moment, and false for the deploy it replaced.
 - Each preview or branch deploy starts with an empty table of its own, which Netlify deletes along with the deploy.
 - **Detection**: if the `context` field, or the `published` field on the published deploy, were ever missing or renamed, production would use a deploy store. Scores would seem to reset at the next deploy, but no preview and no old deploy could write to production.

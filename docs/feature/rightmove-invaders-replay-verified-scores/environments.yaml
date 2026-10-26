@@ -26,7 +26,7 @@ target_environments:
     secret: "SCORES_SESSION_SECRET, value V, deploy context Branch deploys"
     preconditions: ["as deploy-preview"]
   - name: deploy-permalink
-    description: "Every deploy keeps its function and the secret value it was built with; an older production deploy's sessions verify on the published deploy, which checks the signing with its own code (ADR-005, qualified by ADR-010)"
+    description: "Every deploy keeps its function and the secret value it was built with. A page on a permalink signs to that permalink's own function and store (published=false). A session one deploy issued verifies on another only if both were built with the same value (ADR-005, qualified by ADR-010)"
     platform: [netlify-functions-v2-node22]
     preconditions: []
   - name: local
@@ -40,14 +40,15 @@ target_environments:
 
 secrets:
   - name: SCORES_SESSION_SECRET
-    format: "32 random bytes, base64 (44 characters): openssl rand -base64 32"
+    format: "exactly 32 random bytes in canonical base64 (44 characters, ^[A-Za-z0-9+/]{43}=$): openssl rand -base64 32"
     contexts: {production: P, deploy-preview: V, branch-deploy: V, local-development: unset}
-    read_by: "the function's composition root only (process.env), never the build, the browser or a log line"
-    missing_or_short: "no session is issued and no signing is saved: 500 unexpected, logged secret-missing (DDD-R2)"
-    applies: "at deploy time: a changed value reaches the functions only through a new deploy (Netlify functions env docs)"
-    rotation: "set the new value, then trigger a deploy of that context; sessions issued before it stop verifying"
-    scopes: "scope selection is Pro and above; on legacy Free the variable is visible to builds too, which never read it"
-    secret_flag: "tick Contains secret values if the plan offers it (write-only, build secret scanning); its plan availability isn't documented"
+    read_by: "the function's composition root (process.env) is the only code that reads it; the browser and the log never see it"
+    visible_to_the_build: "yes, on legacy Free (scopes are Pro and above): code that runs in the build can read it. Mitigated by NPM_FLAGS=--ignore-scripts (the user, 2026-10-26); the test gate's own code is the accepted residual risk"
+    missing_or_invalid: "no session is issued and no signing is saved: 500 unexpected, logged secret-missing (DDD-R2). Remedy: set it and deploy, never roll back"
+    applies: "at deploy time: a changed value reaches the functions only through a new deploy (Netlify functions env docs); each deploy keeps the value it was built with"
+    rotation: "set the new value, trigger a deploy of that context, and check that a session issued before it is refused as invalid-session. Rotating V also means redeploying or deleting every live preview and branch deploy. After a rotation for a leak, never publish a deploy built before it"
+    secret_flag: "tick Contains secret values if the plan offers it (write-only, build secret scanning); its plan availability isn't documented, and it doesn't hide the value from code running in the build"
+    never_committed: "the owner's discipline; .env* is added to .gitignore in DELIVER"
 
 coexistence_matrix:
   - tool: "@playwright/test 1.62.1"
@@ -71,9 +72,9 @@ platform_coverage:
   netlify: [Functions v2, Node 22, legacy Free plan]
 
 deployment_assumptions:
-  - "Slice by slice: each slice merges to main only after its preview run passes its hard KPIs (slice 01: K25, K10, K14; slice 02: K22, K10 under D21, K11; slice 03: the clock check on the preview)"
-  - "The secret is set for Production, and a deploy built after it, before slice 01 reaches production; otherwise nobody can sign"
-  - "Rollback across a slice is safe for the table (the key format is unchanged both ways); pages loaded on the newer slice sign in a shape the older function refuses, which shows Couldn't confirm until a reload"
-  - "A rollback also restores the secret value the deploy was built with"
+  - "Slice by slice: each slice merges to main only after its preview run passes its gate (slice 01: K25, K10, K14, K12, K20 items 1-3; slice 02: K22, K10 under D21, K11, K20 items 3, 5-8, 10, 11, K12, K21; slice 03: K20 item 9, K10 under D21), and K13 runs the same day as each merge"
+  - "The secret is set for Production, and a deploy built after it, before slice 01 reaches production; otherwise nobody can sign. NPM_FLAGS=--ignore-scripts lands with slice 01, before P is set"
+  - "Rollback across a slice is safe for the table (the key format is unchanged both ways), but it reopens the defence that slice closed: it is never a remedy for a fault in the defence (fix forward, or pull the kill switch), and a rollback below slice 02 needs the owner's written decision"
+  - "A rollback also restores the secret value the deploy was built with; after a rotation for a leak, no older deploy may be published"
   - "Every pushed preview or branch deploy, the probe's included, goes on the kill switch's list of live function hostnames until its deploy is deleted"
   - "Release-check triggers grow: a change to src/game/** or src/theme/** that the function bundles re-runs K10 and K22 on a preview; a gameplay change also needs a RULES_VERSION bump and a re-recorded corpus (D10)"

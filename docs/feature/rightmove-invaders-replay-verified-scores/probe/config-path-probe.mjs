@@ -1,7 +1,9 @@
-// PROBE ONLY (branch probe/config-path, never merged): does Netlify route two paths of one function, and count both
-// against the function's one rate-limit rule? rightmove-invaders-replay-verified-scores, DEVOPS (DESIGN Open question 5).
+// PROBE ONLY, kept as the record of the run: does Netlify route two paths of one function, and count both against the
+// function's one rate-limit rule? rightmove-invaders-replay-verified-scores, DEVOPS (DESIGN Open question 5). It ran
+// from branch probe/config-path (commit 2b7ef0e, never merged), whose function served /api/sessions as a fixed answer;
+// it needs that build, so it can't be rerun against the shipped function.
 //
-//   node scripts/probe-config-path.mjs --site <name> --preview https://deploy-preview-<n>--<name>.netlify.app
+//   node docs/feature/rightmove-invaders-replay-verified-scores/probe/config-path-probe.mjs --site <name> --preview https://deploy-preview-<n>--<name>.netlify.app
 //
 // It only reads: GETs of /api/scores (a cache miss each, ?table=<random>) and requests to the probe's /api/sessions,
 // which answers a fixed body and opens no store. Nothing is written to Blobs. About 50 requests in about 3 minutes.

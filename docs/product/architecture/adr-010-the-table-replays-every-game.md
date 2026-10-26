@@ -29,9 +29,14 @@ What still holds it back:
 - real time per game: a 20-minute game can't be signed sooner than 20 minutes after its session was issued (D8);
 - one row per game (D7), and a session that expires after 2 hours (D18);
 - the £500,000 ceiling;
-- the rate limit: 10 requests a minute per IP, a session and a signing per row.
+- the rate limit, per IP and per hostname, with a session and a signing per row.
 
-**What doesn't hold it back**: a program can wait for many sessions at once, so D8 limits each forged game, not how many games a forger runs in parallel. One IP could ask for 10 sessions in a minute, wait the length of its forged games, and sign 10 rows in the next two minutes. The owner still deletes rows by hand; within its session's 2 hours, the same request can put a deleted row back, and after that only a new session and a new wait can. Ruling the risk out would take anti-bot measures (reaction-time heuristics, captchas, a seed revealed wave by wave from the server, which would put the network on the frame path), far beyond this project. **Revisit when** a row the owner judges forged appears on the production table (K24).
+**What doesn't hold it back**: a program can wait for many sessions at once, so D8 limits each forged game, not how many games a forger runs in parallel. The rate limit's real cap is what K14 measured: about 13 requests a minute at a steady pace, and up to about 78 a minute for one IP sending 20 a second, because of Netlify's enforcement lag. **So after one wait, one fast IP can sign up to about 39 rows a minute** on each hostname that serves production:
+- the custom domain;
+- `<site>.netlify.app`, unless it redirects (unchecked);
+- the published deploy's permalink, if its ID is known.
+
+The user re-accepted this with these numbers on 2026-10-26: with 10 rows on the table, the pace changes little, because every row still needs a game that really plays to its deposit. The owner still deletes rows by hand; within its session's 2 hours, the same request can put a deleted row back, and after that only a new session and a new wait can. Ruling the risk out would take anti-bot measures (reaction-time heuristics, captchas, a seed revealed wave by wave from the server, which would put the network on the frame path), far beyond this project. **Revisit when** a row the owner judges forged appears on the production table (K24).
 
 ## Alternatives considered
 - **The ceiling alone (S1, PR #4)**: free and already shipped, but a forged £249,950 still lands at #1.
@@ -51,11 +56,17 @@ What still holds it back:
 - **Detection** (RC4): the log counts refusals by reason. `replay-mismatch` means either tampering or a determinism bug, and K23 investigates every one in the first 30 days.
 - **The token binds the seed and the issue time, not the initials, the deposit or the record.** Whoever holds a session and a record chooses the initials of its row. That is acceptable: the record must replay, the game has one row, and the session travels only over HTTPS between the player's page and the function.
 - **Costs**:
-  - **A secret to keep**: one per deploy context, set by the owner. Rotating it invalidates the sessions in flight, whose signings end "Couldn't confirm". An older production deploy shares production's secret, so its sessions are accepted by the published deploy, which checks the signing with its own code (ADR-005, qualified).
+  - **A secret to keep**: one per deploy context, set by the owner. Rotating it needs a new deploy, and invalidates the sessions in flight, whose signings end "Couldn't confirm".
+    - Each deploy keeps the value it was built with. A page on an older permalink signs to that permalink's own function and store.
+    - A session an older production deploy issued verifies on the published deploy only if both were built with the same value, and the published deploy checks the signing with its own code (ADR-005, qualified).
+    - After a rotation for a leak, no deploy built before the rotation may be published (the feature's DEVOPS).
+  - **The build can read the secret**: on legacy Free, environment variables are visible to the build as well as the functions. So code that runs in the build could read the production value: a compromised dependency, for example.
+    - Netlify's install runs with `NPM_FLAGS=--ignore-scripts` (the user, 2026-10-26), which blocks dependencies' install scripts. The dependencies stay pinned exactly.
+    - What is left is accepted: the test gate's own code, run in the build. Rotate on any advisory against a dependency.
   - **The game rules carry a version** (ADR-011): a deploy that changes how the game plays refuses signings from pages loaded before it (`rules-changed`), until they reload.
   - **A signing's body grows** from about 40 bytes to tens of KB, and the function replays it: about 50 ms for a 10-minute game in Node. On Netlify, the signing path's budget (D21) is a 10-minute replay under 250 ms at p95, with K10 re-baselined from 1000 ms to 1,250 ms for a POST carrying that record, and K22 measures the longest game; a miss reopens this decision. "Signing ALX…" still shows at once. Legacy Free bills invocations, not CPU time.
   - **The game-start request is no longer CDN-cacheable**, so a game start always costs an invocation and a Blobs listing. A game costs about 2–3 invocations (K15 holds). Its rate-limit count is unchanged, because cache hits counted already (K14's baseline).
-  - **Quick restarts can meet the rate limit** (D19): a game started after 10 requests within a minute from one IP gets no session and can't be signed. ADR-007's plan to split the function, using the plan's second code rule, applies if it bites.
+  - **Quick restarts can meet the rate limit** (D19): a game started after about 10 requests within a minute from one IP, on one hostname, gets no session and can't be signed. ADR-007's plan to split the function, using the plan's second code rule, applies if it bites.
   - **ADR-007's operation counts**: a POST is still 1 write + 1 listing + up to 5 deletes (an `already-signed` refusal's own removal is one of them); a session request is 1 listing.
 - **Accepted for release day**: a page loaded before the release signs in the old shape and is refused as `session-required` (D12); the release note says to reload.
 - **Supersedes** ADR-007's accepted risk. ADR-007's validation, body cap, signing shape, ceiling and operation counts are amended by this ADR; its rate limit, cache headers, word filter, kill switch and privacy statement stand.

@@ -2,7 +2,6 @@
 // Brand colours are approximations: replace them with values from the official brand kit.
 
 export const COLORS = {
-  bg: '#262637', grid: '#2d2d43', road: '#323250', river: '#2b3758',
   green: '#00deb6', text: '#ffffff', dim: '#a9a9c8', danger: '#ff5a5f',
   brick: '#d9774b', window: '#ffe9a8', door: '#8a4a33', dream: '#ff7eb6',
 };
@@ -38,5 +37,30 @@ export const DREAM_BONUSES = [500, 1000, 1500, 3000];
 // Levels: each cleared wave moves the player up the property ladder.
 export const LADDER = ['Studio flat', 'Terrace', 'Semi-detached', 'Detached', 'Country pile', 'Forever home'];
 export const ladderName = level => LADDER[Math.min(level, LADDER.length - 1)];
+
+// Each rung's backdrop, in the ladder's order: a neighbourhood at its time of day, its look (the map and skyline drawn,
+// src/view/backdrop.js) and its palette. Every palette colour stays at relative luminance 0.05 or less, so the hurdles
+// and the houses keep 3:1 contrast against the backdrop and the HUD text 4.5:1 (spike findings).
+export const NEIGHBOURHOODS = [
+  { name: 'City centre at dawn', look: 'city', palette: {
+    bg: '#262339', grid: '#2f2b47', block: '#2d2944', road: '#3a3557', water: '#2b3360', park: '#28343a',
+    sky: '#322e4c', light: '#3f3a58', accent: '#47304a' } },
+  { name: 'Terraced streets in the morning', look: 'terraces', palette: {
+    bg: '#1f2a3a', grid: '#263447', block: '#253246', road: '#2f3f57', water: '#233e67', park: '#23392f',
+    sky: '#2a3a50', light: '#2f3e55', accent: '#3a3a52' } },
+  { name: 'Suburbs at midday', look: 'suburbs', palette: {
+    bg: '#212f30', grid: '#293a3b', block: '#283839', road: '#2f4142', water: '#22405a', park: '#26402f',
+    sky: '#2e4142', light: '#32403c', accent: '#2b4335' } },
+  { name: 'Leafy avenue in the afternoon', look: 'leafy', palette: {
+    bg: '#2b2b24', grid: '#35352b', block: '#33332a', road: '#403f33', water: '#2a3a4a', park: '#2c3b26',
+    sky: '#38382d', light: '#423e2c', accent: '#3d3a26' } },
+  { name: 'Countryside at sunset', look: 'country', palette: {
+    bg: '#30232b', grid: '#3a2a33', block: '#382830', road: '#463039', water: '#2c2c48', park: '#2a3326',
+    sky: '#3c2934', light: '#523636', accent: '#3a2e26' } },
+  { name: 'Seaside at night', look: 'coast', palette: {
+    bg: '#151a2b', grid: '#1b2134', block: '#1d2336', road: '#232b40', water: '#142a44', park: '#182a26',
+    sky: '#1f2539', light: '#333c5a', accent: '#2a2a30' } },
+];
+export const neighbourhood = level => NEIGHBOURHOODS[Math.min(level, NEIGHBOURHOODS.length - 1)];
 
 export const pounds = n => '£' + n.toLocaleString('en-GB');

@@ -1,4 +1,4 @@
-import { ladderName, pounds } from '../theme/theme.js';
+import { ladderName, neighbourhood, pounds } from '../theme/theme.js';
 import { INITIALS_NOTICES, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, SIGNING_SKIPPED_SENTENCE, TABLE_UNAVAILABLE } from './messages.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 
@@ -102,6 +102,7 @@ export function createStatus(root) {
   function showHud(g) {
     set('deposit', pounds(g.score));
     set('ladder', ladderName(g.level));
+    set('neighbourhood', neighbourhood(g.level).name);
     set('best', pounds(Math.max(g.best, g.score)));
     set('homes', String(g.lives));
     set('sound', g.settings.sound ? 'On' : 'Off');

@@ -242,7 +242,7 @@ export function paintBackdrop(context, place) {
 // rescale(k) with a new scale drops every canvas and every failed mark; with the same scale it returns at once, keeping
 // them all. A dropped canvas, evicted past the two or dropped by a rescale, is released at once, sized 0 by 0: at 3x a
 // backdrop holds about 25 MB. Only built canvases are held, so only they are released. Nothing is thrown or logged, as
-// long as the injected createCanvas doesn't throw itself (document.createElement('canvas') doesn't): only the build is
+// long as the injected createCanvas doesn't throw itself (the browser's own canvas factory doesn't): only the build is
 // guarded, as a built canvas is assumed not to throw when drawn or released (Catalogued lies).
 export function createBackdropCache(createCanvas) {
   const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first

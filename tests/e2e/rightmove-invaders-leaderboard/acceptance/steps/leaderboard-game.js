@@ -27,6 +27,8 @@ const SETTLE_FRAMES = 10;         // frames the page needs to take an answer in
 const MAX_GAME_MS = 600_000;
 const WAIT_FRAMES = 200;          // up to 3.4 s of game time for an answer to arrive and show
 const REAL_PAUSE_MS = 15;         // real time between those frames
+const PAUSE_AT_MS = 5000;         // the page's clock is paused this long after START, once the page has asked for the table
+const PAUSE_LEAD_MS = 1000;       // or this far ahead of the page's clock, if that is later
 const SEED = 20261023;
 const BOARD_COOKIE = 'test-board';
 const SCORES = '/api/scores';
@@ -85,10 +87,19 @@ export class LeaderboardGame {
     // The page-load request must have been seen before any later fault takes its count, or expectRefreshAttempted could
     // mistake the page load for a refresh.
     await expect.poll(() => this.loadsSent, { message: 'the page never asked for the table on load' }).toBeGreaterThanOrEqual(1);
-    await this.page.clock.pauseAt(new Date(START.getTime() + 5000));
+    await this.pauseTheClock();
     await this.frame();
     this.table.viewer = this.page;   // the walking skeleton's "topped by" step reads the table here
     this.opened = true;
+  }
+
+  // The page's clock runs in real time from install until it is paused, and a pause can't go back in time. It pauses at
+  // START + PAUSE_AT_MS, as it always has, unless a busy machine took so long to load the page and ask for the table
+  // that the page's clock is within PAUSE_LEAD_MS of that or past it: then PAUSE_LEAD_MS ahead of the page's clock,
+  // which covers the time the pause takes to reach the page.
+  async pauseTheClock() {
+    const pageNow = await this.page.evaluate(() => Date.now());
+    await this.page.clock.pauseAt(Math.max(START.getTime() + PAUSE_AT_MS, pageNow + PAUSE_LEAD_MS));
   }
 
   async signTheTable(initials, score) {

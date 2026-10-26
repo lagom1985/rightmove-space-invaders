@@ -21,6 +21,11 @@ const keydown = fc.record({
   code: fc.constantFrom(...CODES),
   repeat: sometimes, metaKey: sometimes, ctrlKey: sometimes, altKey: sometimes, shiftKey: sometimes,
 });
+// A plain keydown of A: no modifier held, not a repeat.
+const A_KEYDOWN = { key: 'a', code: 'KeyA', repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false };
+// fast-check's usual number of generated runs. A property whose rarest moment the generated runs can all miss tries an
+// example that reaches it first, on top of these.
+const GENERATED_RUNS = 100;
 
 // Dispatches one event and tells whether its default was prevented.
 function dispatchKey(target, type, fields) {
@@ -59,8 +64,13 @@ function noteMoments(seen, batch) {
   if (batch.some(press => !preventsDefault(press))) seen.add('a default left to the browser');
 }
 
+// The same key typed twice in one go takes two plain keydowns of one key in one batch, and about three test runs in a
+// thousand generated none. So one batch of A typed twice is tried first on every test run.
+const A_TYPED_TWICE_IN_ONE_GO = [[A_KEYDOWN, A_KEYDOWN]];
+
 test('takeTyped() reports every keydown since the last call, in order, as { key } only, leaving out repeats and Cmd, Ctrl and Alt chords, the positions are reported as before, and each keydown\'s default is prevented as the default policy says', () => {
   const seen = new Set();
+  const examples = [[A_TYPED_TWICE_IN_ONE_GO]];
   fc.assert(fc.property(fc.array(fc.array(keydown, { maxLength: 6 }), { minLength: 1, maxLength: 4 }), batches => {
     const target = new EventTarget();
     const keyboard = createKeyboard(target);
@@ -80,7 +90,7 @@ test('takeTyped() reports every keydown since the last call, in order, as { key 
       });
       noteMoments(seen, batch);
     }
-  }));
+  }), { examples, numRuns: GENERATED_RUNS + examples.length });
   expect(WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 
@@ -109,8 +119,14 @@ const lastEventOf = (events, code) => events.findLast(({ fields }) => fields?.co
 
 const RELEASE_WITNESSES = ['a key held', 'a press not yet taken', 'a tap no step has seen', 'a position pressed'];
 
+// A tap no step has seen takes a keydown with neither Cmd nor Ctrl held, then its keyup before any fixed step, and about
+// one test run in a hundred (6 in 500) generated none. So a tap of A is tried first on every test run: it reaches every
+// one of the moments above.
+const A_TAP_NO_STEP_HAS_SEEN = [{ type: 'keydown', fields: A_KEYDOWN }, { type: 'keyup', fields: { code: 'KeyA' } }];
+
 test('releaseAll() forgets every key held and drops every press not yet taken, and leaves the positions pressed as they were', () => {
   const seen = new Set();
+  const examples = [[A_TAP_NO_STEP_HAS_SEEN]];
   fc.assert(fc.property(fc.array(keyEvent, { minLength: 1, maxLength: 12 }), events => {
     const released = listening(), kept = listening();
     events.forEach(event => { hear(released, event); hear(kept, event); });
@@ -124,7 +140,7 @@ test('releaseAll() forgets every key held and drops every press not yet taken, a
     if (before.typed.length) seen.add('a press not yet taken');
     if (before.held.some(code => lastEventOf(events, code) === 'keyup')) seen.add('a tap no step has seen');
     if (before.pressed.length) seen.add('a position pressed');
-  }));
+  }), { examples, numRuns: GENERATED_RUNS + examples.length });
   expect(RELEASE_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 

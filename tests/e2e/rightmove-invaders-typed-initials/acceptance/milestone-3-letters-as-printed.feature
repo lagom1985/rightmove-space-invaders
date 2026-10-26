@@ -7,7 +7,7 @@ Feature: The letter printed on my key is the letter I sign (US-03)
   # (AZERTY's A where QWERTY has Q). The DISTILL probe checked that the game receives them in Chromium, Firefox and
   # WebKit. A real AZERTY or QWERTZ keyboard is a manual check in DELIVER (DoD 5).
 
-  @US-03 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T1 @DDD-T11 @pending
+  @US-03 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T1 @DDD-T11
   Scenario: Letters on a French AZERTY keyboard
     Given my keyboard is French AZERTY
     And my deposit of £50 makes the high-score table
@@ -15,7 +15,7 @@ Feature: The letter printed on my key is the letter I sign (US-03)
     When I press Enter
     Then the game tells me "Signing CAM…"
 
-  @US-03 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T1 @DDD-T11 @pending
+  @US-03 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T1 @DDD-T11
   Scenario: Letters on a German QWERTZ keyboard
     Given my keyboard is German QWERTZ
     And my deposit of £50 makes the high-score table
@@ -25,7 +25,7 @@ Feature: The letter printed on my key is the letter I sign (US-03)
 
   # Each character sent as itself, by the key of its own layout that types it (å from a Swedish keyboard's own key, as
   # well as through Option in milestone 2). None is A to Z, and none is turned into a plain letter.
-  @US-03 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T3 @DDD-T11 @pending
+  @US-03 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T3 @DDD-T11
   Scenario Outline: The key that types <character> on a <layout> keyboard types nothing
     Given my keyboard is <layout>
     And my deposit of £50 makes the high-score table
@@ -41,7 +41,7 @@ Feature: The letter printed on my key is the letter I sign (US-03)
       | Swedish       | å         |
 
   # UAT 4's three ways (with Shift held, with Caps Lock on, on its own), in one game: each gives the capital letter.
-  @US-03 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T3 @pending
+  @US-03 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T3
   Scenario: Capitals, however they are typed
     Given my deposit of £50 makes the high-score table
     When I type "C" with Shift held, "A" with Caps Lock on and a plain "m"

@@ -1,0 +1,62 @@
+# ADR-009: The keyboard reports typed key presses in order, beside positional key state
+
+**Status**: Accepted (DESIGN, 2026-10-25; approved by the user) · Revised 2026-10-26 after the Final Wave Review Gate. No decision changed: the every-screen scope of the default policy is stated as the user's decision, both policies are named as pure functions, `takeTyped()` reports `{ key }` only, and two alternatives and two consequences are added · Revised again 2026-10-26 after the second review cycle: the entry step's plan is `{ entry′, notice′, skip′, signing }` and emits nothing; `update` gets only an `{ isDown }` view of the keyboard (feature delta, DDD-T14), the one decision that changed; the Alt/Option defaults are stated as the default policy has them, as the user confirmed; D20 is cited · **Implemented** in DELIVER, 2026-10-26, on branch `rightmove-invaders-typed-initials` (`81498c0` → `96a2146`), not yet merged to `main`. As built: `takeTyped()` and the default policy `preventsDefault(keydown)` in `src/platform/input.js`; `handlePresses(pressed, typed)` and the entry step `entryStep(entry, { key })` in `src/game/game.js`, its plan named `{ letters, notice, skip, signing }` (`letters` null once the entry closes); the sixth layering rule (`f05027a`); the `update` check (`tests/unit/update-keyboard.spec.js`); both enumerations (`tests/unit/keyboard.spec.js`, `tests/unit/entry-step.spec.js`). No decision changed in DELIVER. What only real browsers show (real layouts, quick find, Backspace navigation, VoiceOver) is still owed by hand on a deploy preview (the feature delta's DoD 5 and 6) · **Feature**: rightmove-invaders-typed-initials
+
+## Context
+`src/platform/input.js` reports key **positions** (`e.code`): `isDown(code)` for movement and fire, and `takePressed()`, a Set of the codes pressed since the last frame, for one-shot keys (Enter, P/Esc, M, N). That is right for play, and the rules (`src/game/game.js`) never touch a browser API (ADR-006, rule 1).
+
+Typed initials (feature delta, D1–D20) need what positions can't give:
+- **The printed letter** (D8): on French AZERTY the key printed A arrives as `KeyQ`, and on German QWERTZ the key printed Z as `KeyY`.
+- **Every press, in order** (D15): a Set per frame merges two presses of one key and drops the order, so `a a x` typed within one frame can't give `AAX`.
+- **One letter per press** (D14): holding a key down types once.
+- **No browser feature** (D17): during the entry, Cmd/Ctrl shortcuts type nothing, and no key may start a browser feature such as Firefox's quick find (`/`, `'`). **The user decided (2026-10-25) that printable keys and Backspace never start a browser feature on any screen**, the title and play included. DISCUSS records this as D19. **The user confirmed (2026-10-26) that Alt/Option chords keep their browser default for printable keys and Backspace, as Cmd/Ctrl chords do, and never type.**
+- **Losing focus mid-entry** (D20): if the window loses focus or the tab is hidden while the entry is open, the entry stays open with the letters already typed, and nothing is typed while the window lacks focus.
+
+Constraints: the fixed-step loop and `isDown` stay as they are (ADR-000), the game keys stay positional outside the entry (DISCUSS, Out of scope), there is no new dependency, and the target is desktop Chromium, Firefox and WebKit.
+
+## Decision
+- **One adapter, two channels.**
+  - **Positions, unchanged**: `isDown(code)`, `takePressed()` (a Set of codes), `endStep()` and `releaseAll()`. The rules' fixed step, `update`, gets only an `{ isDown }` view of them from `main.js`, never the keyboard, so no rules code can drain the typed queue, take the pressed set or release keys.
+  - **Typed presses, new**: `takeTyped()` returns the keydowns since the last call, in the order they arrived, each as `{ key }`. Only presses count: a keydown with `repeat` set is not reported. Chords are not reported either: a key pressed with Cmd, Ctrl or Alt/Option held belongs to the browser and the OS. `main.js` drains the queue every frame, paused or not, and `releaseAll()`, which it calls on blur and on a hidden tab, empties it too. So nothing typed earlier can turn up later, and the entry keeps its letters (D20).
+- **One rules entry per frame**: `handlePresses(pressed, typed)`, which takes plain data only, never the adapter. A frame that starts with the initials entry open belongs to the entry. The positions are ignored, so M, N, P/Esc and Enter-to-restart have no effect. After the 0.6 s guard, each typed press goes, in order, through **one pure entry step**, `(entry, press) → { entry′, notice′, skip′, signing }`:
+  - `entry′`, the letters after the press, or null when the press closes the entry;
+  - `notice′`, the input notice object itself when the press leaves it as it is, a fresh notice without a number when the press shows a new one, and otherwise null;
+  - `skip′`, true for Esc only;
+  - `signing`, the 3 letters to sign, or null.
+
+  The step emits no events. It is the identity for every key it doesn't list. It decides what a press means: what counts as a letter (exactly one character that is, unchanged, an ASCII letter, then shown in capitals; no Unicode normalisation or case folding), Backspace, Enter and Escape (read by `key`), and the 3-letter limit. `handlePresses` is the shell, and only applies each plan: it numbers any notice that has no number, from a counter kept outside `g`, and for a signing it supplies the signing's number and the score and emits `initialsEntered`, through the leaderboard's `sign()`. A step asks for at most one signing, and a closing press drops the rest of the frame, so a frame makes at most one signing too. Any other frame reads the positions only, as today.
+- **Browser defaults: one pure policy, the same on every screen** (the user's decision). A pure function of the keydown's `key`, `code`, `repeat` and modifiers answers prevent or keep, and the listener applies the answer.
+  - With no modifier, or Shift only, printable keys (a `key` that is one character) and Backspace are prevented. Repeats count here too, because a held `/` would open quick find.
+  - Space and the arrows are prevented unless Cmd or Ctrl is held, as before. With Alt/Option alone they stay prevented, so Alt+Left (Back on Windows and Linux) stays blocked, as it already is.
+  - With Alt/Option, Cmd or Ctrl held, printable keys and Backspace keep their default, and so does every other shortcut, except Space and the arrows with Alt/Option, which stay prevented as before.
+  - Enter, Esc, Tab and the other named keys keep their default, with or without a modifier, so a focused footer link still opens with Enter.
+
+  **The adapter reports presses and applies this one policy.** It decides nothing about the game.
+- **Enforcement**: `src/platform/input.js` imports nothing. This becomes a sixth rule in the import-scan unit test (ADR-006's scan), added in DELIVER, so the keyboard can never read the rules' state. Rule 1 keeps the rules away from the adapter, and a unit check that `update` calls only `isDown` keeps them away from the rest of it. Unit tests enumerate both pure functions over each class, with representatives: the policy over every key class, modifier and `repeat`, and the entry step over every entry state and press class.
+
+## Alternatives considered
+- **An ordered list from `takePressed()`** (one channel): it gives order and duplicates for everyone. But every one-shot rule would change, and so would five unit specs that pass a Set. Outside the entry, two presses of M within one frame would also toggle twice, which changes the game outside this feature's scope.
+- **Recording `e.key` in the existing Set**: it mixes two vocabularies in one channel, and still loses duplicates and order (D15).
+- **`keypress` for the typed characters**: it is deprecated in UI Events, and preventing a keydown's default cancels its keypress, so the default policy would silence it. It also isn't fired for Backspace or Esc, so their keydowns would have to be merged, in order, with a second event type.
+- **A hidden, focused `<input>` read through `beforeinput`**: it gives real text semantics (dead keys, IME). But it needs focus management (a click or Tab takes focus away), it adds an editable element to the accessibility tree (a change to the initials field of leaderboard DDD-14), and Enter and Backspace keydowns would have to be merged with input events to keep their order. Far more than three letters need.
+- **`navigator.keyboard.getLayoutMap()`** to map a position to its printed letter: Chromium only. Firefox and Safari don't have it.
+- **A layout table the player picks** (QWERTY, AZERTY, QWERTZ), mapping each position to its printed letter: it needs a new setting, a way to choose it and its storage, all out of scope. It is wrong for every layout not in the table (Belgian AZERTY, Swiss QWERTZ, Dvorak, Colemak) and whenever the player picks wrongly, and it repeats what the browser already reports in `key`.
+- **`preventDefault` only while the entry is open**, with `main.js` setting a mode on the keyboard, or with the rules' state injected as a predicate: the adapter would then carry a mode that mirrors rule state, with two behaviours to test, and `/` or `'` pressed during play would still let Firefox's find bar take the keyboard mid-game. The user chose every screen.
+
+## Consequences
+- **Positive**:
+  - Letters arrive as printed on any Latin layout, in order, once per press.
+  - The game keys, `isDown` and the fixed step are unchanged, and the rules can reach nothing of the keyboard but `isDown`.
+  - The rules take plain data, so unit tests and the in-memory model drive typing without a browser.
+  - Both policies are pure, so their unit tests cover every class of input, each with representatives, instead of a few hand-picked cases. The entry step emits nothing, so its plan is the whole of its answer.
+  - A test can dispatch `KeyboardEvent('keydown', { key: 'a', code: 'KeyQ' })` to stand in for AZERTY, because the adapter doesn't check `isTrusted`.
+- **Two vocabularies**: `code` for the game keys and `key` for the entry. Outside the entry the game keys stay positional: on AZERTY the M toggle still answers the key printed `,` (a pre-existing issue, out of scope).
+- **On every screen, by the user's decision (D19)**, Firefox's quick find (`/`, `'`) and typeahead find never open from the game page, and Backspace never navigates back. During play, this also stops the find bar from taking the keyboard mid-game.
+- **Responsiveness**: a keydown is taken by the next frame's `handlePresses`, then drawn and announced by that frame's draw and sync, so it shows within one frame (17 ms at 60 Hz). The added work is one call to the pure policy per keydown and, per frame, a loop over the few presses typed. There is no timer and no wait.
+- **Accepted edges**:
+  - Presses that arrive after the closing Enter or Esc, within the same frame (17 ms or less), are dropped.
+  - Dead keys and IME composition are not supported (Out of scope). They arrive as `Dead`, `Process` or an accented character, and are ignored.
+  - On Windows, Alt+letter types nothing.
+  - Space and the arrows stay prevented with Alt/Option held, as today, so Alt+Left (Back on Windows and Linux) stays blocked (pre-existing).
+  - Assistive technology can take keys first. VoiceOver handles its Quick Nav keys before the page sees them, so `preventDefault` can't affect them; that is a manual check with VoiceOver and Safari (DoD 6). NVDA's and JAWS's browse mode on Windows take letter keys too; that is outside the persona's platform, an accepted risk.
+- **Defaults can only be shown on real browsers.** Synthetic events run no default. The tests check `defaultPrevented` on a cancelable synthetic keydown, and Firefox's quick find and a real AZERTY or QWERTZ keyboard are manual checks (DoD 5).

@@ -1,25 +1,21 @@
 // The high-score table's test vocabulary: domain nouns only, each one used by a driver. The table rules come from the
 // game's own shared module (src/game/high-scores.js, ADR-006) and the event names from src/game/events.js.
 // The player-facing wording lives in the .feature files, which are the scenario SSOT ("Wave: DISTILL / [REF] Messages").
-// This file holds only the phrases a driver itself waits for or builds: the prompt, "Game started", "Game over",
-// "High-score table unavailable." and the initials-field format.
+// This file holds only the phrases a driver itself waits for or builds: the prompt, "Game started", "Game over" and
+// "High-score table unavailable.".
 // Technical detail (the persisted key format, header names, log fields, store operations) lives in the table-service
 // harness (steps/table-service.js), which maps these domain names onto it.
 export { TABLE_SIZE, ALPHABET, INITIALS_LENGTH, BLOCKED_INITIALS } from '../../../../../src/game/high-scores.js';
 export { GameEvent } from '../../../../../src/game/events.js';
 
-const spaced = letters => [...letters].join(' ');
-
-// What the status mirror's live region says, where a driver has to recognise it.
+// What the status mirror's live region says, where a driver has to recognise it. The initials are typed
+// (rightmove-invaders-typed-initials): the prompt is slice 01's words, which slice 02's prompt starts with.
 export const Message = Object.freeze({
-  INITIALS_PROMPT: 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.',
+  INITIALS_PROMPT: 'New high score! Enter your initials: type 3 letters, then press Enter to sign.',
   TABLE_UNAVAILABLE: 'High-score table unavailable.',
   GAME_STARTED: 'Game started',
   GAME_OVER: 'Game over',
-  // The data-hud="initials" field while the initials are entered, and its live-region update on each change.
-  initialsField: (letters, letter) => `${spaced(letters)}, letter ${letter} of 3`,
 });
-export const INITIALS_FIELD_PATTERN = /[A-Z] [A-Z] [A-Z], letter [1-3] of 3/;
 
 // A signing as the player arranges it in a Given (browser scenarios).
 export const SigningStatus = Object.freeze({ ON_ITS_WAY: 'on its way', CONFIRMED: 'confirmed', OFF_THE_TABLE: 'off the table', UNCONFIRMED: 'unconfirmed' });

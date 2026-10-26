@@ -94,3 +94,45 @@ jobs:
     satisfaction: 1
     opportunity: 9
     introduced_by: rightmove-invaders-sound
+
+  # The shared high-score table shipped with rightmove-invaders-leaderboard (2026-10-25), which had no DISCUSS wave, so
+  # it wrote no job. These two come with rightmove-invaders-typed-initials, and the table and its signing lifecycle
+  # serve them too. Validated by the playtest KPIs K16-K18 in docs/feature/rightmove-invaders-typed-initials/feature-delta.md.
+  - id: J-TABLE-SIGN
+    job_story: >
+      When my deposit makes the shared high-score table, I want to put my own initials on it as quickly as I would type
+      them anywhere, so I can claim my place and get straight back to the next game.
+    dimensions:
+      functional: Sign with exactly the three letters I mean, in a few keystrokes, on whatever keyboard I use.
+      emotional: The moment of pride isn't spoiled by fiddling with a letter wheel; what I see is what gets signed.
+      social: Friends and colleagues who open the game see my initials, spelled right, on the table.
+    forces:
+      push: Choosing each letter with Up and Down takes 17 key presses for ALX (37 with Up only), on a keyboard that has the letters on it.
+      pull: Type the three letters and press Enter, like any name field, in 4 key presses.
+      anxiety: A game key tapped as the game ends (A, D, Space, Esc) puts a letter I didn't mean on a public table; my keyboard layout gives a different letter from the one printed on the key.
+      habit: Arcade veterans expect the Up/Down letter wheel, and the table's first players have learned it.
+    importance: 7
+    satisfaction: 3
+    opportunity: 11
+    evidence: assumption (the product owner's own preference, 2026-10-25; no playtest or player feedback yet)
+    introduced_by: rightmove-invaders-typed-initials
+
+  - id: J-TABLE-SKIP
+    job_story: >
+      When my deposit makes the table but I'd rather not sign it (someone is watching, I'm in a hurry, or I don't want my
+      initials on a public table), I want to pass with one key, so I can get on with the next game without leaving a
+      throwaway row behind.
+    dimensions:
+      functional: Leave the initials entry without sending anything.
+      emotional: In control, with no pressure to share.
+      social: Nothing of mine appears on the public table unless I choose.
+    forces:
+      push: The only way past the initials entry is to sign, and pressing Enter to get through it signs "AAA".
+      pull: One key, Esc, that games use to back out.
+      anxiety: Skipping by accident and losing my place for good.
+      habit: Players press Enter repeatedly to get past screens.
+    importance: 5
+    satisfaction: 1
+    opportunity: 9
+    evidence: assumption (the product owner's own preference, 2026-10-25; no playtest or player feedback yet)
+    introduced_by: rightmove-invaders-typed-initials

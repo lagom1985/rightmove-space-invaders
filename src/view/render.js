@@ -1,8 +1,9 @@
 import { W, H, PX, GROUND } from '../game/config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
-import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
-import { INITIALS_REFUSED, PLAY_AGAIN, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
+import { INITIALS_LENGTH } from '../game/high-scores.js';
+import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
@@ -172,16 +173,20 @@ function drawHighScores(ctx, y) {
   });
 }
 
-// The three letters, the one being chosen blinking, like on an arcade cabinet. Initials on the word filter are refused
-// in red under the help line until the next key (DISTILL, Messages).
+// Three slots, filled in capitals in the order typed ('A L _'), the next one blinking (none once all three are in),
+// like on an arcade cabinet. Enter's answer shows under the help line until the next key the entry acts on (DISTILL,
+// Messages): the too-few hint, or initials on the word filter refused in red.
+const NOTICE_COLORS = { 'too-few': COLORS.text, refused: COLORS.danger };
+
 function drawInitialsEntry(ctx, y) {
-  const { letters, index, refused } = g.initials;
+  const { letters, notice } = g.initials;
   text(ctx, 'New high score!', W / 2, y, 24, COLORS.green, 'center');
-  letters.forEach((letter, i) => {
-    if (i !== index || blink()) text(ctx, letter, W / 2 + (i - 1) * 64, y + 80, 40, i === index ? COLORS.green : COLORS.text, 'center');
-  });
-  text(ctx, 'Up / Down  change the letter     Enter  take it', W / 2, y + 130, 8, COLORS.dim, 'center');
-  if (refused) text(ctx, INITIALS_REFUSED, W / 2, y + 160, 8, COLORS.danger, 'center');
+  for (let i = 0; i < INITIALS_LENGTH; i++) {
+    const next = i === letters.length;
+    if (!next || blink()) text(ctx, letters[i] ?? '_', W / 2 + (i - 1) * 64, y + 80, 40, next ? COLORS.green : COLORS.text, 'center');
+  }
+  text(ctx, 'Type 3 letters   Enter sign   Backspace delete   Esc skip', W / 2, y + 130, 8, COLORS.dim, 'center');
+  if (notice) text(ctx, INITIALS_NOTICES[notice.kind], W / 2, y + 160, 8, NOTICE_COLORS[notice.kind], 'center');
 }
 
 // What became of the signing made at this game over (DISTILL, Messages), in its status's colour; an earlier one shows
@@ -206,12 +211,13 @@ function drawGameOver(ctx) {
   text(ctx, 'Deposit saved  ' + pounds(g.score), W / 2, top + 70, 16, COLORS.text, 'center');
   text(ctx, 'Reached  ' + ladderName(g.level), W / 2, top + 110, 16, COLORS.green, 'center');
   if (g.newBest) text(ctx, 'New best!', W / 2, top + 160, 16, COLORS.dream, 'center');
-  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // Enter takes a letter until all three are in
+  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // open until Enter signs or Esc skips
   if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
+  if (g.skipped) text(ctx, SIGNING_SKIPPED, W / 2, top + 182, 8, COLORS.dim, 'center');   // where the signing line goes
   if (hasHighScores()) drawHighScores(ctx, top + 200);
   // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
   if (g.table.status === 'unavailable') text(ctx, TABLE_UNAVAILABLE, W / 2, top + 200, 8, COLORS.dim, 'center');
-  if (g.overT > 0.6 && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
+  if (canPlayAgain() && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
 }
 
 function drawPaused(ctx) {

@@ -4,7 +4,7 @@ SSOT for the game's architecture. Each architect owns one section. Decisions are
 
 ## Application Architecture
 
-*Owner: nw-solution-architect · Last updated: 2026-10-25 (rightmove-invaders-leaderboard, DELIVER: the components marked shipped)*
+*Owner: nw-solution-architect · Last updated: 2026-10-26 (rightmove-invaders-typed-initials, DELIVER: the typed-initials rows marked shipped, with the names as built; earlier that day, DESIGN revised after the Final Wave Review Gate, with no decision changed, then after the second review cycle: `update` narrowed to an `{ isDown }` view, the entry step's plan, the declared delta and the Alt defaults; on 2026-10-25, DESIGN: typed initials, ADR-009 accepted; edits marked "typed-initials". Before that: rightmove-invaders-leaderboard, DELIVER: the components marked shipped)*
 
 *File layout note (2026-10-24): `src/` was reorganised into `game/`, `sound/`, `view/`, `platform/` and `theme/`; paths below are the current ones, while ADRs and wave records keep the paths they had at the time. A later refactor the same day moved the sound recipes to `sound/recipes.js`, handed the best-score store in from `main.js` and split the synth into `voices.js`, `effects.js`, `music.js` and `journal.js`.*
 
@@ -59,13 +59,13 @@ C4Container
   Person(player, "Player")
   System_Boundary(sys, "Make the Right Move") {
     Container(hosting, "Static hosting", "Netlify CDN in production; Node 22 scripts/serve.mjs locally", "Serves index.html and the src/ ES modules")
-    Container(spa, "Browser game", "HTML + ES modules, Canvas2D, Web Audio", "Game loop, rules, rendering, sound, initials entry, accessible status mirror")
+    Container(spa, "Browser game", "HTML + ES modules, Canvas2D, Web Audio", "Game loop, rules, rendering, sound, typed initials entry (letters as printed, Backspace, Enter, Esc), accessible status mirror")
     Container(api, "Score API", "Netlify Function v2, Node 22, netlify/functions/scores.mjs", "GET the top 10, POST a signature; validation, ranking, bounded pruning")
     ContainerDb(storage, "localStorage", "Browser storage", "Best deposit; sound and music settings")
   }
   System_Ext(blobs, "Netlify Blobs", "Store 'leaderboard' in production, a deploy store on previews; the Blobs emulator locally")
   System_Ext(device, "Audio device")
-  Rel(player, spa, "Plays with the keyboard; sees and hears")
+  Rel(player, spa, "Plays, and types initials, with the keyboard; sees and hears")
   Rel(hosting, spa, "Delivers files to", "HTTP")
   Rel(spa, api, "Reads and signs the high-score table via", "HTTPS JSON, /api/scores")
   Rel(api, blobs, "Writes, lists and deletes keys in", "restricted store port over the Blobs API, strong consistency")
@@ -79,8 +79,8 @@ Locally, `scripts/serve.mjs` serves the files and mounts the Score API's handler
 
 ```mermaid
 flowchart LR
-  kb["platform/input.js<br/>Keyboard (driving adapter)"] --> main
-  main["main.js<br/>Loop + wiring + settings load/save"] -->|update / handlePresses / takeEvents| game["game/game.js<br/>Rules + state + outbox"]
+  kb["platform/input.js<br/>Keyboard (driving adapter):<br/>positions + typed presses, ADR-009"] --> main
+  main["main.js<br/>Loop + wiring + settings load/save"] -->|"update with an isDown view / handlePresses with data / takeEvents"| game["game/game.js<br/>Rules + state + outbox"]
   game --> shields["game/shields.js<br/>House shields"]
   game --> events["game/events.js<br/>Event / cue / sound names"]
   game --> rules["game/high-scores.js<br/>Table rules (pure, shared with the Score API)"]
@@ -105,13 +105,13 @@ flowchart LR
 ```
 
 **Frame pipeline** (each `requestAnimationFrame`):
-1. `handlePresses` for one-shot keys (Enter, P/Esc, M, N).
-2. Fixed 120 Hz `update` steps.
+1. `handlePresses(pressed, typed)`: the one-shot keys by position (Enter, P/Esc, M, N), or, in a frame that starts with the initials entry open, the frame's typed presses in order instead (typed-initials, ADR-009).
+2. Fixed 120 Hz `update` steps. *typed-initials*: `update` gets an `{ isDown }` view of the keyboard, never the keyboard (DDD-T14).
 3. `takeEvents()` → director → `synth.perform` for each cue; save settings on toggle events; `gameStarted` → refresh the high-score table in the background; `initialsEntered` → sign it.
 4. `render.draw`.
 5. `status.sync`.
 
-On `blur` or a hidden tab: `pause()`, then step 3 immediately (sound DDD-9).
+On `blur` or a hidden tab: `pause()`, then step 3 immediately (sound DDD-9). *typed-initials*: the keyboard's `releaseAll()` comes first, as today, and also empties the typed queue. Game over isn't pausable, so an open initials entry keeps its letters (D20).
 
 The table's answers, failures and timeouts arrive in promise callbacks between frames. The timeout is 5000 ms, on timers injected by `main.js`. `main.js` hands each outcome to the rules. The rules keep:
 - **one table state `{ status, rows }`**, with status unknown, available or unavailable (unavailable only while no table has ever loaded). Every answer with rows carries `listedAt`, the function's `Date.now()` taken right after its listing. Rows apply only if their `listedAt` is ≥ the last applied one; older rows are ignored. A POST's listing always follows its own write, so an earlier-listed GET can't roll the table back. Clock skew of a few ms between function instances is an accepted edge.
@@ -121,18 +121,18 @@ Nothing in a frame waits on the network. An outcome that arrives during play is 
 
 ### Components
 
-Every component below is shipped: implemented, tested and committed. The leaderboard's parts were delivered on 2026-10-25 (rightmove-invaders-leaderboard DELIVER, `4f9d64f` → `2c53e96`) on branch `worktree-leaderboard-spike`. That branch is pushed but not merged, so they reach production with the merge to `main`, after the DEVOPS go/no-go on a deploy preview (K10–K14, Platform and Delivery).
+Every component below is shipped: implemented, tested and committed. The leaderboard's parts were delivered on 2026-10-25 (rightmove-invaders-leaderboard DELIVER, `4f9d64f` → `2c53e96`), and are in production since `144e23a` (PR #1). The typed-initials parts were delivered on 2026-10-26 (rightmove-invaders-typed-initials DELIVER, `81498c0` → `96a2146`) on branch `rightmove-invaders-typed-initials`, which is not merged yet: they reach production with the merge to `main`, after the manual checks, the playtest and the PO's check on a deploy preview (the [feature delta](../../feature/rightmove-invaders-typed-initials/feature-delta.md#wave-deliver--ref-pre-requisites)'s DELIVER pre-requisites).
 
 | Component | Path | Responsibility | Status |
 |---|---|---|---|
-| Loop and wiring | `src/main.js` | Composition root: fixed-step loop, adapter wiring, synth capabilities (context factory, clock, timers), settings load/`applySettings`/save, best-score store (`applyBestStore`), the high-score table client (injected `fetch` and timers; load on page load and on `gameStarted`, sign on `initialsEntered`, outcomes handed to the rules), audio unlock on keydown, immediate flush on blur/hidden, `window.makeTheRightMove` | Shipped; the table wiring 2026-10-25 |
-| Rules and state | `src/game/game.js` | Game state `g`: `g.settings` (set via `applySettings`), `g.best` (loaded and saved through the store given to `applyBestStore`), and the high-score table state `{ status, rows }`, the last applied `listedAt`, the initials entry, the latest signing and the settled-outcome notice. The table outcomes are handed in by `main.js`. Also the rules, M/N/P handling, the event outbox (`emit`, `takeEvents`) and `snapshot()`, a frozen read model for tests | Shipped; the table state and signing 2026-10-25 |
-| High-score rules | `src/game/high-scores.js` | Pure, imports nothing: table size, initials alphabet and length, £50 step, maximum, signature validity, 3-letter word filter (also used by the Score API), and qualification `makesTheTable` (browser only; it requires an available table) | Shipped 2026-10-25 (new) |
+| Loop and wiring | `src/main.js` | Composition root: fixed-step loop, adapter wiring, synth capabilities (context factory, clock, timers), settings load/`applySettings`/save, best-score store (`applyBestStore`), the high-score table client (injected `fetch` and timers; load on page load and on `gameStarted`, sign on `initialsEntered`, outcomes handed to the rules), audio unlock on keydown, immediate flush on blur/hidden, `window.makeTheRightMove`. *typed-initials*: each frame, `handlePresses(keyboard.takePressed(), keyboard.takeTyped())`, paused or not; `update` gets a frozen `{ isDown }` view of the keyboard | Shipped; the table wiring 2026-10-25; the typed wiring 2026-10-26 (typed-initials) |
+| Rules and state | `src/game/game.js` | Game state `g`: `g.settings` (set via `applySettings`), `g.best` (loaded and saved through the store given to `applyBestStore`), and the high-score table state `{ status, rows }`, the last applied `listedAt`, the initials entry, the latest signing and the settled-outcome notice. The table outcomes are handed in by `main.js`. Also the rules, M/N/P handling, the event outbox (`emit`, `takeEvents`) and `snapshot()`, a frozen read model for tests. *typed-initials*: the entry is typed. `handlePresses(pressed, typed)`, which takes data only, gives a frame that starts with the entry open to the entry, with no M/N/P. It applies a pure entry step, `entryStep`, to each typed press in order: letters A–Z as printed, Backspace, Enter and Esc, and the identity for any other key. The step returns a plan, `{ letters, notice, skip, signing }` (DESIGN's `{ entry′, notice′, skip′, signing }`; `letters` is null once the entry closes), and emits nothing; `handlePresses` applies it, numbering new notices and signing through `sign()`, which emits `initialsEntered`. No key acts on the entry for the first 0.6 s of game over. The entry opens empty, and blocked initials empty it. Enter with fewer than 3 letters gives a hint; notices are numbered across games, by a counter kept outside `g`. Esc skips, with no event and no request. The entry's closed world is all of `g` except its declared delta (the feature delta's Reuse Analysis), checked around `handlePresses` only. `update(dt, keys)` uses only `keys.isDown`. `canPlayAgain()` (game over, no entry open, past the 0.6 s guard) is the one rule for "Enter plays again", which the canvas reads too | Shipped; the table state and signing 2026-10-25; the typed entry 2026-10-26 (typed-initials) |
+| High-score rules | `src/game/high-scores.js` | Pure, imports nothing: table size, initials alphabet and length, £50 step, maximum, signature validity, 3-letter word filter (also used by the Score API), and qualification `makesTheTable` (browser only; it requires an available table). *typed-initials*: one comment-only edit in DELIVER, which removed the stale note on the letter wheel (`923b2df`); no code change | Shipped 2026-10-25 (new) |
 | Vocabulary | `src/game/events.js` | `GameEvent` (including `initialsEntered`), `CueOp`, `Sound` | Shipped |
-| Keyboard | `src/platform/input.js` | Held and latched keys | Shipped |
-| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), initials entry and the signing messages on game over. Nothing new is drawn during play | Shipped; the table lines 2026-10-25 |
-| Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` | Shipped; the table announcements 2026-10-25 |
-| View wording | `src/view/messages.js` | Data: the words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once so the canvas says what the tested mirror says; imports nothing | Shipped 2026-10-25 (new, from the DELIVER refactor) |
+| Keyboard | `src/platform/input.js` | Held and latched keys by position (`code`). *typed-initials*: also `takeTyped()`, every press that isn't a repeat or a Cmd/Ctrl/Alt chord, in order, as `{ key }`, which `releaseAll()` empties too. And one pure default policy, `preventsDefault`, which the listener applies on every screen (the user's decision): `preventDefault` for printable keys and Backspace unless Cmd, Ctrl or Alt/Option is held (no quick find, no back navigation), and for Space and the arrows unless Cmd or Ctrl is held, as before (so Alt+Left stays blocked, pre-existing). It reports presses and applies that policy, decides nothing about the game, and imports nothing (ADR-009) | Shipped; the typed presses and the default policy 2026-10-26 (typed-initials) |
+| Rendering | `src/view/render.js` | Reads `g`. Canvas drawing, HUD (including the sound and music indicators), the high-score table with the confirmed row highlighted (the game-over screen of any later game; the title shows no signing, because a signing does not survive the reload that shows it: clarified in DISTILL), initials entry and the signing messages on game over. Nothing new is drawn during play. *typed-initials*: three slots `_ _ _` with the next one blinking, the typing help line, the hint and the refusal under it, and "Signing skipped". The feature delta's Rendering universe lists what changes and what must not (DoD 5's checklist, still owed by hand). "Press Enter to house-hunt again" blinks on the rules' `canPlayAgain()` | Shipped; the table lines 2026-10-25; the typed entry 2026-10-26 (typed-initials) |
+| Status mirror | `src/view/status.js` | Reads `g`. Accessible DOM HUD and announcements (including signing outcomes whenever they arrive), the initials field, and the High scores list with the confirmed row marked `aria-current` | Shipped; the table announcements 2026-10-25. *typed-initials*: the field reads "No letters yet, letter 1 of 3" … "A L X, press Enter to sign"; each hint or refusal is announced once, by its number, even when the words repeat (the numbers run on across games; the write passes `always` when the number changes, since `set()` skips unchanged text); "Signing skipped. Press Enter to house-hunt again." in place of the prompt after a skip (shipped 2026-10-26) |
+| View wording | `src/view/messages.js` | Data: the words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once so the canvas says what the tested mirror says; imports nothing. *typed-initials*: the refusal reworded and the too-few hint (`INITIALS_NOTICES`), and "Signing skipped" (`SIGNING_SKIPPED`, `SIGNING_SKIPPED_SENTENCE`) | Shipped 2026-10-25 (new, from the DELIVER refactor); the typed wording 2026-10-26 (typed-initials) |
 | Storage | `src/platform/storage.js` | Guarded localStorage (best score, settings) | Shipped |
 | High-score table client | `src/platform/leaderboard.js` | One request per call to `/api/scores`; rejects on a non-OK answer, an OK answer that isn't the promised table (rows of `{ initials, score, id }` and a `listedAt`, plus a string `id` for a signing), a network error or the 5000 ms timeout; never retries | Shipped 2026-10-25 |
 | Score API | `netlify/functions/scores.mjs` | The Netlify entry: a method other than GET or POST is refused (405) before any store is opened; `chooseStore`, `getStore` or `getDeployStore`, the restricted table-store port, routing (GET gets `list` only), `config.path` and `config.rateLimit`. The port factory. The request handler: validation (415, 413, 400), one key per score, bounded best-effort pruning, rows stamped with `listedAt`, cache headers (a GET 200 cached for 15 s at the CDN, everything else `no-store`), JSON errors (a port refusal is a 500), one log line with a fixed reason. The pure key codec, ranking, prune plan and `chooseStore` | Shipped 2026-10-25 |
@@ -148,7 +148,7 @@ Release tooling, not part of the game: `scripts/smoke-leaderboard.mjs`, the DEVO
 
 ### Ports
 
-- **Driving**: browser keyboard (`platform/input.js`), including Up/Down/Enter for the initials; window `blur` and document `visibilitychange`; page load (which also starts the first table load, the client's probe). Server side: HTTP `/api/scores` (GET, POST), through Netlify in production and `scripts/serve.mjs` locally.
+- **Driving**: browser keyboard (`platform/input.js`). The game keys are read by position. *typed-initials*: while the initials entry is open, the letters are read as printed, plus Backspace, Enter and Esc, with every press in order, in place of Up/Down/Enter (ADR-009). On every screen, printable keys and Backspace never start a browser feature (the user's decision). Also window `blur` and document `visibilitychange`; page load (which also starts the first table load, the client's probe). Server side: HTTP `/api/scores` (GET, POST), through Netlify in production and `scripts/serve.mjs` locally.
 - **Driven**: screen (`view/render.js`); accessibility tree (`view/status.js`); audio output (`sound/synth.js`, with injected context factory, page clock and timers; the audio clock is real time); persistence (`platform/storage.js`); the shared high-score table (`platform/leaderboard.js`, with injected `fetch` and timers). Server side: the restricted table-store port (`list`, `putIfNew`, `remove` for well-formed score keys only, with no `deleteAll`; GET gets `list` alone). The composition roots build it around a `@netlify/blobs` store chosen by `chooseStore` (ADR-004, ADR-005). Also a clock, an id source and a logger, injected into the handler.
 - **Internal**: the event outbox (`game/game.js` → `main.js` → `sound/director.js`), ADR-001. `gameStarted` and `initialsEntered` also drive the table.
 
@@ -162,15 +162,23 @@ Release tooling, not part of the game: `scripts/smoke-leaderboard.mjs`, the DEVO
 - [ADR-006](adr-006-shared-high-score-rules.md): high-score rules shared by the browser and the function in one pure module.
 - [ADR-007](adr-007-proportionate-abuse-controls.md): proportionate abuse controls for the public score endpoint; forged scores are an accepted risk.
 - [ADR-008](adr-008-table-probed-never-awaited.md): the high-score table is probed, never awaited, and a signing has an explicit outcome.
+- [ADR-009](adr-009-keyboard-typed-presses-in-order.md): the keyboard reports typed key presses in order, beside positional key state (accepted, typed-initials; revised 2026-10-26; implemented in DELIVER, 2026-10-26).
 
 ### Architecture enforcement
 
-Style: modular monolith with ports and adapters · Language: JavaScript (ES modules) · Tool: a hand-rolled import-scan unit test in the `unit` project, so it runs in the build gate (ADR-006). The scan matches `import … from '…'`, bare `import '…'`, `export … from '…'` and dynamic `import('…')`. Five rules:
+Style: modular monolith with ports and adapters · Language: JavaScript (ES modules) · Tool: a hand-rolled import-scan unit test in the `unit` project, so it runs in the build gate (ADR-006). The scan matches `import … from '…'`, bare `import '…'`, `export … from '…'` and dynamic `import('…')`. Five rules, plus a sixth added by typed-initials:
 1. `game/` imports only from `game/` and `theme/`.
 2. `theme/` imports nothing.
 3. `game/high-scores.js` imports nothing.
 4. `src/**` never imports `netlify/**` or `@netlify/*`.
 5. `netlify/**` imports only `src/game/high-scores.js` from `src/`.
+6. *typed-initials (ADR-009; added in DELIVER, `f05027a`)*: `platform/input.js` imports nothing, so the keyboard can never read the rules' state.
+
+*typed-initials*:
+- **Pure policies**: the keyboard's default policy and the rules' entry step are pure functions; the entry step emits no events. Unit tests enumerate each over each class, with representatives (ADR-009): `tests/unit/keyboard.spec.js` and `tests/unit/entry-step.spec.js`.
+- **Globals**: the scan reads imports only, so a browser global used without an import (`window`, `document`, `localStorage`) passes it. `game/` was checked for globals by hand. A globals check in the same scan is a candidate follow-up.
+- **Narrowed** (typed-initials DDD-T14): `main.js` hands `update` an `{ isDown }` view of the keyboard, never the keyboard, so the rules can't drain the typed queue, take the pressed set or release keys. A unit check, `tests/unit/update-keyboard.spec.js`, asserts that `update` calls only `isDown`. `handlePresses(pressed, typed)` takes data only.
+- **Waived** (architect, 2026-10-26, typed-initials DDD-T14; pre-existing): the views read the mutable `g`. `render.js` imports it and `status.js` receives it; this feature adds reads only. A read-only view of `g` for the views is a candidate follow-up.
 
 The handler reaches the store only through the restricted table-store port; unit tests on the real emulator check this.
 

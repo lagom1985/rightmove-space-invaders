@@ -132,3 +132,63 @@ kpis:
     window: "daily, on every usage email, and every few hours while abuse is suspected"
     gate: soft
     baseline: "none measured: the first reading is the Usage total on the first day after the merge"
+
+  # rightmove-invaders-typed-initials, added by DISTILL on 2026-10-25 (DEVOPS was skipped: no new platform, server or
+  # instrumentation). All four are soft gates: recorded and reviewed, not blocking the merge. on_miss says what a miss
+  # triggers: a K16, K17 or K18 miss opens a fix via /nw-bugfix before the release record is written; a K19 miss means
+  # investigate, then decide (the public table records no cause for an AAA row; DISCUSS, revised 2026-10-26 after the
+  # second review cycle). An accidental skip (K18) is an Esc in game 1, when the player was asked to sign, or any skip the player calls
+  # unintended; its exposure is every entry opened (n = 10 with 5 playtesters). Playtest protocol (K16-K18): 5 people
+  # who match casual-arcade-player and aren't on the team, at least 1 of whom types on AZERTY or QWERTZ on their own laptop, play on
+  # the pull request's deploy preview (its table starts empty, so any deposit makes it). Nobody is told how to sign or skip.
+  # Each plays two games: after the first game over they sign; after the second they are asked to "move on without
+  # putting your initials up". Times come from a screen recording, from the prompt appearing to "Signing …" or "Signing
+  # skipped."; n is recorded with every result.
+  # local_scenarios: the @kpi-K… acceptance scenarios that check the behaviour each KPI depends on, locally, in Chromium,
+  # Firefox and WebKit. DELIVER enabled them (2026-10-26), and they are green in every npm test run (browser scenarios:
+  # not in the Netlify build, which runs no browser). They back a KPI and never replace its playtest or production
+  # measurement, and the targets are unchanged.
+  # Measured so far (DELIVER, 2026-10-26): nothing. K16-K18 wait for the playtest on the pull request's deploy preview,
+  # and K19's baseline for release day; the baselines below are the ones DISCUSS wrote. Pipeline baselines on the
+  # developer machine: npm run build (the unit and in-memory projects) passes 159 tests; npm test passes 525 tests, in
+  # 26.2 min (it was 326 tests and about 14 min before this feature).
+  - id: K16
+    feature: rightmove-invaders-typed-initials
+    name: Signing is self-evident
+    target: "5 of 5 playtesters whose deposit makes the table sign with their own initials, unaided, each within 10 s of the prompt"
+    measured_by: "playtest screen recording and stopwatch (protocol above)"
+    window: once, on the pull request's deploy preview, before closing the feature
+    gate: soft
+    on_miss: "a fix, opened via /nw-bugfix before the release record is written"
+    local_scenarios: "@kpi-K16 'Typed initials sign the table' (milestone-1-typing-the-initials.feature) and 'Other initials sign after a refusal' (milestone-4-refused-initials.feature), in tests/e2e/rightmove-invaders-typed-initials/acceptance/"
+    baseline: "not measured. Structurally, the letter wheel needs 9 presses for FAB and 17 for ALX (37 with Up only); typing needs 4"
+  - id: K17
+    feature: rightmove-invaders-typed-initials
+    name: What you see is what you sign
+    target: "0 signatures different from what the player meant, across all playtesters, the AZERTY or QWERTZ tester included"
+    measured_by: "each playtester asked after each signing, checked against the preview table"
+    window: as K16
+    gate: soft
+    on_miss: "a fix, opened via /nw-bugfix before the release record is written"
+    local_scenarios: "@kpi-K17 'Fast typing keeps every letter, in order' (milestone-1), 'Game keys type their letters' (milestone-2), 'Letters on a French AZERTY keyboard' and 'Letters on a German QWERTZ keyboard' (milestone-3, synthetic key events: a real keyboard is DoD 5's manual check)"
+    baseline: n/a
+  - id: K18
+    feature: rightmove-invaders-typed-initials
+    name: Skipping is findable and safe
+    target: ">= 4 of 5 playtesters asked to move on without signing skip with Esc, unaided, within 10 s; 0 accidental skips out of n entries opened (n = 10 with 5 playtesters)"
+    measured_by: "playtest screen recording (protocol above)"
+    window: as K16, with slice 02 on the preview
+    gate: soft
+    on_miss: "a fix, opened via /nw-bugfix before the release record is written"
+    local_scenarios: "@kpi-K18 'Esc skips signing', 'Esc pressed as the game ends doesn't skip' and 'The invitation to sign says how to skip' (milestone-5-skip-with-esc.feature)"
+    baseline: "today there is no way to skip"
+  - id: K19
+    feature: rightmove-invaders-typed-initials
+    name: Fewer throwaway rows
+    target: "no new AAA row on the production table in the 30 days after release. AAA rows are the proxy for throwaway signings: AAA is what the letter wheel signs when Enter is pressed three times just to get past the entry, and after release it has to be typed. A non-zero count means some players still sign AAA, either deliberately (their initials, or a joke) or because they wanted past the entry and didn't find Esc"
+    measured_by: "GET /api/scores on production, weekly (public, read-only: no write guard needed)"
+    window: "weekly for 30 days after the release that ships slice 02; the baseline on release day"
+    gate: soft
+    on_miss: "investigate, then decide. The investigation can ask the playtesters (did anyone want past the entry without finding Esc?), but the public table records no cause for an AAA row, so it can't say whether a production row was deliberate. The PO then decides whether a change is needed, and if so opens it via /nw-bugfix"
+    local_scenarios: "@kpi-K19 'Esc skips signing' (milestone-5-skip-with-esc.feature): a skip sends nothing to the table. Observational in production (low traffic)"
+    baseline: "to be recorded on release day: the AAA rows on the production top 10"

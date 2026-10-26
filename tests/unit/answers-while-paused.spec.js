@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { loadFreshGame, arrange } from './support/fresh-game.js';
 import { assertStateDelta, setTo } from '../common/state-delta.js';
-import { ALPHABET, TABLE_SIZE, SCORE_STEP, isAllowedInitials } from '../../src/game/high-scores.js';
+import { TABLE_SIZE, SCORE_STEP, isAllowedInitials } from '../../src/game/high-scores.js';
 import { GameEvent } from '../../src/game/events.js';
 
 // The table answers in promise callbacks, and main.js hands each answer to the rules there, between frames (DDD-11). A
@@ -14,7 +14,7 @@ import { GameEvent } from '../../src/game/events.js';
 // Universe: the rules' read-only snapshot(), and whether the game is still paused (an answer doesn't resume it).
 
 const STEP = 1 / 120;
-const SETTLE_S = 0.7;   // Enter restarts only 0.6 s after game over
+const SETTLE_S = 0.7;   // Enter restarts, and the entry takes typed presses, only 0.6 s after game over
 const keyboard = { isDown: () => false };
 const UNIVERSE = ['screen', 'table', 'entry', 'signing', 'settled', 'lastListedAt', 'paused'];
 const LISTED_AT_PAGE_LOAD = 10;
@@ -48,10 +48,9 @@ async function pausedWithASigningOnItsWay(initials, score, pauseWith) {
   arrange.deposit(rules, score);
   arrange.formationOnPin(rules);
   rules.update(STEP, keyboard);
-  for (const letter of initials) {
-    for (let i = 0; i < ALPHABET.indexOf(letter); i++) rules.handlePresses(new Set(['ArrowUp']));
-    rules.handlePresses(new Set(['Enter']));
-  }
+  rules.update(SETTLE_S, keyboard);
+  for (const letter of initials) rules.handlePresses(new Set([`Key${letter}`]), [{ key: letter.toLowerCase() }]);
+  rules.handlePresses(new Set(['Enter']), [{ key: 'Enter' }]);
   const entered = rules.takeEvents().find(event => event.type === GameEvent.INITIALS_ENTERED);
   expect(entered, `arranging: ${initials} was not signed`).toMatchObject({ initials, score });
   rules.update(SETTLE_S, keyboard);

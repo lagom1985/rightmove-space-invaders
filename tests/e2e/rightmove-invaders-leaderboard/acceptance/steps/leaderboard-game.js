@@ -1,7 +1,6 @@
 import { expect } from '@playwright/test';
 import {
-  ALPHABET, BLOCKED_INITIALS, Message, INITIALS_FIELD_PATTERN, SigningStatus, SigningTrouble, PressSpacing,
-  START, OTHER_HOUSE_HUNTERS,
+  Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS,
 } from './domain-types.js';
 
 // Drives the real game page with real key presses, against the real high-score table: scripts/serve.mjs answers
@@ -28,6 +27,8 @@ const SETTLE_FRAMES = 10;         // frames the page needs to take an answer in
 const MAX_GAME_MS = 600_000;
 const WAIT_FRAMES = 200;          // up to 3.4 s of game time for an answer to arrive and show
 const REAL_PAUSE_MS = 15;         // real time between those frames
+const PAUSE_AT_MS = 5000;         // the page's clock is paused this long after START, once the page has asked for the table
+const PAUSE_LEAD_MS = 1000;       // or this far ahead of the page's clock, if that is later
 const SEED = 20261023;
 const BOARD_COOKIE = 'test-board';
 const SCORES = '/api/scores';
@@ -86,10 +87,19 @@ export class LeaderboardGame {
     // The page-load request must have been seen before any later fault takes its count, or expectRefreshAttempted could
     // mistake the page load for a refresh.
     await expect.poll(() => this.loadsSent, { message: 'the page never asked for the table on load' }).toBeGreaterThanOrEqual(1);
-    await this.page.clock.pauseAt(new Date(START.getTime() + 5000));
+    await this.pauseTheClock();
     await this.frame();
     this.table.viewer = this.page;   // the walking skeleton's "topped by" step reads the table here
     this.opened = true;
+  }
+
+  // The page's clock runs in real time from install until it is paused, and a pause can't go back in time. It pauses at
+  // START + PAUSE_AT_MS, as it always has, unless a busy machine took so long to load the page and ask for the table
+  // that the page's clock is within PAUSE_LEAD_MS of that or past it: then PAUSE_LEAD_MS ahead of the page's clock,
+  // which covers the time the pause takes to reach the page.
+  async pauseTheClock() {
+    const pageNow = await this.page.evaluate(() => Date.now());
+    await this.page.clock.pauseAt(Math.max(START.getTime() + PAUSE_AT_MS, pageNow + PAUSE_LEAD_MS));
   }
 
   async signTheTable(initials, score) {
@@ -208,34 +218,16 @@ export class LeaderboardGame {
     await this.wait(SETTLE_FRAMES * FRAME_MS);
   }
 
-  async signWithBlockedInitials() {
-    const [blocked] = BLOCKED_INITIALS;
-    expect(blocked, 'DATA GAP: the owner-reviewed word list is empty (BLOCKED_INITIALS in src/game/high-scores.js)').toBeTruthy();
-    this.blocked = blocked;
-    await this.signAs(blocked);
-  }
-
+  // Typed (rightmove-invaders-typed-initials). Every caller has let SETTLE_MS of game over pass first, so the typed
+  // entry's 0.6 s stray-key guard is over.
   async enterLetters(letters) {
-    for (const letter of letters) await this.chooseLetter(letter);
+    await this.typeLettersAndSign(letters);
   }
 
-  async chooseLetter(letter) {
-    for (let i = 0; i < ALPHABET.indexOf(letter); i++) await this.press('ArrowUp');
+  // Typed initials (rightmove-invaders-typed-initials): each letter as a player types it, lowercase, then Enter.
+  async typeLettersAndSign(letters) {
+    for (const letter of letters.toLowerCase()) await this.press(letter);
     await this.press('Enter');
-  }
-
-  async chooseLetterAndMoveOn(letter) {
-    await this.mark();
-    await this.chooseLetter(letter);
-  }
-
-  async pressUp(times, spacing) {
-    await this.mark();
-    for (let i = 0; i < times; i++) {
-      await this.page.keyboard.press('ArrowUp');
-      if (spacing === PressSpacing.A_FRAME_APART) await this.frame();
-    }
-    if (spacing === PressSpacing.WITHIN_ONE_FRAME) await this.frame();
   }
 
   async pressEnter() {
@@ -380,13 +372,6 @@ export class LeaderboardGame {
     await expect(this.initialsField()).toHaveText(text, { timeout: 1000 });
   }
 
-  async expectBlockedInitialsKept(letter) { await this.expectInitialsField(Message.initialsField(this.blocked, letter)); }
-
-  async expectInitialsAnnouncedTimes(count) {
-    const updates = (await this.heardSinceMark()).filter(text => INITIALS_FIELD_PATTERN.test(text));
-    expect(updates, 'live-region updates about the initials since the presses').toHaveLength(count);
-  }
-
   async expectMarkedAsMine(initials) {
     await this.until(async () => (await this.markedRows().count()) === 1 && (await this.markedRows().textContent()).includes(initials));
     await expect(this.markedRows(), 'rows marked as mine').toHaveCount(1, { timeout: 1000 });
@@ -414,12 +399,6 @@ export class LeaderboardGame {
     await this.expectListShowsRows();
     await this.until(async () => !(await this.rows().allTextContents()).some(text => text.includes(initials)));
     expect(await this.rows().allTextContents(), `${initials} is still on the table`).not.toContainEqual(expect.stringContaining(initials));
-  }
-
-  // Asks the real table directly (not through the page), so nothing the page shows can stand in for it.
-  async expectTableEmptyAtTheSource() {
-    const answer = await this.page.context().request.get(SCORES);
-    expect((await answer.json()).scores, 'the table holds a signature').toEqual([]);
   }
 
   async expectGameOverWithout(initials) {

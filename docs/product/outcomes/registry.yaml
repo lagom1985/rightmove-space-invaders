@@ -196,10 +196,12 @@ outcomes:
   summary: Signing outcome lifecycle
   feature: rightmove-invaders-leaderboard
   inputs:
-  - shape: 'third Enter on the initials entry; the answer (with its rows and listedAt),
+  - shape: 'Enter with 3 typed letters on the initials entry (amended by typed-initials, DISTILL 2026-10-25; was:
+      third Enter on the initials entry); the answer (with its rows and listedAt),
       failure or 5000 ms timeout of signing n; Enter'
   output:
-    shape: 'blocked initials keep the entry open; allowed initials -> pending (signing
+    shape: 'blocked initials keep the entry open, emptied, with the refusal shown until the next key the entry acts on
+      (amended by typed-initials; was: the letters kept); allowed initials -> pending (signing
       n, replacing any earlier signing as the current one) -> confirmed (rank from the
       answer''s own rows; row highlighted wherever the table is shown (not the title: clarified in DISTILL) until the next
       signing or until the row leaves the shown table, pruned or pushed down, while
@@ -277,16 +279,21 @@ outcomes:
   summary: Accessible initials entry and signing outcomes in the status mirror
   feature: rightmove-invaders-leaderboard
   inputs:
-  - shape: 'the game state g read each frame: the initials entry {letters, index}, the
+  - shape: 'the game state g read each frame: the initials entry {letters, notice} and the skip flag (amended by
+      typed-initials, DELIVER 2026-10-26; was: {letters, index}), the
       current signing {initials, status, id, rank}, the latest settled outcome {n, initials,
       outcome, rank}, the table {status, rows}'
   output:
-    shape: 'data-hud=initials field reads "F A A, letter 2 of 3" while entering (empty
-      otherwise); one live-region update per change of letter or position, at most one
-      per frame (same-key presses within a frame count once); the messages DISTILL fixed
-      (Signing FAB…, Signed FAB, #3., The table filled up before FAB arrived., Couldn''t
-      confirm FAB''s signing., Those initials aren''t allowed. Change a letter., High-score
-      table unavailable.); each settled outcome announced once whenever it arrives, a replaced
+    shape: 'data-hud=initials field reads "No letters yet, letter 1 of 3", "A, letter 2 of 3", "A L, letter 3 of 3"
+      or "A L X, press Enter to sign" while entering (empty otherwise); at most one live-region write per frame, so
+      letters typed within one frame are announced together, as the field they leave; each notice once, by its number,
+      even when its words repeat (amended by typed-initials, DISTILL 2026-10-25; was: "F A A, letter 2 of 3", one update
+      per change of letter or position, same-key presses within a frame count once, and "Those initials aren''t allowed.
+      Change a letter."); the messages DISTILL fixed (Signing FAB…, Signed FAB, #3., The table filled up before FAB
+      arrived., Couldn''t confirm FAB''s signing., Those initials aren''t allowed. Type different ones., Type 3 letters to
+      sign, or press Esc to skip. (slice 01: Type 3 letters to sign.), Signing skipped. Press Enter to house-hunt again.,
+      High-score table unavailable.); the prompt New high score! Enter your initials: type 3 letters, then press Enter to
+      sign. Esc skips. (slice 01: without Esc skips.); each settled outcome announced once whenever it arrives, a replaced
       signing''s included; aria-current=true on the current confirmed signing''s row in the
       High scores list while that row is shown; a later game''s game-over message never
       repeats an earlier outcome'
@@ -297,5 +304,52 @@ outcomes:
   - aria-current
   - signing-announcement
   artifact: src/view/status.js
-  related: [OUT-11, OUT-12]
+  related: [OUT-11, OUT-12, OUT-15, OUT-16]
+  superseded_by: null
+- id: OUT-15
+  kind: specification
+  summary: 'Typed initials entry: letters as printed, every press in order, the stray-key guard, the suspended
+    game keys, the emptied refusal'
+  feature: rightmove-invaders-typed-initials
+  inputs:
+  - shape: 'each frame while the initials entry is open: handlePresses(pressed, typed), typed = the keydowns since
+      the last frame in order, each { key }, without repeats or Cmd/Ctrl/Alt chords (ADR-009); the game-over
+      time overT'
+  output:
+    shape: 'while overT <= 0.6 every key of the frame is dropped; otherwise the typed presses in order: a key that is
+      exactly one ASCII letter a-z or A-Z (no normalisation, no case folding: ß, ı, ſ, K (Kelvin), é and a decomposed é
+      are ignored) fills the next of 3 slots in capitals and clears the notice, a 4th is ignored; Backspace removes the
+      last letter (nothing on an empty entry); Enter with 3 allowed letters signs exactly them (initialsEntered, the
+      OUT-11 lifecycle unchanged) and drops the rest of the frame; Enter with 3 letters on the word filter empties the
+      entry and shows the refusal notice; Enter with fewer shows the too-few notice and keeps the letters; each notice
+      is numbered n, so a repeated one is announced again; any other key changes nothing, the notice included; the
+      positional set is ignored in such a frame (no M/N toggle, no pause, no restart); the entry opens empty;
+      snapshot().entry = { letters, notice: null | { kind: refused | too-few, n } } (settled in DISTILL)'
+  keywords:
+  - typed-initials
+  - initials-entry
+  - key-order
+  - stray-key-guard
+  - keyboard-layout
+  artifact: src/game/game.js
+  related: [OUT-10, OUT-11, OUT-14, OUT-16]
+  superseded_by: null
+- id: OUT-16
+  kind: operation
+  summary: Skip signing with Esc
+  feature: rightmove-invaders-typed-initials
+  inputs:
+  - shape: Esc in a frame that starts with the initials entry open, with overT > 0.6
+  output:
+    shape: 'the entry closes and this game over is marked skipped (snapshot().skipped true until the next game starts;
+      settled in DISTILL); no signing, no initialsEntered event, no request, no sound; the current signing, its mark,
+      the settled notice, the table and the best are unchanged; the rest of the frame is dropped; the status mirror says
+      "Signing skipped. Press Enter to house-hunt again."; Enter then starts a new game as usual'
+  keywords:
+  - skip-signing
+  - esc
+  - initials-entry
+  - no-signing
+  artifact: src/game/game.js
+  related: [OUT-11, OUT-15]
   superseded_by: null

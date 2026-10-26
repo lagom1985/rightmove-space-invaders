@@ -13,6 +13,7 @@ import { createLeaderboard } from './platform/leaderboard.js';
 import { GameEvent } from './game/events.js';
 
 const keyboard = createKeyboard(window);
+const heldKeys = Object.freeze({ isDown: keyboard.isDown });   // all the rules' fixed step sees of the keyboard (DDD-T14)
 const renderer = createRenderer(document.getElementById('game'));
 const syncStatus = createStatus(document.getElementById('status'));
 
@@ -85,10 +86,10 @@ let last = 0, acc = 0;
 function frame(now) {
   const dt = last ? Math.min((now - last) / 1000, MAX_FRAME) : 0;
   last = now;
-  handlePresses(keyboard.takePressed());
+  handlePresses(keyboard.takePressed(), keyboard.takeTyped());   // paused or not: the rules decide what a key means
   if (!g.paused) {
     acc += dt;
-    while (acc >= STEP) { update(STEP, keyboard); keyboard.endStep(); acc -= STEP; }
+    while (acc >= STEP) { update(STEP, heldKeys); keyboard.endStep(); acc -= STEP; }
   }
   handleEvents();
   renderer.draw();

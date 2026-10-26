@@ -109,7 +109,8 @@ test('rows apply only when listed no earlier than the rows shown, and only a fir
   await fc.assert(fc.asyncProperty(fc.array(loadOutcome, { minLength: 1, maxLength: 12 }), async outcomes => {
     const game = await loadFreshGame();
     expect(game.snapshot(), 'a fresh game: the table unknown').toEqual({
-      screen: 'title', table: { status: 'unknown', rows: [] }, entry: null, signing: null, settled: null, lastListedAt: null,
+      screen: 'title', table: { status: 'unknown', rows: [] }, entry: null, skipped: false, signing: null, settled: null,
+      lastListedAt: null,
     });
     for (const outcome of outcomes) {
       const before = game.snapshot();

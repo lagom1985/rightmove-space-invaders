@@ -3,7 +3,9 @@ import fc from 'fast-check';
 import { expect } from '@playwright/test';
 import { loadFreshGame, arrange } from '../../../../unit/support/fresh-game.js';
 import { assertStateDelta, setTo } from '../../../../common/state-delta.js';
-import { GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, SigningOutcome, TableStatus } from '../steps/domain-types.js';
+import {
+  GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, SigningOutcome, TableStatus,
+} from '../steps/domain-types.js';
 
 // Tier B (Mandate 10): the signing lifecycle and the table status as a state machine, explored with fast-check's
 // model-based testing. The system is the real rules (src/game/game.js, a fresh copy per run, as in tests/unit); this
@@ -18,7 +20,7 @@ import { GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, Sig
 // as code. After every command, the rules' observable state must change exactly as the model's did (state delta,
 // fail-closed), over this universe, read ONLY from the read-only snapshot() that game.js exports (the same view the
 // views use; never from g's fields):
-//   table        { status, rows: ids }            entry    { letters, index } or null
+//   table        { status, rows: ids }            entry    { letters, notice } or null
 //   signing      { n, initials, status, id, rank } or null (id and rank once confirmed)
 //   settled      { n, initials, outcome, rank } or null: the latest settled outcome, which the status mirror announces once
 //   lastListedAt the last applied listedAt (DDD-12), or null
@@ -28,6 +30,12 @@ import { GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, Sig
 // and `arrange.formationOnPin`, as the unit tests do; nothing here writes g's fields itself.
 // Covers what the keyboard can't reach in the browser: a game over while the table is unknown, and the answer to a
 // signing that a newer signing has replaced (a game takes longer than the 5 s timeout).
+//
+// The initials are typed (rightmove-invaders-typed-initials): the entry is { letters: '' to 'ABC', notice: null |
+// 'refused' | 'too-few' }, read from snapshot().entry = { letters, notice: null | { kind, n } }. Letters are typed, Enter
+// signs three or shows a notice, and the 0.6 s guard is let pass at every game over. The typed rules themselves are
+// explored by that feature's Tier B (tests/e2e/rightmove-invaders-typed-initials/acceptance/tier-b/entry-rules.js); here
+// they only have to sign.
 
 const STEP = 1 / 120;
 const SETTLE_S = 0.7;                       // Enter restarts only 0.6 s after game over
@@ -35,7 +43,8 @@ const keyboard = { isDown: () => false };
 const SEED = Number(process.env.FC_SEED ?? 20261023);
 const RUNS = 100;
 const UNIVERSE = ['table', 'entry', 'signing', 'settled', 'lastListedAt', 'screen'];
-const rotate = (letter, by) => ALPHABET[(ALPHABET.indexOf(letter) + by + ALPHABET.length) % ALPHABET.length];
+// A key press as main.js hands it over: its position (code) in the pressed set, and { key } in the typed list (DDD-T1).
+const codeOf = key => (/^[a-z]$/.test(key) ? `Key${key.toUpperCase()}` : key);
 
 // ---- the in-memory composition root ----
 export class InMemoryRules {
@@ -61,7 +70,7 @@ export class InMemoryRules {
   }
 
   press(key) {
-    this.game.handlePresses(new Set([key]));
+    this.game.handlePresses(new Set([codeOf(key)]), [{ key }]);
     this.pump();
   }
 
@@ -77,20 +86,16 @@ export class InMemoryRules {
     this.game.update(STEP, keyboard);
     this.pump();
     expect(this.view.screen, 'arranging: the game did not end').toBe('over');
+    this.game.update(SETTLE_S, keyboard);   // no key acts on the entry for the first 0.6 s
   }
-
-  pressUp() { this.press('ArrowUp'); }
-
-  pressDown() { this.press('ArrowDown'); }
 
   pressEnter() { this.press('Enter'); }
 
+  typeLetter(letter) { this.press(letter.toLowerCase()); }
+
   signAs(initials) {
-    for (const letter of initials) {
-      const { letters, index } = this.view.entry;
-      for (let i = 0; i < (ALPHABET.indexOf(letter) - ALPHABET.indexOf(letters[index]) + ALPHABET.length) % ALPHABET.length; i++) this.pressUp();
-      this.pressEnter();
-    }
+    for (const letter of initials) this.typeLetter(letter);
+    this.pressEnter();
   }
 
   answerTable(answer) {
@@ -120,7 +125,7 @@ export class InMemoryRules {
     const confirmed = s => s.status === SigningOutcome.CONFIRMED || s.outcome === SigningOutcome.CONFIRMED;
     return {
       table: { status: table.status, rows: table.rows.map(row => row.id) },
-      entry: entry ? { letters: entry.letters, index: entry.index } : null,
+      entry: entry ? { letters: entry.letters, notice: entry.notice?.kind ?? null } : null,
       signing: signing ? { n: signing.n, initials: signing.initials, status: signing.status, ...(confirmed(signing) ? { id: signing.id, rank: signing.rank } : {}) } : null,
       settled: settled ? { n: settled.n, initials: settled.initials, outcome: settled.outcome, ...(confirmed(settled) ? { rank: settled.rank } : {}) } : null,
       lastListedAt: lastListedAt ?? null,
@@ -192,43 +197,37 @@ const finishGameWith = deposit => command(`finishGameWith(${deposit})`, m => m.s
   r.finishGameWith(deposit);
   if (m.status === TableStatus.UNKNOWN) m.seen.add('game over while unknown');
   m.screen = 'over';
-  m.entry = m.makesTheTable(deposit) ? { letters: 'A'.repeat(INITIALS_LENGTH), index: 0 } : null;
+  m.entry = m.makesTheTable(deposit) ? { letters: '', notice: null } : null;
   if (m.entry) m.seen.add('asked for initials');
   m.deposit = deposit;
 }));
 
-const turn = by => command(by > 0 ? 'pressUp' : 'pressDown', m => m.entry !== null, (m, r) => stepBoth(m, r, () => {
-  if (by > 0) r.pressUp(); else r.pressDown();
-  const letters = [...m.entry.letters];
-  letters[m.entry.index] = rotate(letters[m.entry.index], by);
-  m.entry = { ...m.entry, letters: letters.join('') };
-}));
-
-// Enter on the initials: takes the letter; the third one signs, unless the initials are on the word filter, which keeps
-// the entry open with the letters kept and the first letter current (DISTILL's choice).
-function takeLetter(m, r) {
-  stepBoth(m, r, () => {
-    const signedBefore = r.signed.length;
-    r.pressEnter();
-    const index = m.entry.index + 1;
-    if (index < INITIALS_LENGTH) { m.entry = { ...m.entry, index }; return; }
-    if (BLOCKED_INITIALS.includes(m.entry.letters)) { m.entry = { ...m.entry, index: 0 }; m.seen.add('refused'); return; }
-    const n = r.signed.length > signedBefore ? r.signed.at(-1).n : 'no initialsEntered event';
-    const signing = { n, initials: m.entry.letters, score: m.deposit };
-    m.entry = null;
-    m.inFlight.push(signing);
-    m.signing = { n, initials: signing.initials, status: SigningOutcome.PENDING };
-  });
+// ---- the typed entry: a letter fills the next slot (a 4th is ignored); Enter signs three letters, refuses blocked ones
+// (the entry empties and shows the refusal) or, with fewer, shows the too-few hint and keeps them ----
+function sign(m, r, signedBefore) {
+  const n = r.signed.length > signedBefore ? r.signed.at(-1).n : 'no initialsEntered event';
+  const signing = { n, initials: m.entry.letters, score: m.deposit };
+  m.entry = null;
+  m.inFlight.push(signing);
+  m.signing = { n, initials: signing.initials, status: SigningOutcome.PENDING };
 }
 
-const typeLetter = letter => command(`type ${letter}`, m => m.entry !== null, (m, r) => {
-  const steps = (ALPHABET.indexOf(letter) - ALPHABET.indexOf(m.entry.letters[m.entry.index]) + ALPHABET.length) % ALPHABET.length;
-  for (let i = 0; i < steps; i++) turn(1).run(m, r);
-  takeLetter(m, r);
-});
+const typeOneLetter = letter => command(`type ${letter}`, m => m.entry !== null, (m, r) => stepBoth(m, r, () => {
+  r.typeLetter(letter);
+  if (m.entry.letters.length < INITIALS_LENGTH) m.entry = { letters: m.entry.letters + letter, notice: null };
+}));
 
-const signAs = initials => command(`signAs(${initials})`, m => m.entry !== null && m.entry.index === 0, (m, r) => {
-  for (const letter of initials) typeLetter(letter).run(m, r);
+const enterOnEntry = () => command('pressEnter on the entry', m => m.entry !== null, (m, r) => stepBoth(m, r, () => {
+  const signedBefore = r.signed.length;
+  r.pressEnter();
+  if (m.entry.letters.length < INITIALS_LENGTH) { m.entry = { ...m.entry, notice: 'too-few' }; return; }
+  if (BLOCKED_INITIALS.includes(m.entry.letters)) { m.entry = { letters: '', notice: 'refused' }; m.seen.add('refused'); return; }
+  sign(m, r, signedBefore);
+}));
+
+const signAs = initials => command(`signAs(${initials})`, m => m.entry !== null && m.entry.letters === '', (m, r) => {
+  for (const letter of initials) typeOneLetter(letter).run(m, r);
+  enterOnEntry().run(m, r);
 });
 
 const answerTable = (rows, listedAt) => command(`answerTable(${rows.length} rows, listedAt ${listedAt})`, m => m.loads > 0, (m, r) => stepBoth(m, r, () => {
@@ -283,14 +282,14 @@ const initials = fc.constantFrom(...ALLOWED_INITIALS, ...BLOCKED_INITIALS);
 const COMMANDS = [
   fc.constant(startNewGame()), fc.constant(startNewGame()), fc.constant(startNewGame()),
   deposit.map(finishGameWith), deposit.map(finishGameWith), deposit.map(finishGameWith),
-  fc.constantFrom(1, -1).map(turn),
-  fc.constantFrom(...ALPHABET).map(typeLetter),
+  fc.constantFrom(...ALPHABET).map(typeOneLetter),
   initials.map(signAs), initials.map(signAs), initials.map(signAs),
   fc.tuple(rowsOfOthers, listedAt).map(([rows, t]) => answerTable(rows, t)), fc.tuple(rowsOfOthers, listedAt).map(([rows, t]) => answerTable(rows, t)),
   fc.constant(failTable()),
   ...Array.from({ length: 3 }, () => fc.tuple(fc.nat(), rowsOfOthers, fc.option(fc.integer({ min: 1, max: TABLE_SIZE }), { nil: null }), listedAt).map(args => answerSigning(...args))),
   fc.nat().map(failSigning), fc.nat().map(failSigning),
   ...Array.from({ length: 2 }, () => fc.tuple(deposit, allowedInitials).map(([amount, letters]) => anotherSignedGame(amount, letters))),
+  fc.constant(enterOnEntry()),
 ];
 
 // States every run together must reach, or the property is not exploring what it claims to. The refusal needs the

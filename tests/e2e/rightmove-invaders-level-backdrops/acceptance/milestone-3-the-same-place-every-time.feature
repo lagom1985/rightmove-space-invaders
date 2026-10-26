@@ -13,26 +13,26 @@ Feature: Each neighbourhood looks the same every time, in its own colours
   # the requests turned away, which must both stay at none. They count across all six neighbourhoods, and they ride on
   # every Then so that a neighbourhood reaching for either fails each scenario, not only the one that names it.
 
-  @in-memory @pending @property @error @contract-shape:unbounded-preservation @DDD-B2
+  @in-memory @property @error @contract-shape:unbounded-preservation @DDD-B2
   Scenario: Drawing every neighbourhood leaves the game's luck alone
     Given the game's luck can't be used
     When every neighbourhood is drawn
     Then every neighbourhood is drawn in full, and the game's luck is never asked for
 
-  @in-memory @pending @property @contract-shape:bounded-change @DDD-B2
+  @in-memory @property @contract-shape:bounded-change @DDD-B2
   Scenario: Every neighbourhood is drawn exactly the same way every time
     Given the game's luck can't be used
     And every neighbourhood has been drawn once
     When every neighbourhood is drawn again
     Then each neighbourhood is drawn exactly as it was the first time
 
-  @in-memory @pending @property @error @contract-shape:bounded-change @DDD-B1
+  @in-memory @property @error @contract-shape:bounded-change @DDD-B1
   Scenario: Every neighbourhood is drawn only in its own colours, and the green of the ground line
     Given the game's luck can't be used
     When every neighbourhood is drawn
     Then each neighbourhood is drawn only in its own colours, and green for the ground line
 
-  @in-memory @pending @property @contract-shape:bounded-change @DDD-B1
+  @in-memory @property @contract-shape:bounded-change @DDD-B1
   Scenario: Every neighbourhood has its streets and its skyline
     Given the game's luck can't be used
     When every neighbourhood is drawn

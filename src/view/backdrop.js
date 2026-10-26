@@ -180,29 +180,24 @@ const SKYLINES = {
     for (let i = 0; i < 8; i++) for (let j = 0; j < 3; j++) if (r() < 0.4) rect(b, p.light, 495 + i * 15, GROUND - 160 + j * 24, 6, 9);
     for (let i = 0; i < 9; i++) disc(b, p.sky, 60 + i * 100 + r() * 30, GROUND - 90 - r() * 30, 14);
   },
-  // A cottage and a lighthouse on the cliff, and the sea.
+  // A cottage and a lighthouse on the cliff, and the sea. The cottage stands between the first two houses, clear of them.
   coast: (b, p, r) => {
     polygon(b, p.sky, [[0, GROUND - 110], [380, GROUND - 90], [470, GROUND], [0, GROUND]]);
-    rect(b, p.sky, 80, GROUND - 140, 60, 30); polygon(b, p.sky, [[74, GROUND - 140], [110, GROUND - 162], [146, GROUND - 140]]);
-    rect(b, p.light, 96, GROUND - 132, 8, 9);
+    rect(b, p.sky, 200, GROUND - 130, 60, 34); polygon(b, p.sky, [[194, GROUND - 130], [230, GROUND - 152], [266, GROUND - 130]]);
+    rect(b, p.light, 216, GROUND - 122, 8, 9);
     rect(b, p.sky, 300, GROUND - 210, 20, 116); rect(b, p.light, 298, GROUND - 222, 24, 12);
     line(b, p.water, 3, [[470, GROUND - 30], [960, GROUND - 30]]);
     for (let i = 0; i < 12; i++) line(b, p.water, 2, [[480 + r() * 460, GROUND - 22 + r() * 18], [500 + r() * 460, GROUND - 22 + r() * 18]]);
   },
 };
 
-// A neighbourhood's backdrop on a canvas of its own, k device pixels to a unit: its palette's ground, its map, its
-// skyline and the green ground line. Its details come from a generator seeded by its rung.
+// A neighbourhood's backdrop on a canvas of its own, k device pixels to a unit, painted by paintBackdrop below.
 export function buildBackdrop(neighbourhood, k) {
-  const { look, palette } = neighbourhood, r = rng(SEED + NEIGHBOURHOODS.indexOf(neighbourhood));
   const c = document.createElement('canvas');
   c.width = Math.round(W * k); c.height = Math.round(H * k);
   const b = c.getContext('2d');
   b.setTransform(k, 0, 0, k, 0, 0);
-  rect(b, palette.bg, 0, 0, W, H);
-  MAPS[look](b, palette, r);
-  SKYLINES[look](b, palette, r);
-  rect(b, COLORS.green, 0, GROUND, W, 2);
+  paintBackdrop(b, neighbourhood);
   return c;
 }
 
@@ -227,7 +222,11 @@ export function backdropPlan({ level, state, banner }) {
 // its skyline and the green ground line, with the rung's own generator (never Math.random), in its palette's colours and
 // COLORS.green only, and with no transform. The same calls every time.
 export function paintBackdrop(context, neighbourhood) {
-  throw new Error('Not yet implemented -- RED scaffold');
+  const { look, palette } = neighbourhood, r = rng(SEED + NEIGHBOURHOODS.indexOf(neighbourhood));
+  rect(context, palette.bg, 0, 0, W, H);
+  MAPS[look](context, palette, r);
+  SKYLINES[look](context, palette, r);
+  rect(context, COLORS.green, 0, GROUND, W, 2);
 }
 
 // The store of built backdrops (DDD-B3, DDD-B4): { rescale(k), canvasFor(neighbourhood) }. createCanvas() makes an

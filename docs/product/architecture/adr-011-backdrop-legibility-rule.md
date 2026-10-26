@@ -7,6 +7,8 @@
 
 Amended by a follow-up (the user, 2026-10-26, merged after DISTILL): the title legend's names are drawn on a dark outline and checked against it, so Gazumper's label is no longer exempt.
 
+**Implemented** in DELIVER, 2026-10-26, on branch `rightmove-invaders-level-backdrops`, not yet merged to `main`: Terraced streets' road `#2f3f57` → `#2e3e56` and Leafy avenue's road `#403f33` → `#3f3e32` (`b4b4363`), and milestone 5 green in full, with no `@pending` left. With the 0.001 allowance, the Dream home's pink has 4.548:1 and 4.532:1 on those roads; the tightest pairs are now dream on City centre at dawn's and Leafy avenue's `light`, 4.507:1 and 4.508:1; the brightest palette colour is about 0.0479. No foreground colour changed, and no decision changed in DELIVER.
+
 **Feature**: rightmove-invaders-level-backdrops
 
 ## Context
@@ -28,7 +30,7 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
 ## Decision
 - **The promise**: every foreground use meets its WCAG minimum on every backdrop, 3:1 for objects and 4.5:1 for text, except the named exemptions below, which include the uses that never stand straight on a backdrop (the game-over red and the veils). It doesn't promise that no contrast drops against the old backdrop.
 - **The rule is a test-only check on data.** It lives in the `in-memory` project, which runs in the same build gate, as milestone 5: `tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-5-everything-stays-readable.feature`. Nothing in production computes contrast. The WCAG relative-luminance and contrast-ratio formulas live in a test helper, `tests/unit/support/contrast.js`.
-- **Two clauses, checked exhaustively in plain loops** (639 pairs plus 54 cap checks, no sampling):
+- **Two clauses, checked exhaustively in plain loops** (594 pairs (11 foreground colours against the 54 palette colours), the title legend's 6 names against their outline, and 54 cap checks; no sampling):
   1. **The cap**: every palette colour of every neighbourhood has relative luminance ≤ 0.05.
   2. **Contrast need per use**: each use in the needs table meets its need against every palette colour it can stand on. Each palette colour's luminance is **raised by 0.001**, the margin for an anti-aliased pixel's rounding. A crossfaded pixel is covered by the same allowance: the canvas blends in gamma space, and the sRGB curve is convex, so a blend is never brighter than its brighter colour except for an 8-bit rounding step.
 - **The needs table** (the feature delta's "Legibility needs"):
@@ -46,7 +48,7 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
 ## Alternatives considered
 - **The cap alone**: simple, but it fails on dream's 8 px text, as shown above.
 - **The rule and the maths as theme data or derivations**: they would document the rule next to the palettes, but nothing in production would read them. The theme comment states the rule, and the check enforces it.
-- **A fast-check property over sampled pairs**: the style of `music-level.spec.js`, but the unit project is unseeded, and 639 pairs are few enough to check them all, every run.
+- **A fast-check property over sampled pairs**: the style of `music-level.spec.js`, but the unit project is unseeded, and 594 pairs are few enough to check them all, every run.
 - **A spec in `tests/unit/`**: the first plan. DISTILL put the check beside the feature's other outcomes as milestone 5, in the same build gate.
 - **Measuring pixels in a browser test**, as the spike did: it reads the canvas (against waiver D10), needs a browser, and is slow. Because recipes draw only palette colours (ADR-010, checked on a recording context), the pixel test can be replaced by a check on data.
 - **A colour-contrast package**: a dev dependency for about ten lines of public formulas.
@@ -59,7 +61,7 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
 - **Negative**:
   - Some contrasts are lower than on the old backdrop (accepted).
   - The needs table restates which colour `render.js` and `game.js` draw as small text. A new use in a new colour must be added to it by hand, and the Rendering universe's manual check is the backstop.
-  - Dream's 8 px text is the binding use. After the two roads are darkened, the tightest pairs have about 1% of headroom.
+  - Dream's 8 px text is the binding use. After the two roads are darkened, the tightest pairs, with the 0.001 allowance, are dream on City centre at dawn's `light` (4.507:1) and on Leafy avenue's `light` (4.508:1): about 0.16% of headroom, on window colours, not roads (*corrected in DELIVER review, M4*). The check is exhaustive and guards it.
   - Contrast doesn't measure clutter: whether Terrace's busy streets hide the 3 px bolts is left to play-testing.
   - One pre-existing shortfall stays, named: the door. The other, Gazumper's legend label, is fixed by the amendment.
 

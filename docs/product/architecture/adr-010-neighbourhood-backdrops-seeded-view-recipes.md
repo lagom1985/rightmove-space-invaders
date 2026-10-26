@@ -8,6 +8,8 @@
 - `backdrop.js` references no DOM global;
 - the build triggers are stated exactly, and the resize wiring is checked by hand only.
 
+**Implemented** in DELIVER, 2026-10-26, on branch `rightmove-invaders-level-backdrops` (`23c1a2b` → `060dc37`), not yet merged to `main`. As built: `BANNER_TIME` in `src/game/config.js` (`e943084`); in `src/view/backdrop.js`, `backdropPlan` (`fe1279e`, `d445204`), `paintBackdrop(context, place)` (`46882b0`), the store `createBackdropCache` with its scale rule and fail-safe (`366b1b4`, `7f3ccba`, `6cfa346`, `ef4878b`) and the shell `showBackdrop` (`366b1b4`), which `render.js` only calls. Two additions from the review (`060dc37`): the store holds at most `MAX_HELD` (2), and releases a canvas it drops by sizing it 0 by 0. Forever home's cottage moved clear of the houses (DDD-B11). No decision changed in DELIVER. The pixels, the resize wiring and the cost on real hardware are checked by hand (the feature delta's DoD 9).
+
 **Feature**: rightmove-invaders-level-backdrops · Built on the walking skeleton (`83a83fb`), which shipped the palettes, the recipes, a lazy cache of two and the crossfade. This ADR fixes their shape, and adds the plan, the painting on a given context, the shell and the fail-safe.
 
 ## Context
@@ -29,7 +31,7 @@ The forces:
 ## Decision
 - **The theme holds what each rung is**: `NEIGHBOURHOODS` in `src/theme/theme.js`, in the ladder's order, each with its `name`, its `look` and a palette of nine colours. `neighbourhood(level)` clamps at the last entry, as `ladderName` does. A check keeps `LADDER` and `NEIGHBOURHOODS` the same length.
 - **The view holds how each rung is drawn**: `src/view/backdrop.js` has one map recipe and one skyline recipe per `look`.
-  - **Palette only**: a recipe draws only with its palette's colours, plus `COLORS.green` for the ground line. So the legibility rule on palette data (ADR-011) covers every pixel.
+  - **Palette only**: a recipe draws only with its palette's colours, plus `COLORS.green` for the ground line. So the legibility rule on palette data (ADR-011) covers every pixel but the 2 px green ground line, the game's ground on every backdrop, as before this feature.
   - **Painted on a given context**: `paintBackdrop(context, neighbourhood)` paints in game units, with no transform.
   - **Seeded**: each rung draws with its own mulberry32 generator, seeded by its index. A backdrop never calls `Math.random`. The game's two other private generators, the white noise in `sound/voices.js` and the test init script's, stay separate: sharing five lines across `view/` and `sound/` would need a module both import.
   - **Imports**: `backdrop.js` imports only from `src/theme/` and `src/game/config.js`. This is the seventh layering rule, enforced by the import scan, so a backdrop can never read `g`.

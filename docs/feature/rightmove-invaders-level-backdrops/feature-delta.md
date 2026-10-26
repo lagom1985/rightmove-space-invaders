@@ -25,17 +25,17 @@ The resize wiring is a recorded gap, checked by hand (F8). M-1, M-2, M-4, M-5 an
 
 | ID | Decision | Verdict | One-line rationale |
 |---|---|---|---|
-| DDD-B1 | **Where the art lives** (ADR-010):<br>• **`theme/` holds what each rung is**, as data: `NEIGHBOURHOODS`, with each entry's `name`, `look` and nine-colour `palette`, and `neighbourhood(level)`, which clamps at Forever home as `ladderName` does.<br>• **`view/backdrop.js` holds how it is drawn**: one map recipe and one skyline recipe per `look`.<br>• A recipe draws **only with its palette's colours**, plus `COLORS.green` for the ground line. So the data check in DDD-B6 covers every pixel of a backdrop. | Accepted | Theme stays data that imports nothing. A recipe needs loops, curves and a seeded generator, which are code |
+| DDD-B1 | **Where the art lives** (ADR-010):<br>• **`theme/` holds what each rung is**, as data: `NEIGHBOURHOODS`, with each entry's `name`, `look` and nine-colour `palette`, and `neighbourhood(level)`, which clamps at Forever home as `ladderName` does.<br>• **`view/backdrop.js` holds how it is drawn**: one map recipe and one skyline recipe per `look`.<br>• A recipe draws **only with its palette's colours**, plus `COLORS.green` for the ground line. So the data check in DDD-B6 covers every pixel of a backdrop but the 2 px green ground line, which is the game's ground on every backdrop, as before this feature, and not a palette colour (*corrected in DELIVER review, M5*). | Accepted | Theme stays data that imports nothing. A recipe needs loops, curves and a seeded generator, which are code |
 | DDD-B2 | **Painting on a given context** (ADR-010). The recipes paint on a 2D context they are handed: `paintBackdrop(context, neighbourhood)`, in game units, with no transform. Building happens inside the store. It takes a canvas from the store's injected factory (DDD-B15), sizes it at `k` device pixels to a unit, sets the transform, and hands its context to `paintBackdrop`. The names are DISTILL's.<br>Each rung draws with its **own seeded generator** (mulberry32, seed 1000 + the rung's index). A backdrop **never calls `Math.random`**: it comes out the same on every build, and the game's seeded sequence is left alone. | Accepted | Capability injection: a recording context in a test can see every call. A backdrop that used `Math.random` would change the game that the seeded tests play |
 | DDD-B3 | **Build timing**: lazy, as the skeleton does it. A backdrop is built the first time the store is asked for it. The store, `createBackdropCache(createCanvas)` → `{ rescale(k), canvasFor(neighbourhood) }`, keeps **at most two built canvases**, the least recently asked-for going first. *Documented (N8)*: `canvasFor` is build-on-first-ask, not a plain read: asking builds a missing backdrop, moves it to most recent, and marks a failed build.<br>`rescale(k)` with a **new** scale drops both canvases and every failed mark (DDD-B4), and they are rebuilt at the new scale when next asked for. **`rescale(k)` with the same scale returns at once**, so a resize event that keeps the scale keeps the built canvases and the failed marks too.<br>*Revised (M-1, M-2; L-4b renames the skeleton's `get` to `canvasFor`)*: a build happens on exactly these triggers, and on no other frame:<br>• **the title's first frame**: Studio flat;<br>• **the first "Wave cleared!" frame**: the next rung. The pin can't move then (`movePlayer` runs only in `'play'`), the bolts have just been cleared (`game.js:410`), and the fade starts at a mix of 0;<br>• **the first frame of a new game started from a higher rung**: Studio flat, ≤ 2 ms at 2×, while the pin can already move;<br>• **the first frame after a change of scale**: `here`, plus `next` during the fade. That frame can fall in play: each change of scale while the window is dragged rebuilds `here`, up to 7 ms in Firefox at 2× (Country pile). Accepted. | Accepted | Firefox builds Country pile in 7 ms at 2× (spike). The one build a player meets in every climb lands on the frame where they have nothing to control. A resize, the only trigger during play, is rare and already costly (the screen canvas is reallocated) |
-| DDD-B4 | **A backdrop that can't be built** (ADR-010; Earned Trust). The build can fail: `getContext('2d')` returns null, or a draw call throws (canvas memory limits, a lost GPU). Then:<br>• the store marks that rung as failed, and `canvasFor` returns **null** for it. `showBackdrop` (DDD-B5) then fills the screen with **the palette's `bg`**, straight on the main context;<br>• it is **not retried until the next change of scale** (DDD-B3);<br>• nothing is thrown to the loop, and nothing is logged.<br>**Failed marks are kept apart from the built canvases.** They don't count towards the two, and they are never evicted: only a change of scale clears them.<br>The first build, on the title, is the probe. A failure there leaves a flat background, and the game starts anyway.<br>*Added (L-5)*: this game has no client telemetry, so a failed backdrop is visible only to tests and to the eye. | Accepted | Today a throw inside `draw()` would skip `main.js`'s `requestAnimationFrame(frame)` and freeze the game over a piece of decoration. This is the same stance as the synth's fail-safe (ADR-002 amendment) |
+| DDD-B4 | **A backdrop that can't be built** (ADR-010; Earned Trust). The build can fail: `getContext('2d')` returns null, or a draw call throws (canvas memory limits, a lost GPU). Then:<br>• the store marks that rung as failed, and `canvasFor` returns **null** for it. This holds as long as the injected `createCanvas` itself doesn't throw (`document.createElement('canvas')` doesn't; *caveat added in DELIVER review, L2*). `showBackdrop` (DDD-B5) then fills the screen with **the palette's `bg`**, straight on the main context;<br>• it is **not retried until the next change of scale** (DDD-B3);<br>• nothing is thrown to the loop, and nothing is logged.<br>**Failed marks are kept apart from the built canvases.** They don't count towards the two, and they are never evicted: only a change of scale clears them.<br>The first build, on the title, is the probe. A failure there leaves a flat background, and the game starts anyway.<br>*Added (L-5)*: this game has no client telemetry, so a failed backdrop is visible only to tests and to the eye. | Accepted | Today a throw inside `draw()` would skip `main.js`'s `requestAnimationFrame(frame)` and freeze the game over a piece of decoration. This is the same stance as the synth's fail-safe (ADR-002 amendment) |
 | DDD-B5 | **The crossfade is a pure plan, and its shell lives in `backdrop.js` too**.<br>• **The plan**: `backdropPlan({ level, state, banner })` returns `{ here, next, mix }`. It is pure and reads no `g`. It takes `BANNER_TIME` from `src/game/config.js`.<br>• **`BANNER_TIME` moves** (*revised, H-1 and F9*, the user's decision): from `game.js` to `config.js`, next to `STEP` and `MAX_FRAME`. `game.js` imports it and re-exports it, so every existing import keeps working. DELIVER does this as its first step. The plan's argument stays `{ level, state, banner }`, and the seventh layering rule stands as written (DDD-B15).<br>• **The shell** (*revised, F7 and M-3*, the user's decision): one exported function in `backdrop.js`, `showBackdrop(context, plan, canvasFor)`. *Narrowed (N8)*: it is handed the store's `canvasFor` alone, a view of the store that can't rescale it. It asks `canvasFor` for `here`, and for `next` whenever the plan names one, even at a mix of 0, so the build lands on the first "Wave cleared!" frame (DDD-B3). It draws `here` at full strength, then `next` at `globalAlpha = mix`, and then restores `globalAlpha` to the value it found.<br>• **Null guard**: a rung whose canvas is null is filled with that palette's `bg`, at the same alpha its canvas would have had, and `drawImage` is never called with null. The six cases are in the composition table under Component decomposition.<br>• **Assumed**: drawing a canvas that was built doesn't throw (Catalogued lies).<br>• **`render.js` only calls it**, with the frame `{ level, state, banner }` read from `g`.<br>The plan's cases are in the plan table under Component decomposition. | Accepted | Inline in `drawBackdrop`, the fade and the fail-safe could only be checked by eye. As a plan and a shell over a store, every case can be enumerated in memory. The rules hold no view state, and the plan needs no constant from the rules |
-| DDD-B6 | **The legibility rule** (ADR-011). It is a test-only check on data. *Revised (L-1)*: it lives in the `in-memory` project, as milestone 5, `tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-5-everything-stays-readable.feature`, which runs in the same build gate. It checks **every pair**, 639 pairs plus 54 cap checks, in plain loops, without fast-check. The WCAG relative-luminance and contrast maths lives in `tests/unit/support/contrast.js`. Two clauses:<br>**(i) The cap**: every palette colour of every neighbourhood has relative luminance **≤ 0.05**.<br>**(ii) Contrast need per use**: each use in the needs table (under Component decomposition) meets its need, 4.5:1 for text and 3:1 for objects. It is checked against every palette colour it can stand on, with that colour's luminance **raised by 0.001**. *Corrected (N3)*: it is a margin for an anti-aliased or crossfaded pixel, which can come out at most an 8-bit rounding step brighter than the brighter colour it blends (about 0.001 at these levels). The spike's brightest measured pixel, 0.0488, matches the brightest palette colour today, Leafy avenue's road `#403f33` (0.0488).<br>The named exemptions are in DDD-B7. | Accepted | Clause (i) alone is not enough. The Dream-home bonus text is 8 px in `COLORS.dream` (`game.js:428`), whose luminance of 0.396 gives only 4.46:1 against 0.05. Its real ceiling is about 0.049, not the dim label's 0.052. Fast-check is unseeded in the unit project, and 639 pairs are few enough to check them all |
+| DDD-B6 | **The legibility rule** (ADR-011). It is a test-only check on data. *Revised (L-1)*: it lives in the `in-memory` project, as milestone 5, `tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-5-everything-stays-readable.feature`, which runs in the same build gate. It checks **every pair**, 594 pairs (11 foreground colours against the 54 palette colours), the title legend's 6 names against their outline, and 54 cap checks (*recounted in DELIVER review, L1*), in plain loops, without fast-check. The WCAG relative-luminance and contrast maths lives in `tests/unit/support/contrast.js`. Two clauses:<br>**(i) The cap**: every palette colour of every neighbourhood has relative luminance **≤ 0.05**.<br>**(ii) Contrast need per use**: each use in the needs table (under Component decomposition) meets its need, 4.5:1 for text and 3:1 for objects. It is checked against every palette colour it can stand on, with that colour's luminance **raised by 0.001**. *Corrected (N3)*: it is a margin for an anti-aliased or crossfaded pixel, which can come out at most an 8-bit rounding step brighter than the brighter colour it blends (about 0.001 at these levels). The spike's brightest measured pixel, 0.0488, matches the brightest palette colour today, Leafy avenue's road `#403f33` (0.0488).<br>The named exemptions are in DDD-B7. | Accepted | Clause (i) alone is not enough. The Dream-home bonus text is 8 px in `COLORS.dream` (`game.js:428`), whose luminance of 0.396 gives only 4.46:1 against 0.05. Its real ceiling is about 0.049, not the dim label's 0.052. Fast-check is unseeded in the unit project, and 594 pairs are few enough to check them all |
 | DDD-B7 | **Exemptions, by name and with their reasons**:<br>• **The door** (`COLORS.door`, 1.6–1.8:1). For 3:1 against a 0.05 backdrop it would need a luminance of at least 0.25. Brick is 0.285, so the door would fall from 2.2:1 to 1.1:1 against its own brick and vanish into the house. No colour satisfies both. The house's outline is carried by the brick.<br>• **`COLORS.danger`** isn't checked against the palettes: it is drawn only on the game-over overlay.<br>• **Excused by name** (*added, N6 and the follow-up*): the paused and game-over veils, which only darken, and `COLORS.outline`, the dark outline round the title legend's names, which is there to set them off.<br>**No longer exempt: Gazumper's name in the title legend** (16 px text, 3.51:1 on Studio flat against 4.5:1 needed; 3.84:1 on the old backdrop, so this feature deepened it). The follow-up (the user, 2026-10-26; merged after DISTILL) draws every name in the legend, the five hurdles' and "Dream home", on a 2 px dark outline, `COLORS.outline` (`#141420`), with no colour changed. Milestone 5 checks the names against the outline: Gazumper's 6.0:1 is the lowest (ADR-011's amendment). | Accepted; amended by the follow-up (the user, 2026-10-26) | *Revised (H-2)*: the promise is that every use meets its WCAG minimum (3:1 for objects, 4.5:1 for text), not that no contrast drops. Some do drop, and the user accepted it (2026-10-26): on Studio flat, Gazumper goes from 3.84:1 to 3.51:1 and brick from 3.92:1 to 3.42:1, both still above 3:1. The door predates the feature, and no colour fixes it. Gazumper's legend label predated the feature and was deepened by it; the outline fixes it without changing a colour |
 | DDD-B8 | **The status mirror**. The `data-hud="neighbourhood"` field names `neighbourhood(g.level).name` (as built), and changes in the same frame as the ladder field. **The arrival sentence** becomes "Now on the property ladder at {rung}. {Neighbourhood name}.", for example "Now on the property ladder at Terrace. Terraced streets in the morning." It is still one live-region write, made when the wave starts.<br>*Clarified (F4)*: it is heard at the start of **every wave after a clear**, including the repeats from Forever home onwards ("Now on the property ladder at Forever home. Seaside at night." on the seventh wave and every one after it). **A new game never says it**: it says only "Game started. Defend your dream home from the hurdles.", as today. Resuming from a pause, or the pin coming back after a lost home, says nothing new, as today. "Wave cleared! Moving up the ladder to {rung}." is unchanged. The wording and the six names in `theme.js` were approved by the user (2026-10-26). The words live in `status.js`, because the mirror alone says them (DDD-T9's rule). | Accepted | Screen-reader users hear where they have arrived when the next wave starts, after the fade has shown the place (*reworded, N5*), with nothing added to the live region's cadence |
 | DDD-B9 | **The title shows Studio flat**, as now. The title only appears at page load: Enter after game over starts a new game directly (`game.js:172`). So "the rung the game is on" is always level 0. There is no attract-mode tour of the neighbourhoods. | Accepted (product decision, the user) | The higher rungs stay a reward for climbing. The title's 16 px legend text has to pass on one backdrop, not six |
 | DDD-B10 | **Reduced motion: no change**. The crossfade is a 2.4 s fade in opacity between two dark images, every colour at luminance ≤ 0.05. It has no movement, scaling, parallax or flashing. The game doesn't honour `prefers-reduced-motion` anywhere, and an instant swap would be the more abrupt change. | Accepted | A setting covering the whole game would be its own feature |
-| DDD-B11 | **Skyline art constraint** (DELIVER, checked by hand). The houses stand at x 84–156, 324–396, 564–636 and 804–876, y 530–584 (`houseCentreX`, `SW × PX`, `SHIELD_Y`).<br>*Revised (M-4), to agree with the spike*: a skyline reads in the band y 590–686 below the houses. **A few landmarks may rise above the houses, but none may be mostly hidden behind one.** *Pass test (N2)*: a landmark passes when more than half of its silhouette is visible, judged by eye at 1× and 2×. On a fail, DELIVER moves the art, never the houses, or the user excuses it by name. The list below is the whole list of landmarks that rise above y 530 or stand in a house's x range today:<br>• **Studio flat's towers**: up to y 506, all across the screen. They are also the backdrop behind the title screen's legend;<br>• **Forever home's cottage**: x 74–146, y 524–576, right over the first house (x 84–156). Most of it is behind the house's solid wall (y 551–584), so it **fails today**: DELIVER moves it;<br>• **Country pile's manor**: its east wing, x 604–630, and the east end of its centre block are behind the third house (x 564–636);<br>• **Country pile's trees** at x 360–390 and 560–590, inside the second and third houses' ranges. | Accepted | Whether a skyline "reads" is a visual judgement, so it can't be a property |
+| DDD-B11 | **Skyline art constraint** (DELIVER, checked by hand). The houses stand at x 84–156, 324–396, 564–636 and 804–876, y 530–584 (`houseCentreX`, `SW × PX`, `SHIELD_Y`).<br>*Revised (M-4), to agree with the spike*: a skyline reads in the band y 590–686 below the houses. **A few landmarks may rise above the houses, but none may be mostly hidden behind one.** *Pass test (N2)*: a landmark passes when more than half of its silhouette is visible, judged by eye at 1× and 2×. On a fail, DELIVER moves the art, never the houses, or the user excuses it by name. The list below is the whole list of landmarks that rise above y 530 or stand in a house's x range today:<br>• **Studio flat's towers**: up to y 506, all across the screen. They are also the backdrop behind the title screen's legend;<br>• **Forever home's cottage**: x 74–146, y 524–576, right over the first house (x 84–156). Most of it is behind the house's solid wall (y 551–584), so it **fails today**: DELIVER moves it;<br>• **Country pile's manor**: its east wing, x 604–630, and the east end of its centre block are behind the third house (x 564–636);<br>• **Country pile's tree line**: of its nine trees, four (about x 46–104, 346–404, 546–604 and 846–904) stand partly behind the houses. *Excused by name (the user, 2026-10-26, DELIVER review M1)*: the tree line reads as a whole, the five trees between the houses are clear, and a tree half behind a house looks natural. | Accepted | Whether a skyline "reads" is a visual judgement, so it can't be a property |
 | DDD-B12 | **Two tables, one ladder**. `LADDER` and `NEIGHBOURHOODS` are both indexed by `level` and clamp at their last entry. A check asserts they have the same length (M1, in memory). | Accepted | Cheap, and it catches a rung added to one table but not the other. Merging them would rework `LADDER`, which the views read |
 | DDD-B13 | **Testability: what observes what** (waiver D10: no test reads the canvas):<br>• **Browser**: the walking skeleton stays the **only scripted wave**. A change to the game's tuning means retuning its script (accepted by the user in SPIKE). It can't catch a backdrop that uses `Math.random`, because both builds happen outside wave-1 play.<br>• **In-memory/unit**: rungs 1 to 6 and the clamp (levels 6 and 9 give Forever home), through `tests/unit/support/fresh-game.js` (`arrange.lastHurdleShot`) and `fake-status-root.js`: the field and the arrival sentence. `backdropPlan`, enumerated over its table. Every neighbourhood painted on a **recording context** with `Math.random` replaced by a stub that throws. The cache, with a canvas factory injected.<br>• **No seam into the game**: no rung in the URL and no writable global. ADR-003's handle stays read-only and the only global.<br>• **By hand** (DoD): the Rendering universe.<br>• *Added (F8)*: **the resize wiring is a recorded gap**. The chain from window `resize` to `renderer.resize()` to the store's `rescale` isn't driven by any automated scenario. The store's `rescale` is checked in memory, but the browser skeleton never resizes. It is covered by hand by "a resize during the fade" (Rendering universe), and the acceptance designer records the waiver in the ATDD policy. | Accepted | Everything but pixels and the resize wiring is checked automatically, and the fragile scripted wave isn't duplicated |
 | DDD-B14 | **Earned trust for the canvas**: the catalogued lies below, each with its check. | Accepted | Each thing the backdrops rely on, browser or art, is checked somewhere |
@@ -179,7 +179,7 @@ The decisions themselves are in the DDD list. This table holds only what was rej
 | DDD-B3 | Building ahead at wave start: it moves the cost into a frame where the player is playing. `requestIdleCallback`: a synchronous 7 ms build still blocks inside it, Playwright's fake clock fakes it, and Safari support would need checking. An `OffscreenCanvas` in a Worker: a new module type for one build per wave. Debouncing a resize (confirmed rejected, M-1): more state and a timer in the view, for a rare edge whose cost is one hitch per change of scale. Dropping everything on every `rescale`, even at the same scale: needless rebuilds, and failed rungs retried for nothing |
 | DDD-B4 | Letting it throw (the game freezes); a try/catch around `draw()` in `main.js` (it would hide every rendering bug); retrying every frame (a failing build would cost a frame, every frame); refusing to start (decoration must never stop the game); counting failed marks among the two, or evicting them (a failed rung would be retried as soon as two others were shown, or would push out a built canvas); logging the failure (the game has no telemetry, so a console line reaches no one) |
 | DDD-B5 | Inline in `drawBackdrop` (only checkable by eye); a fade state in `g` (view state in the rules, and a write the rules would own for the view's sake). The shell staying in `render.js` (F7, M-3): its six cases could only be checked by eye. For `BANNER_TIME` (H-1): a copy of 2.4 kept in `backdrop.js` (two sources of truth); the shell handing the banner time to the plan (it changes the plan's argument, and every scenario that calls it); importing it from `game.js` (it breaks the seventh rule, and lets a backdrop see `g`) |
-| DDD-B6 | The cap alone (fails on dream's 8 px text); the rule and the WCAG maths as theme data (nothing in production would read them); fast-check sampling (unseeded in the unit project, and 639 pairs are few enough to check them all); reading pixels in a browser test (waiver D10, and it would need the canvas); a unit spec in `tests/unit/` (L-1: DISTILL put it in the `in-memory` project as milestone 5, beside the feature's other outcomes, in the same build gate) |
+| DDD-B6 | The cap alone (fails on dream's 8 px text); the rule and the WCAG maths as theme data (nothing in production would read them); fast-check sampling (unseeded in the unit project, and 594 pairs are few enough to check them all); reading pixels in a browser test (waiver D10, and it would need the canvas); a unit spec in `tests/unit/` (L-1: DISTILL put it in the `in-memory` project as milestone 5, beside the feature's other outcomes, in the same build gate) |
 | DDD-B7 | A lighter door (it vanishes into the brick); fixing Gazumper's legend label by changing a hurdle's colour (a product decision). In the follow-up, with the user: a dark plate behind the legend rows (5.2:1, but it hides part of the neighbourhood on the title), and a lighter red for Gazumper's name alone (`#ff888c`, 4.6:1: the name would no longer match its sprite, with about 3% headroom) |
 | DDD-B8 | The field only (screen-reader users wouldn't hear the arrival); the place in the "Wave cleared!" sentence too (it would be said twice); saying the arrival on a new game too (F4: "Game started…" already says the game has begun, and the place is in the field); saying it only once per rung, so not on the repeats from Forever home (the sentence marks each new wave, as "Game started…" marks the first) |
 | DDD-B9 | An attract-mode tour of the neighbourhoods (it gives away the reveal, the legend text would have to pass on all six backdrops, and it means a build every 5 s) |
@@ -338,7 +338,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
   - `backdrop.js` imports only `theme/` and `game/config.js`, and references no DOM global.
   - The skeleton stays the only scripted wave.
 - **Quality attributes**:
-  - **Legibility**: every use meets its WCAG minimum, which is the cap plus the contrast need of every use, checked over every pair (639 plus 54 cap checks) with a 0.001 allowance for anti-aliasing. One exemption is named (the door); the title legend's names are checked against their outline (the follow-up). Some contrasts drop against the old backdrop, a trade the user accepted (H-2).
+  - **Legibility**: every use meets its WCAG minimum, which is the cap plus the contrast need of every use, checked over every pair (594, the legend's 6, plus 54 cap checks) with a 0.001 allowance for anti-aliasing. One exemption is named (the door); the title legend's names are checked against their outline (the follow-up). Some contrasts drop against the old backdrop, a trade the user accepted (H-2).
   - **Determinism**: seeded per rung, and checked with a `Math.random` that throws.
   - **Responsiveness**: no per-frame build. The fade adds one `drawImage`. A resize during play costs one hitch per change of scale, accepted.
   - **Graceful degradation**: a flat background, never a frozen game. With no telemetry, a failure is seen only by tests and by eye.
@@ -355,7 +355,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
   - **M-2**: an unchanged scale changes nothing (DDD-B3).
   - **M-4**: the skyline rule agrees with the spike, with three named landmarks (DDD-B11).
   - **M-5**: the must-not-change list is unbounded-preservation, an accepted residual risk checked by hand (Rendering universe).
-  - **L-1**: the check is milestone 5, with 639 pairs, and the tightest pairs corrected (DDD-B6).
+  - **L-1**: the check is milestone 5, with 594 pairs (recounted in DELIVER review), and the tightest pairs corrected (DDD-B6).
   - **L-2**: the journey note.
   - **L-3**: a Reuse row for the other seeded generators.
   - **L-4**: no DOM global in `backdrop.js`, and `get` renamed `canvasFor`.
@@ -788,3 +788,212 @@ The consolidated Final Wave Review Gate is the orchestrator's to dispatch. DISTI
 - every DDD with an automatable claim covered, and every row of the plan and composition tables;
 - the walking skeleton inherited, user-centred, and its strategy declared;
 - outcomes asserted at the ports: the live region, the page's fields, the plan's answer, the screen's recording, the store's builds and console, the recipes' recording context, and the theme's data.
+
+---
+
+## Wave: DELIVER / [REF] Implementation summary
+
+Delivered on 2026-10-26 on branch `rightmove-invaders-level-backdrops`, from `23c1a2b` (the roadmap, on DISTILL's `0bd4561` and the legend follow-up's merge `65a73ca`) to `060dc37`: 10 roadmap steps in 1 slice, a merge of `origin/main` mid-DELIVER (`b5c0879`, the user's decision), an L1–L6 refactor and one review revision. The branch is not pushed and not merged to `main`. The summary and lessons are in the [evolution document](../../evolution/rightmove-invaders-level-backdrops-evolution.md).
+
+The entry follows DESIGN (DDD-B1…B15, ADR-010, ADR-011). The DELIVER amendments are under Changed assumptions.
+- **Timing** (`src/game/config.js`): `BANNER_TIME` (2.4 s) is declared beside `STEP` and `MAX_FRAME`. `game.js` imports it and re-exports it, because tests read the banner's length from the rules.
+- **Backdrops** (`src/view/backdrop.js`; it imports only `theme/` and `game/config.js`, and its code references no DOM global):
+  - `backdropPlan({ level, state, banner })` → `{ here, next, mix }`, pure, as the plan table says. `next` is named only while `clear` below Forever home, with `mix = 1 − banner / BANNER_TIME`, clamped to [0, 1].
+  - `paintBackdrop(context, place)`: the ground, the look's map and skyline, and the 2 px green ground line, in game units, with the rung's own mulberry32 (seed 1000 + its index), never `Math.random`, and no transform. Forever home's cottage moved from x 74–146, y 524–576 to x 194–266, y 534–590: between the first two houses, standing on the cliff (DDD-B11). The country map's body is split into `fields`, `woods`, `driveAndHouse` and `lake` (review M3), with the same calls in the same order.
+  - The store, `createBackdropCache(createCanvas)` → `{ rescale(k), canvasFor(neighbourhood) }`. A backdrop is built on first ask, at `round(W·k)` × `round(H·k)`, scaled before it is painted. The store holds at most two (`MAX_HELD`), drops the least recently asked-for first, and releases a dropped canvas by sizing it 0 by 0 (review L3). The same `k` returns at once.
+  - The fail-safe: a null context, or a throw while sizing, scaling or painting, gives `null`, with no throw and no log. The failed mark is kept apart from the two, never evicted, and cleared only by a new scale.
+  - The shell, `showBackdrop(context, plan, canvasFor)`: `here` at full strength, then `next` at `mix`, each over 0, 0, W, H. A null canvas is a `fillRect` in its palette's `bg` at the same strength. `globalAlpha` is put back as it was found.
+- **Rendering** (`src/view/render.js`): it creates the store with `() => document.createElement('canvas')`. `resize()` ends with `store.rescale(k)`, and `draw()` starts with `showBackdrop(ctx, backdropPlan({ level: g.level, state: g.state, banner: g.banner }), store.canvasFor)`. Its own cache and fade, and the imports only they used, are gone.
+- **Status mirror** (`src/view/status.js`): after a clear, "Now on the property ladder at {rung}. {Neighbourhood name}." Unchanged: "Wave cleared! Moving up the ladder to {rung}.", "Game started. Defend your dream home from the hurdles.", and nothing new on resume or respawn.
+- **Theme** (`src/theme/theme.js`): Terraced streets' road `#2f3f57` → `#2e3e56`, and Leafy avenue's road `#403f33` → `#3f3e32`. No foreground colour changed.
+- **Deleted** (01-05): the skeleton's `buildBackdrop`, the cache and fade in `render.js`, and the `__SCAFFOLD__` marker with its header.
+- **Unchanged**: `main.js`, `index.html` after the skeleton, `messages.js`, `sound/**`, `platform/**`, `netlify/**` and `scripts/**`; `package.json` and the lockfile. No new file under `src/`, and no new dependency.
+
+| Slice | Steps (commit) |
+|---|---|
+| 01 A neighbourhood for every rung | 01-01 (`e943084`) · 01-02 (`fe1279e`) · 01-03 (`d445204`) · 01-04 (`46882b0`; the cottage moved) · 01-05 (`366b1b4`; the old path and the scaffold marker deleted) · 01-06 (`7f3ccba`) · 01-07 (`6cfa346`) · 01-08 (`ef4878b`; "Resizing the window to a new size tries…" was green already after 01-07) · 01-09 (`63efbf4`) · 01-10 (`b4b4363`) |
+| — | Merge of `origin/main` (`b5c0879`), between 01-07 and 01-08: PR #3 (the flaky-property fix) and PR #4 (the cap on implausible scores) |
+| — | L1–L6 refactor (`26b7701`) |
+| — | Review revision (`060dc37`) |
+
+Each step logged RED, GREEN and COMMIT once, all EXECUTED/PASS. The DES execution log was committed with each step.
+
+## Wave: DELIVER / [REF] Files modified
+
+`git diff --stat 65a73ca..060dc37` has 30 files, +871 / −175, but 15 of them (+222 / −28) came with the merge of `origin/main`. Without them, DELIVER's own: 15 files, +649 / −147, with the roadmap and the execution log. Without the roadmap commit (`23c1a2b..060dc37`): 13 files, +387 / −148.
+
+**Production**:
+
+| File | Change | Commits |
+|---|---|---|
+| `src/view/backdrop.js` | The plan, painting on a given context, the cottage moved, the store with its scale rule and fail-safe, the shell; `buildBackdrop` and the scaffolds deleted; the country map split, dropped canvases released (+120 / −67) | `fe1279e` `d445204` `46882b0` `366b1b4` `7f3ccba` `6cfa346` `ef4878b` `26b7701` `060dc37` |
+| `src/view/render.js` | Only calls the store and the shell; its own cache and fade deleted (+7 / −32) | `366b1b4` |
+| `src/view/status.js` | The arrival sentence (+1 / −1) | `63efbf4` |
+| `src/theme/theme.js` | Two road colours darkened; the `NEIGHBOURHOODS` comment (+5 / −4) | `b4b4363` `060dc37`, and a one-line comment fix committed with this record |
+| `src/game/config.js` | `BANNER_TIME` (+1) | `e943084` |
+| `src/game/game.js` | Imports and re-exports `BANNER_TIME`; its comment (+2 / −2) | `e943084` `26b7701` |
+
+**Tests**: DELIVER wrote no test, as the roadmap's test paradigm says. Only the five milestone files changed.
+
+| File | Change | Commits |
+|---|---|---|
+| `tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-1-a-place-for-every-rung.feature` | `@pending` removed (+1 / −1) | `63efbf4` |
+| `…/milestone-2-the-next-neighbourhood-fades-in.feature` | `@pending` removed (+11 / −11) | `fe1279e` `d445204` |
+| `…/milestone-3-the-same-place-every-time.feature` | `@pending` removed (+4 / −4) | `46882b0` |
+| `…/milestone-4-the-game-plays-on.feature` | `@pending` removed; the composition outline's tag moved to its `@error` block in 01-05, then removed in 01-07 (+15 / −15) | `366b1b4` `7f3ccba` `6cfa346` `ef4878b` |
+| `…/milestone-5-everything-stays-readable.feature` | `@pending` removed; three stale `#` comments rewritten (+6 / −8) | `b4b4363` `26b7701` |
+
+No step, driver, helper, fixture, parameter type or unit spec changed.
+
+**Docs**:
+
+| File | Change | Commits |
+|---|---|---|
+| `README.md` | The feature's acceptance suite is no longer "its walking skeleton only" | `b4b4363` |
+| `docs/feature/rightmove-invaders-level-backdrops/deliver/roadmap.json` | The roadmap | `23c1a2b` |
+| `docs/feature/rightmove-invaders-level-backdrops/deliver/execution-log.json` | The DES log, 30 events | Each step |
+| `docs/feature/rightmove-invaders-level-backdrops/feature-delta.md` | DISTILL's handoff marked superseded (`23c1a2b`); the review's corrections to DDD-B1, B4, B6 and B11; these DELIVER sections | `23c1a2b`, this record |
+| `docs/feature/rightmove-invaders-level-backdrops/deliver/handcheck-*.png` | The by-hand evidence, 5 contact sheets | This record |
+| `docs/product/architecture/brief.md`, `adr-010-…md`, `adr-011-…md` | The review's corrections (M4, M5, L1); what shipped | This record |
+
+**Unchanged in DELIVER**: DISTILL's steps, drivers, fixtures, parameter types and test helpers; `tests/unit/**`; `netlify/**`, `scripts/**`, `index.html`, `netlify.toml`, `package.json` and `package-lock.json`. Against `main` (the merge base is `4d17123`), the branch changes nothing under `netlify/`.
+
+## Wave: DELIVER / [REF] Scenarios green count
+
+**40 of 40** level-backdrops scenarios (**74 of 74** runs, all in the `in-memory` project), plus SPIKE's walking skeleton in Chromium, Firefox and WebKit: green on 2026-10-26.
+
+Full `npm test` after `060dc37`: **611 passed**, 0 failed, in 25.6 min. `npm run build` (bddgen, then unit and in-memory): 242 passed. Earlier full runs: 573 after 01-04, 579 after 01-05, and 611 after 01-10 and after the refactor. The run in 01-07, before the merge, had one failure, the known flaky property at `status-mirror.spec.js:320`, which PR #3 fixed and the merge brought in.
+
+| Feature file | Scenarios | Runs | Project | Green |
+|---|---|---|---|---|
+| walking-skeleton (SPIKE's, inherited) | 1 | 3 | chromium, firefox, webkit | 3 |
+| milestone-1-a-place-for-every-rung | 6 | 19 | in-memory | 19 |
+| milestone-2-the-next-neighbourhood-fades-in | 11 | 21 | in-memory | 21 |
+| milestone-3-the-same-place-every-time | 4 | 4 | in-memory | 4 |
+| milestone-4-the-game-plays-on | 15 | 21 | in-memory | 21 |
+| milestone-5-everything-stays-readable | 4 | 9 | in-memory | 9 |
+
+The whole suite, by project (`npx playwright test --list`):
+
+| Project | Tests | Green |
+|---|---|---|
+| unit | 96 (92 at DISTILL's hand-off, plus the legend follow-up's contrast check and PR #4's 3; DELIVER added none) | 96 |
+| in-memory | 146 (74 level-backdrops, 38 leaderboard with PR #4's 5, 23 sound, 11 typed-initials) | 146 |
+| chromium | 123 (61 typed-initials; 27 leaderboard, its walking skeleton included; 33 sound; the game's walking skeleton; this feature's walking skeleton) | 123 |
+| firefox | 123 | 123 |
+| webkit | 123 | 123 |
+| **Total** | **611** | **611** |
+
+No `@pending` tag is left in this feature. `npx bddgen export --unused-steps` lists none. DISTILL's RED baseline had 55 runs failing for the right reason, and all 55 now pass: 6 in 01-02, 15 in 01-03, 4 in 01-04, 6 in 01-05, 3 in 01-06, 8 in 01-07, 4 in 01-08, 7 in 01-09 and 2 in 01-10. The 19 runs enabled at hand-off stayed green.
+
+## Wave: DELIVER / [REF] DoD check
+
+No DISCUSS ran, so there is no DISCUSS Definition of Done. Checked against DISTILL's "Done when" (DELIVER handoff) and the closing criteria of the roadmap's 01-10.
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Every scenario green; the walking skeleton green in three engines | **Met** | 40 of 40 scenarios, 74 of 74 runs; the skeleton in 3 engines in every step's gate; 611 passed after `060dc37` |
+| 2 | No `@pending` left in this feature, and no `__SCAFFOLD__` under `src/` | **Met** | Both greps find nothing. The marker went in 01-05 (`366b1b4`) |
+| 3 | `npx bddgen export --unused-steps` lists none | **Met** | 01-10 and after the review |
+| 4 | `render.js` has no cache or fade logic of its own | **Met** | `366b1b4`; the roadmap's grep for `buildBackdrop`, `drawBackdrop`, `BANNER_TIME` and `function createBackdropCache` in `render.js` finds nothing |
+| 5 | `npm run build` and the full `npm test` green | **Met** | 242 and 611, after `060dc37` |
+| 6 | `src/view/backdrop.js` references no DOM global (`document`, `window`, `devicePixelRatio`), comments included | **Met** | The whole-word grep found nothing at `b4b4363` and `26b7701`. The review revision's L2 caveat (`060dc37`) named the injected factory's DOM call in a comment; the close-out commit rewords it, and the grep finds nothing again (lesson 9) |
+| 7 | The README no longer calls this suite its walking skeleton only | **Met** | `b4b4363` |
+| 8 | KPIs | **None** | No DISCUSS ran, and `docs/product/kpi-contracts.yaml` has no backdrop KPI. None was invented, and no scenario is tagged `@kpi` (DISTILL: KPIs none, soft gate) |
+| 9 | By hand, the Rendering universe in Chrome, Firefox and Safari at 1× and 2×, DDD-B11's landmarks, and everything else the canvas draws compared with `main` | **In part** | Headless, by the orchestrator: 68 shots in Chromium, Firefox and WebKit at 1× and 2×, with no page or console error (Demo evidence). All six backdrops render; the clamp holds; a frame mid-fade; a resize mid-fade, the only check of the resize wiring (F8). Compared with `main` locally: only the backdrop differs. DDD-B11: the towers, the manor and the moved cottage pass, and the tree line is excused by the user (2026-10-26). **Owed to the user, on real hardware**: Terrace's streets with bolts in motion; a fade frame's cost in Firefox at 2×; Safari on a real Mac (WebKit headless is covered); the comparison with `main` on the deploy preview, which needs a push. A resize during play (at most one hitch per change of scale) isn't recorded either |
+| 10 | Pushed, the PO's check on a deploy preview, merged | **Not done** | Pushing needs the user's OK |
+
+## Wave: DELIVER / [REF] Demo evidence
+
+This is a browser game with no CLI. With no DISCUSS, there are no stories or elevator pitches. Each outcome is demonstrated by the milestone scenarios that check it, and the canvas by the screenshots below. All the scenarios are green in the final full run (611 passed, after `060dc37`).
+
+| Outcome | What it shows | Scenario(s) |
+|---|---|---|
+| WS | Clearing the first wave moves the house-hunter from City centre at dawn to Terraced streets in the morning, on the real page, in three engines | "Clearing the first wave moves the house-hunter from the city centre to terraced streets" (`@walking_skeleton @driving_port`) |
+| M1 A place for every rung | Each wave's rung and neighbourhood, the clamp at Forever home, and the arrival sentence on every wave after a clear | "The <wave> wave is at <rung>, in <neighbourhood>"; "Moving up to the <wave> wave, I hear that I am now at <rung>, in <neighbourhood>" ("Now on the property ladder at Terrace. Terraced streets in the morning.") |
+| M2 The next neighbourhood fades in | The next rung fades in from 0% to just under 100% while "Wave cleared!" shows; nothing fades in from Forever home onwards; a pause holds the fade | "Half way through "Wave cleared!" on the <wave> wave…"; "<passed> seconds into "Wave cleared!"…"; "Pausing mid-fade holds the fade where it is" |
+| M3 The same place every time | Painting leaves the game's luck alone, makes the same calls every time, and uses only its palette and the ground line's green | "Drawing every neighbourhood leaves the game's luck alone"; "Every neighbourhood is drawn exactly the same way every time"; "…only in its own colours…" |
+| M4 The game plays on | Each neighbourhood prepared once; a backdrop that can't be prepared shows its plain background, and the game plays on; a resize mid-fade prepares both again | "When the screen <trouble>, I see <underneath>, with <over it>"; "The title's backdrop can't be prepared, and the game still starts and plays"; "Resizing the window mid-fade prepares both neighbourhoods again, once each" |
+| M5 Everything stays readable | Every use meets its WCAG minimum on every palette; the legend's names on their outline | "Every neighbourhood leaves <use> readable"; "Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name" |
+
+**By hand, headless** (the Rendering universe, D10). The orchestrator took 68 screenshots of the real game in Chromium, Firefox and WebKit at 1× and 2×, with no page or console error. Rungs were reached by setting the game's state from a throwaway script, for the screenshots only; nothing was committed, and the game has no seam for it (DDD-B13).
+
+The title on Studio flat, the six rungs in play, and two frames of the fade from City centre into Terraced streets (Chromium, 1×):
+
+![Chromium at 1x: the title, the six rungs and the fade](deliver/handcheck-chromium-1x.png)
+
+The six rungs, Forever home again past the top of the ladder (the clamp), and two frames of the fade (Firefox and WebKit, 2×):
+
+![Firefox at 2x](deliver/handcheck-firefox-2x.png)
+
+![WebKit at 2x](deliver/handcheck-webkit-2x.png)
+
+DDD-B11's landmarks at 2×: Studio flat's towers; Country pile's manor, with only its east end behind the third house, and its tree line (excused by the user); Forever home's cottage, moved between the first two houses, and the lighthouse:
+
+![The skylines at 2x](deliver/handcheck-skylines-2x.png)
+
+`main` (left) and this branch (right), run locally, on the title and in play on Studio flat. The title, the HUD, the legend (outlined on both, by the merged legend fix), the formation, the houses, the pin and the lives are unchanged; only the backdrop differs:
+
+![main and this branch at 1x](deliver/handcheck-compare-main-1x.png)
+
+To re-run a scenario: `npx bddgen && npx playwright test --project=in-memory --reporter=list -g "<title>"`, or, for the skeleton, `--project=chromium --project=firefox --project=webkit --grep "Clearing the first wave"`. By hand: `npm start`, open http://localhost:4173, and clear a wave.
+
+## Wave: DELIVER / [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| Roadmap review | Conditionally approved by nw-acceptance-designer-reviewer (0 blockers, 4 high, 9 low); H1–H4 and L1–L7 applied by the orchestrator, L8 informational, L9 fixed in this delta. `des-roadmap validate` and `des-verify-integrity --roadmap-only` exit 0 |
+| Per-step TDD (DES RED → GREEN → COMMIT) | 10 of 10 steps, each phase logged once, EXECUTED/PASS |
+| DES integrity | `des-verify-integrity`: "All 10 steps have complete DES traces", exit 0 |
+| Full suite and build gate | 611/611 after `060dc37` (25.6 min); `npm run build` 242. Earlier: 573 (01-04), 579 (01-05), 611 (01-10, and after the refactor). One failure in 01-07, the flaky `status-mirror.spec.js:320`, fixed upstream by PR #3 |
+| Page errors (01-05) | 12 s of play with a resize, in Chromium, Firefox and WebKit: 0 page errors, 0 console errors |
+| Design compliance | Every production file is in DESIGN's component table; no new file under `src/`; no new dependency; the seven layering rules green (`layering.spec.js`). The DOM-global grep: DoD 6 |
+| Legibility (milestone 5) | 594 pairs (11 foreground colours against the 54 palette colours), the legend's 6 names against their outline, and 54 cap checks, all green. The Dream home's pink on the darkened roads: Terraced streets 4.479 → 4.548:1, Leafy avenue 4.463 → 4.532:1. The tightest pairs now: dream on City centre's `light` (4.507:1) and Leafy avenue's `light` (4.508:1), on window colours. The brightest palette colour is about 0.0479 |
+| Refactor L1–L6 | `26b7701`: accurate comments; the shell asks for each canvas as it draws that layer; `paintBackdrop`'s parameter renamed `place`, so it no longer shadows `neighbourhood()`; the `BANNER_TIME` re-export's comment. No assertion changed |
+| Adversarial review (nw-software-crafter-reviewer) | **NEEDS_REVISION** (1 blocker, 1 high, 5 medium, 7 low), with no testing theater, no dead code, a design match, and every edge case safe. One revision pass, as the skill says. **B1**, the outcome anchor: a project adaptation. No DISCUSS ran, and no feature in this repo carries "Outcome anchor: DISCUSS Elevator Pitch"; each scenario is anchored to DESIGN by its `@contract-shape:…` and `@DDD-B…` tags. **H1**, closure evidence: recorded in these sections, not in `execution-log.json`, which only crafters write, and only phase entries. **M1**: Country pile's tree line excused by the user (2026-10-26; DDD-B11 updated). **M2**: the `render.js` wiring stays under the waiver (D10, F8), checked by the screenshots and by hand. Fixed in `060dc37`: M3 (the country map split; SHA-256 of all six paintings' call logs unchanged), L3, L6, and the comments of L2, M5 and L7. Fixed in the docs by the orchestrator: M4 (ADR-011's headroom, about 0.16%), M5 (the ground line named as not a palette colour), L1 (the pair count), L2 (DDD-B4's caveat). Accepted as notes: L4 (the re-export is used by tests) and L5 (duplicate arrangements) |
+| Mutation testing | **Skipped**: disabled per `CLAUDE.md`, and logged. DISTILL's testing of the tests stands in: every broken variant of its throwaway implementation (the shell, the store, the theme, the mirror, the plan, the painting and the scale guard) was caught by at least one scenario |
+| KPIs | None: no DISCUSS ran, and `kpi-contracts.yaml` has no backdrop KPI. None was invented |
+| By hand | Headless in three engines (DoD 9); the real-hardware checks are owed to the user |
+| Not run | CI (there is none: the Netlify build, unit and in-memory, is the only automated gate); the deploy preview |
+
+## Wave: DELIVER / [REF] Pre-requisites
+
+**What the implementation depended on**:
+- DISTILL: the 40 scenarios, the four scaffolds, the drivers, the recording contexts and the RED classification.
+- DESIGN: DDD-B1…B15, ADR-010 and ADR-011, the plan table, the composition table, the Legibility needs and the catalogued lies.
+- SPIKE: the walking skeleton (`83a83fb`), with the palettes and the recipes.
+- The legend follow-up (`2fd5e46`, merged as `65a73ca` before the roadmap), and the user's decisions (H-1, H-2, F4, F7, F8, the cottage, the tree line, the merge of `main`).
+
+**For whoever ships next**:
+- **Run it**: Node 22; `npm ci`; `npx playwright install` for the test browsers; `npm start`, then open http://localhost:4173. Beside another checkout, set `PORT` (for example `PORT=4174`). `npm test` must show 611 passed (about 26 min), and `npm run build` 242.
+- **Stop servers by PID only**: on macOS, `pkill -f … -n` kills every match (Lessons, in the evolution document).
+- **Rollback, designed first**: the change is client-only, with no server, store, setting or saved-data change. Netlify's instant rollback to the previous production deploy brings back the single backdrop; the best score, the settings and the shared table are untouched.
+- **Before the merge to `main`, with the user**:
+  1. With the user's OK, push the branch and open a pull request, for its deploy preview. Netlify's build gate (unit and in-memory, 242 tests) runs on it. Nothing under `netlify/` differs from `main`, so the leaderboard's smoke test needs no re-run.
+  2. On real hardware: play Terrace with bolts in motion (are the 3 px bolts easy to follow?); time a fade frame in Firefox at 2×; resize during play (at most one hitch per change of scale); and look at all six backdrops in Safari on a Mac.
+  3. On the preview: compare it with `main`'s production for everything the canvas must not change (the Rendering universe). Record the results in this file.
+  4. The PO's check, then the merge. A merge commit, as for PR #1 and PR #2, keeps the per-step `Step-Id` trailers.
+- Not part of the record: the uncommitted DES resume file `deliver/.develop-progress.json` and the session files under `.nwave/des/`. Removing them is finalize Phase C, with the user's approval.
+
+## Wave: DELIVER / [REF] Changed assumptions
+
+**From SPIKE and DISCUSS**: no DISCUSS ran. SPIKE's concept shipped as agreed.
+
+**From DESIGN**:
+- **Names, as built**: `paintBackdrop(context, place)` (DESIGN: `neighbourhood`, which shadowed the imported `neighbourhood()`); the store's limit is `MAX_HELD`; the winding roads' helper is `bendY`.
+- **A dropped canvas is released** (review L3, `060dc37`): sized 0 by 0 when it is evicted past the two or dropped by a new scale, because at 3× a backdrop holds about 25 MB. DESIGN only dropped it.
+- **The shell asks for each canvas as it draws that layer** (refactor, `26b7701`), so it no longer tests `next` twice. The composition table still holds: `next` is asked for whenever the plan names it, even at a mix of 0.
+- **Forever home's cottage** (DDD-B11): from x 74–146, y 524–576 to x 194–266, y 534–590, between the first two houses and on the cliff. The lighthouse stays at x 298–322.
+- **Country pile's tree line** (DDD-B11): four of its nine trees stand partly behind the houses. The user excused it by name (2026-10-26, review M1), and DDD-B11 now says so.
+- **The review's corrections** (DDD-B1, B4, B6; ADR-010, ADR-011; the brief): 594 pairs, not 639 (L1); the tightest pairs are on window colours, with about 0.16% of headroom, not "about 1%" (M4); the 2 px green ground line is not a palette colour (M5); the store's no-throw promise holds while the injected `createCanvas` doesn't throw (L2).
+- **`BANNER_TIME`'s re-export** is kept because tests read the banner's length from the rules (review L4, accepted as a note).
+
+**From DISTILL and the roadmap**:
+- **10 steps, not 7**: the plan split into 01-02 and 01-03, the store into 01-05 and 01-06, the fail-safe into 01-07 and 01-08, each at a seam DESIGN draws. DISTILL's handoff is marked superseded.
+- **The scaffold marker went in 01-05** with the last scaffold body (roadmap review L6), not in 01-10 as the roadmap's notes first said.
+- **`main` merged mid-DELIVER** (`b5c0879`, the user's decision, between 01-07 and 01-08), for PR #3's fix to the flaky property that failed 01-07's full run. It also brought PR #4, so the suite is larger than DISTILL counted: unit 96 (DISTILL's 92, the legend follow-up's 1 and PR #4's 3) and in-memory 146 (PR #4's 5 among them).
+- **The outcome anchor** (review B1): a project adaptation, under Quality gates.
+- **The by-hand evidence was gathered headless**, with the game's state set by a throwaway script to reach each rung. It covers the three engines at 1× and 2×; real hardware, real Safari and play-testing are owed to the user (DoD 9).
+- **The DOM-global grep counted comments**: `060dc37` briefly broke it with one comment, reworded in the close-out commit (DoD 6).
+
+**From the review** (`060dc37`): applied M3, L3, L6 and the comments of L2, M5 and L7, as listed under Quality gates. Not applied: L5, duplicate arrangements, accepted as a note.

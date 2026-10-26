@@ -1,4 +1,4 @@
-import { W, H, GROUND } from '../game/config.js';
+import { W, H, GROUND, BANNER_TIME } from '../game/config.js';
 import { COLORS, NEIGHBOURHOODS, neighbourhood } from '../theme/theme.js';
 
 // Each rung's backdrop: its neighbourhood from above, faint, like a property search map, with a skyline of its homes on
@@ -216,10 +216,11 @@ export const __SCAFFOLD__ = true;
 // What the screen shows behind the game on a frame (DDD-B5), from that frame's { level, state, banner } and nothing
 // else: { here, next, mix }, here and next being NEIGHBOURHOODS entries. While the wave is cleared below Forever home,
 // next is the next rung's and mix is 1 - banner / BANNER_TIME, clamped to [0, 1]; otherwise next is null and mix 0.
-// BANNER_TIME comes from ../game/config.js once DELIVER has moved it there (its first step): the argument doesn't change.
-export function backdropPlan({ level, state }) {
-  if (state === 'clear') throw new Error('Not yet implemented -- RED scaffold');   // the fade, DELIVER's next step
-  return { here: neighbourhood(level), next: null, mix: 0 };
+// BANNER_TIME comes from ../game/config.js, never from the rules. A pause stops the banner, so it holds the fade too.
+export function backdropPlan({ level, state, banner }) {
+  const here = neighbourhood(level), next = neighbourhood(level + 1);   // the same place from Forever home on
+  if (state !== 'clear' || next === here) return { here, next: null, mix: 0 };
+  return { here, next, mix: Math.min(1, Math.max(0, 1 - banner / BANNER_TIME)) };
 }
 
 // Paints a neighbourhood's backdrop on the 2D context it is handed, in game units (DDD-B1, DDD-B2): its ground, its map,

@@ -19,13 +19,13 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
     When I start climbing the property ladder
     Then the backdrop shows City centre at dawn, with nothing fading in
 
-  @in-memory @pending @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @contract-shape:unbounded-preservation @DDD-B5
   Scenario: Clearing a wave starts the next neighbourhood fading in, from nothing
     Given I have started climbing the property ladder
     When I clear the first wave
     Then the backdrop shows City centre at dawn, with Terraced streets in the morning faded in to 0%
 
-  @in-memory @pending @property @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @property @contract-shape:unbounded-preservation @DDD-B5
   Scenario Outline: Half way through "Wave cleared!" on the <wave> wave, the backdrop shows <here>, with <fade>
     Given I am playing the <wave> wave
     And I have cleared the <wave> wave
@@ -49,7 +49,7 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
       | tenth   | Seaside at night | nothing fading in |
 
   # The last moments of the banner are near full strength, never full: the next wave starts instead.
-  @in-memory @pending @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @contract-shape:unbounded-preservation @DDD-B5
   Scenario Outline: <passed> seconds into "Wave cleared!", the next neighbourhood has faded in to <strength>
     Given I am playing the first wave
     And I have cleared the first wave
@@ -64,7 +64,7 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
 
   # Moments the game itself never reaches: the banner already run out, or longer than it ever is. The fade stays at its
   # ends.
-  @in-memory @pending @edge @error @contract-shape:pure-function @DDD-B5
+  @in-memory @edge @error @contract-shape:pure-function @DDD-B5
   Scenario Outline: "Wave cleared!" with <left> seconds of the banner left holds the fade at <strength>
     When "Wave cleared!" shows on the first wave with <left> seconds of the banner left
     Then the backdrop shows City centre at dawn, with Terraced streets in the morning faded in to <strength>
@@ -74,7 +74,7 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
       | -0.5 | 100%     |
       | 3    | 0%       |
 
-  @in-memory @pending @edge @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @edge @contract-shape:unbounded-preservation @DDD-B5
   Scenario: Pausing mid-fade holds the fade where it is
     Given I am playing the first wave
     And I have cleared the first wave

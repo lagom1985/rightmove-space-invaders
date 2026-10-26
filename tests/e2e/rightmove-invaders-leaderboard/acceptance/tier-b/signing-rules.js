@@ -4,7 +4,7 @@ import { expect } from '@playwright/test';
 import { loadFreshGame, arrange } from '../../../../unit/support/fresh-game.js';
 import { assertStateDelta, setTo } from '../../../../common/state-delta.js';
 import {
-  GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, SigningOutcome, TableStatus,
+  GameEvent, ALPHABET, INITIALS_LENGTH, TABLE_SIZE, BLOCKED_INITIALS, MAX_PLAUSIBLE_SCORE, SigningOutcome, TableStatus,
 } from '../steps/domain-types.js';
 
 // Tier B (Mandate 10): the signing lifecycle and the table status as a state machine, explored with fast-check's
@@ -148,7 +148,8 @@ class Model {
   seen = new Set();     // witnesses: which states this run reached
 
   makesTheTable(deposit) {
-    return this.status === TableStatus.AVAILABLE && deposit > 0 && (this.rows.length < TABLE_SIZE || deposit > this.rows[TABLE_SIZE - 1].score);
+    return this.status === TableStatus.AVAILABLE && deposit > 0 && deposit <= MAX_PLAUSIBLE_SCORE &&
+      (this.rows.length < TABLE_SIZE || deposit > this.rows[TABLE_SIZE - 1].score);
   }
 
   applyRows(rows, listedAt) {
@@ -307,12 +308,19 @@ export class SigningRules {
   // ---- examples ----
   expectTableUnknown() { expect(this.rules.observe().table?.status, 'the table status').toBe(TableStatus.UNKNOWN); }
 
+  tableAnsweredEmpty() {
+    this.rules.answerTable({ scores: [], listedAt: ++this.listedAt });
+    expect(this.rules.observe().table, 'arranging: an empty, available table').toEqual({ status: TableStatus.AVAILABLE, rows: [] });
+  }
+
   gameEndsWith(amount) {
     this.rules.startNewGame();
     this.rules.finishGameWith(amount);
   }
 
   expectNoEntry() { expect(this.rules.observe().entry, 'initials asked for').toBeNull(); }
+
+  expectEntry() { expect(this.rules.observe().entry, 'initials asked for').toEqual({ letters: '', notice: null }); }
 
   expectNoTableAtGameOver() {
     const { table, screen } = this.rules.observe();

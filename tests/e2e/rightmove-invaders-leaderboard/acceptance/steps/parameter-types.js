@@ -20,7 +20,7 @@ phraseType('signingTrouble', { 'loses the connection': SigningTrouble.DROPPED, '
 phraseType('pressSpacing', { 'a frame apart': PressSpacing.A_FRAME_APART, 'within one frame': PressSpacing.WITHIN_ONE_FRAME });
 phraseType('refusal', {
   'for its format': Refusal.FORMAT, 'as too long': Refusal.TOO_LONG,
-  'as not a signature': Refusal.NOT_A_SIGNATURE, 'for its initials': Refusal.INITIALS,
+  'as not a signature': Refusal.NOT_A_SIGNATURE, 'for its initials': Refusal.INITIALS, 'as implausible': Refusal.IMPLAUSIBLE,
 });
 phraseType('tableFailure', {
   'a failed look at the table': TableFailure.FAILED_LOOK, 'a failed save': TableFailure.FAILED_SAVE,

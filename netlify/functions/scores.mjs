@@ -10,7 +10,7 @@
 // harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
-import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isValidSignature } from '../../src/game/high-scores.js';
+import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
 // a minute per client, by IP and domain (DEVOPS).
@@ -241,9 +241,11 @@ function notSaved(record) {
 }
 
 // ---- refusals: a method the table doesn't take, then what a POST must be (ADR-007, DDD-5), checked in this order ----
-// A refusal saves nothing.
+// A refusal saves nothing. The last, a score above the plausible ceiling, is S1 of
+// docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged £9,999,950.
 const REFUSAL_STATUS = Object.freeze({
   'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400, 'initials-not-allowed': 400,
+  'implausible-score': 400,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
@@ -259,7 +261,8 @@ async function readSignature(request) {
   if (body === null) return { refused: 'payload-too-large' };
   const signature = parsed(body);
   if (!isValidSignature(signature)) return { refused: 'invalid-signature' };
-  return isAllowedInitials(signature.initials) ? { signature } : { refused: 'initials-not-allowed' };
+  if (!isAllowedInitials(signature.initials)) return { refused: 'initials-not-allowed' };
+  return isPlausibleScore(signature.score) ? { signature } : { refused: 'implausible-score' };
 }
 
 // The media type alone, its parameters (a charset, say) ignored; media types are case-insensitive.

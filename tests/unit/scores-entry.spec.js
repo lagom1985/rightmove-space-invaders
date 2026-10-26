@@ -144,5 +144,6 @@ test('without a deploy ID, a method the table doesn\'t take is refused 405 with 
 
 // bypass: the exported config is one literal, which Netlify reads statically.
 test('the function is mounted at /api/scores, and Netlify allows each client 10 requests a minute (by IP and domain)', () => {
-  expect(config).toEqual({ path: '/api/scores', rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } });
+  // PROBE ONLY (branch probe/config-path): the second path is the probe's.
+  expect(config).toEqual({ path: ['/api/scores', '/api/sessions'], rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } });
 });

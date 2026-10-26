@@ -14,7 +14,16 @@ import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSign
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
 // a minute per client, by IP and domain (DEVOPS).
-export const config = { path: '/api/scores', rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
+// PROBE ONLY (branch probe/config-path, never merged): a second path on the same function, to learn whether Netlify
+// routes both paths and counts them against one rate-limit rule (rightmove-invaders-replay-verified-scores, DEVOPS).
+export const config = { path: ['/api/scores', '/api/sessions'], rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
+
+// PROBE ONLY: /api/sessions answers a fixed body, whatever the method, and never opens a store.
+const PROBE_PATH = '/api/sessions';
+const probeAnswer = request => {
+  logToConsole({ event: 'probe.sessions', reason: 'ok' });
+  return Response.json({ probe: 'sessions', method: request.method, at: Date.now() }, { headers: { 'Cache-Control': 'no-store', ...EVERY_ANSWER } });
+};
 
 const MISSING = 'missing';
 const NOWHERE = Object.freeze({ scope: MISSING, context: MISSING, published: MISSING });
@@ -28,6 +37,7 @@ const STORES = Object.freeze({
 // unavailable, and the site-wide table is never used instead. A method the table doesn't take is refused before any
 // store is opened, so it is told what the table takes whether or not there is one.
 export default async function scores(request, context) {
+  if (new URL(request.url).pathname === PROBE_PATH) return probeAnswer(request);
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
   const options = { now: Date.now, newId, log: logToConsole, where };

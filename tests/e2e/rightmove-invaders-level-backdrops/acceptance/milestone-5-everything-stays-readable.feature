@@ -9,8 +9,7 @@ Feature: Everything I need to see stays readable on every neighbourhood
   # no brighter than the limit the spike found, and "a shade brighter" is how much brighter the softened edge of a shape,
   # or a moment of the fade, can come out. The uses and their needs are DESIGN's Legibility needs table. A failure lists
   # every pair that falls short, by neighbourhood and colour.
-  # These already hold, except where the Dream home's pink is measured (still to come, below): they guard the
-  # neighbourhoods' colours from now on.
+  # These all hold, the Dream home's pink included: they guard the neighbourhoods' colours from now on.
 
   @in-memory @property @contract-shape:pure-function @DDD-B6
   Scenario: No neighbourhood has a colour brighter than a backdrop may be
@@ -30,8 +29,8 @@ Feature: Everything I need to see stays readable on every neighbourhood
       | the hurdles, their bolts and their sparks | something I play against |
       | the houses' brick and windows             | something I play against |
 
-    # The small "Dream home saved +£..." text falls just short today, on Leafy avenue's road and on Terraced streets'
-    # road. DELIVER darkens those two road colours, never the Dream home's pink (DDD-B6, ADR-011), then runs this row.
+    # The small "Dream home saved +£..." text stands out as much as text needs to on Leafy avenue's road and on
+    # Terraced streets' road too: those two roads were darkened for it, never the Dream home's pink (DDD-B6, ADR-011).
     Examples:
       | use                                    | need |
       | the Dream home text and the Dream Home | text |
@@ -44,8 +43,8 @@ Feature: Everything I need to see stays readable on every neighbourhood
     Then every name stands out as much as text needs to
 
   # Every colour the game draws over a backdrop is measured against every colour of every neighbourhood, by the
-  # strictest need of its uses, or excused by name, never both and never neither. It waits with the Dream home row: the
-  # Dream home's pink falls short on two roads today.
+  # strictest need of its uses, or excused by name, never both and never neither. The Dream home's pink holds here, as
+  # in its row above, now that the two roads it fell short on are darker.
   @in-memory @error @contract-shape:pure-function @DDD-B6 @DDD-B7
   Scenario: Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name
     When every colour the game draws over a backdrop is measured against every colour of every neighbourhood, a shade brighter

@@ -3,7 +3,8 @@ import { COLORS, NEIGHBOURHOODS, neighbourhood } from '../theme/theme.js';
 
 // Each rung's backdrop: its neighbourhood from above, faint, like a property search map, with a skyline of its homes on
 // the ground line, all in the neighbourhood's palette (src/theme/theme.js). The recipes below take the drawing context b,
-// the palette p and the rung's random generator r.
+// the palette p and the rung's random generator r. After them: the plan of what a frame shows, the painting, the store
+// of what was built and the shell that draws a plan. No DOM global: the store is handed its canvases.
 
 const SEED = 1000;   // + the rung
 const KEPT = 2;      // backdrops the store keeps: the rung's own and the next one's, fading in
@@ -205,8 +206,8 @@ export function backdropPlan({ level, state, banner }) {
 // Paints a neighbourhood's backdrop on the 2D context it is handed, in game units (DDD-B1, DDD-B2): its ground, its map,
 // its skyline and the green ground line, with the rung's own generator (never Math.random), in its palette's colours and
 // COLORS.green only, and with no transform. The same calls every time.
-export function paintBackdrop(context, neighbourhood) {
-  const { look, palette } = neighbourhood, r = rng(SEED + NEIGHBOURHOODS.indexOf(neighbourhood));
+export function paintBackdrop(context, place) {
+  const { look, palette } = place, r = rng(SEED + NEIGHBOURHOODS.indexOf(place));
   rect(context, palette.bg, 0, 0, W, H);
   MAPS[look](context, palette, r);
   SKYLINES[look](context, palette, r);
@@ -216,11 +217,12 @@ export function paintBackdrop(context, neighbourhood) {
 // The store of built backdrops (DDD-B3, DDD-B4): { rescale(k), canvasFor(neighbourhood) }. createCanvas() makes an
 // offscreen canvas. canvasFor returns the neighbourhood's own canvas, built the first time it is asked for at k device
 // pixels to a unit (sized round(W * k) by round(H * k), the transform set, then paintBackdrop), keeping at most two, the
-// least recently asked-for going first; or null once its build has failed (a null 2D context, or a call that threw
-// while it was sized, scaled or painted). A failed build leaves a failed mark, kept apart from the two and never
-// evicted: a marked neighbourhood gets null at once, and no new canvas is asked for it. rescale(k) with a new scale
-// drops every canvas and every failed mark; with the same scale it returns at once, keeping both. Nothing is thrown or
-// logged: only the build is guarded, as a built canvas is assumed not to throw when drawn (Catalogued lies).
+// least recently asked-for going first; or null once its build has failed (a null 2D context, or a throw anywhere
+// after createCanvas(): sizing, getting the context, scaling or painting). A failed build leaves a failed mark, kept
+// apart from the two and never evicted: a marked neighbourhood gets null at once, and no new canvas is asked for it.
+// rescale(k) with a new scale drops every canvas and every failed mark; with the same scale it returns at once, keeping
+// them all. Nothing is thrown or logged: only the build is guarded, as a built canvas is assumed not to throw when drawn
+// (Catalogued lies).
 export function createBackdropCache(createCanvas) {
   const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first
   const failed = new Set();  // neighbourhoods whose build failed at this scale
@@ -256,9 +258,8 @@ export function createBackdropCache(createCanvas) {
 // puts globalAlpha back to the value it found; fillStyle it may leave changed, as every draw after it sets its own.
 export function showBackdrop(context, { here, next, mix }, canvasFor) {
   const found = context.globalAlpha;
-  const under = canvasFor(here), over = next ? canvasFor(next) : null;
-  layer(context, here, under, 1);
-  if (next) layer(context, next, over, mix);
+  layer(context, here, canvasFor(here), 1);
+  if (next) layer(context, next, canvasFor(next), mix);
   context.globalAlpha = found;
 }
 

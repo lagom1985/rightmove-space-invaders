@@ -16,7 +16,7 @@ const FORMATION_SIZE = ROWS * COLS;
 const SHIELD_Y = H - 190;
 export const PLAYER_SPEED = 330;
 export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
-export { BANNER_TIME };   // declared in config.js, so view/backdrop.js can read it without the rules
+export { BANNER_TIME };   // lives in config.js; re-exported because tests read the banner's length from the rules
 const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
 const EDGE_MARGIN = 16;   // the gap the pin and the formation keep from the sides of the screen
 const FORMATION_STRIDE = 9, FORMATION_DROP = 18;   // how far the formation steps sideways, and drops at an edge

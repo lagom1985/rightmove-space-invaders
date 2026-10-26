@@ -771,3 +771,253 @@ The earlier documents are amended once the user approves this DESIGN. Their orig
 - **ADRs**: ADR-010 (the table replays every game; supersedes ADR-007's accepted risk) and ADR-011 (deterministic rules, one game per instance; amends ADR-006). Both accepted (user, 2026-10-26).
 - **For DEVOPS**: the secret per deploy context, the `config.path` probe before slice 01, the smoke test with real records and paced requests, K25 on slice 01's preview, K22 on slice 02's preview, and the re-runs of K10, K11 and K14.
 - **For DISTILL**: the forgery catalogue (K20), the recorded-games corpus (K21), the `test-clock=lenient` cookie and `POST /__test/rows` in the fixtures, the drivers' choreography, and the new walking-skeleton scenario at the server's port.
+
+---
+
+## Wave: DEVOPS / [REF] Environment matrix
+
+Run on 2026-10-26, after the user accepted DESIGN (nw-platform-architect, lean). Decisions 1–9 are inherited from the leaderboard's DEVOPS (user, 2026-10-24): Netlify (CDN, Functions v2 on Node 22, Blobs, legacy Free); serverless; the Netlify build gate, with no GitHub Actions; the function's logs and usage emails; atomic deploys with instant rollback; no continuous learning; trunk-based with previews; mutation testing disabled. Machine-readable: [environments.yaml](environments.yaml), which extends the [leaderboard's](../rightmove-invaders-leaderboard/environments.yaml). Pushed: only the throwaway probe (draft PR #6, now closed, its branch deleted).
+
+| Environment | `SCORES_SESSION_SECRET` | What this feature changes | Preconditions |
+|---|---|---|---|
+| production | value **P**, deploy context Production | Sessions issued and checked; every signing replayed from slice 02 | P set, and a production deploy built after it, before slice 01 reaches production |
+| deploy-preview | value **V**, deploy context Deploy Previews | As production, on the preview's own empty deploy store | V set before the slice's preview is built; the user's OK to push |
+| branch-deploy | value **V**, deploy context Branch deploys | As deploy-preview | As deploy-preview |
+| deploy permalinks | the value its deploy was built with | An older production deploy's sessions verify on the published deploy, which checks the signing with its own code (ADR-005, qualified) | — |
+| local | a random 32 bytes per `npm start` | `test-clock=lenient` (DDD-R11) and `POST /__test/rows` (DDD-R17), for test boards only | none |
+| `netlify dev` | leave the Local development value empty | Unsupported, as before | Use `npm start` |
+
+What Netlify documents about the secret:
+- **Values apply at deploy time**: "Each deploy, including Deploy Previews and branch deploys, uses the environment variable values that were set at the time of deployment. To apply updated environment variable values, create a new deploy." This answers DESIGN's Open questions 4.
+- **Per-context values**: Production, Deploy Previews, Branch deploys and Local development.
+- **Scopes need Pro**: on legacy Free the variable is visible to the build as well, which never reads it.
+- **Secrets Controller**: whether legacy Free offers "Contains secret values" isn't documented. If the form offers it, use it: the value becomes write-only, and builds are scanned for it.
+- **Size**: the 44-character value sits far inside AWS's 4 KB limit on environment variables.
+
+## Wave: DEVOPS / [REF] The `config.path` probe (DESIGN Open questions 5)
+
+**Result: one rate-limit counter for both paths. DDD-R1 stands**, and `/api/sessions` needs no function of its own.
+
+Netlify documents an array of paths ("To configure multiple paths, set `path` as an array") and a rate-limit rule tied to the function's `path`. It doesn't document whether two paths share one counter, hence the probe.
+
+- **The build**: branch `probe/config-path` (commit `2b7ef0e`, from `main` at `4d17123`; the remote branch is deleted). Its only changes:
+  - `config.path` became `['/api/scores', '/api/sessions']`;
+  - `/api/sessions` returned a fixed body and opened no store;
+  - the `config` contract test followed.
+
+  `npm run build` passed 167 tests.
+- **The run**: [`probe/config-path-probe.mjs`](probe/config-path-probe.mjs) ran against `deploy-preview-6` (draft PR #6) at 2026-10-26T21:17Z. It made reads only, about 50 requests, and wrote nothing to Blobs.
+
+| Check | Result |
+|---|---|
+| Routing | `GET /api/scores` 200 with a table (602 ms, the deploy's first function request); `POST` and `GET /api/sessions` 200 with the probe body (158 and 155 ms); `/api/sessionsx` 404 |
+| 40 requests at 2 a second, alternating the paths | **14 accepted in all, 7 per path.** The first 429 came at request 15 (about 7 s in, as K14's measured lag), and every request after it got 429, on both paths. A counter per path would have accepted about 13 on each path |
+| 61 s later | Both paths answered 200 |
+
+Clean-up: PR #6 is closed without merging, and its branch is deleted. **Owner**: delete `deploy-preview-6`'s deploy in Netlify (Deploys → the deploy → Options → Delete deploy), and until then keep it on the kill switch's list of live function hostnames.
+
+## Wave: DEVOPS / [REF] The session secret: setup and rotation (owner guide)
+
+The owner does this. Nobody else handles the values. Never paste them into a chat, a commit, an issue or a log line.
+
+**Setup, once:**
+1. Generate two values on your own machine: `openssl rand -base64 32`, run twice. Each is 44 characters, 32 random bytes. Call them P (production) and V (previews and branch deploys).
+2. In Netlify, go to Project configuration → Environment variables → Add a variable, with key `SCORES_SESSION_SECRET`.
+   - Choose **Different value for each deploy context**: Production gets P, Deploy Previews V, and Branch deploys V. Leave Local development empty.
+   - If the form offers **Contains secret values**, tick it.
+   - CLI alternative (syntax unverified; check `npx netlify-cli@27.14.2 env:set --help` first): `env:set SCORES_SESSION_SECRET '<P>' --context production`, then `'<V>'` for `deploy-preview` and `branch-deploy`.
+3. **Do it before** slice 01's pull request is pushed, so its preview is built with V. P must also be set before slice 01 is merged: the merge's production build is the deploy that picks it up.
+4. **Check it**: the smoke test's first session request on the preview answers 200. A 500 with `sessions.error` `secret-missing` in the function's log means the value is missing in that context, or decodes to fewer than 32 bytes. Fix it, then trigger a new deploy.
+
+**Rotation** (a suspected leak; otherwise not needed):
+1. Generate a new value, and set it for the context in question.
+2. Trigger a deploy of that context. For production: Deploys → Trigger deploy → Deploy project. The new value applies only from that deploy.
+3. **The effect**: every session issued before that deploy stops verifying. Games in progress then sign as "Couldn't confirm", until the player starts a new game, so pick a quiet moment.
+   - It also ends at once the 2-hour window in which a deleted row can come back (D16). That is the moderation guide's second option.
+4. **A rollback brings back the old value**, because it is fixed at deploy time. Rolling back across a rotation therefore makes sessions issued since the rotation invalid. That is accepted, and the fix is to roll forward.
+
+**Losing the value** costs nothing: no data depends on it, so set a new one (rotation).
+
+**Moderation guide additions** (the leaderboard's owner guide, "deleting a row"):
+- **A deleted row can come back** within 2 hours of its session's issue, if the same request is sent again (D16). Look again after 2 hours, and delete it again if it's back.
+- **To shut every open session at once**, rotate the secret (above).
+- **A row's id** is now its game id: the last field of the key, the SHA-256 of the game's seed, cut to 32 hex characters (ADR-004 as amended). Deleting by key is unchanged.
+
+## Wave: DEVOPS / [REF] CI/CD pipeline outline
+
+The leaderboard's pipeline, unchanged in shape. Deltas:
+
+| Stage | Change |
+|---|---|
+| Test gate (`npm run build`: unit + in-memory) | Gains what DELIVER adds:<br>• the determinism scan (layering rule 8);<br>• the recorded-games corpus replayed in Node (K21), about 6 games, well under a second;<br>• the session signer's units;<br>• the forgery catalogue as `@server` scenarios (K20);<br>• the `config` contract test with both paths |
+| Functions bundling | The function now inlines `src/game/{replay,record,game,shields,chance,particles,config,events,high-scores}.js`, `src/theme/theme.js` and `netlify/scores/sessions.mjs`: about 35 KB of source, all static imports, so no `included_files`. A session request and a replayed signing on the preview prove the bundle |
+| Post-processing | The rate-limit rule now covers both paths, as the probe showed. Read the deploy log's post-processing stage on the first preview of slice 01 |
+| Preview smoke test | Extended: the spec below |
+| Browser projects (`npm test`, local) | Gain the corpus replay in Chromium, Firefox and WebKit (K21), and the browser scenarios, whose every signing the local function replays |
+
+**Release-check triggers**, added to the leaderboard's: a change to anything the function now bundles (`src/game/**`, `src/theme/**`, `netlify/scores/**`) re-runs K10 and K22 on a preview. A gameplay change also needs a `RULES_VERSION` bump and a re-recorded corpus (D10).
+
+### Preview smoke test, extended (spec; DELIVER implements it in `scripts/smoke-leaderboard.mjs`)
+
+**Unchanged**: the modes, the write guard, the first-GET rule, the pacing (at most 10 requests per 60 s per host, with 61 s waits around the deliberate over-limit steps), and production mode, which stays GET-only. A session request is a POST, so the write guard keeps it off production.
+
+**New in the script:**
+- **Records made in Node**: the script imports `src/game/game.js`, `record.js` and `replay.js`, as it imports `high-scores.js` today. A scripted game (stand still and hold fire) lasted 13–138 s, median 28.5 s, and scored £1,450–£10,700 over 30 seeds (DEVOPS probe, Node). The script plays candidate seeds in Node first, in milliseconds, and keeps those whose game lasts at most 30 s. Long games come from the recorded-games corpus, and 10-minute games from the corpus bot.
+- **Sessions**: one for each signing, for that signing's own seed, because one game has one row. Once slice 03 has landed, a signing waits at least its game's length after its session (D8), so the script asks for sessions ahead and orders the waits.
+- **The secret check**: the first session request; a 500 stops the run.
+
+| # | Slice's preview | Step | Pass | KPI |
+|---|---|---|---|---|
+| S1 | 01 | The deploy's first request: GET `/api/scores` | 200, empty table (write guard). The cold-start sample, recorded apart | K10, K12 |
+| S2 | 01 | The first `POST /api/sessions`, with a fresh seed | 200 `{ session, scores, listedAt }`, the session's seed being the one sent. Its time is recorded apart, as the session path's cold-start sample | K25 |
+| S3 | 01 | 30 session requests, one every 13 s, fresh seeds, timed on the client | p95 (the 29th of 30) < 1000 ms | **K25** |
+| S4 | 01 | The RCA's `curl` (no session); a session with its issue time changed; the same session twice; `GET /api/sessions`; a malformed seed | 400 `session-required`; 400 `invalid-session`; the second 409 `already-signed`; 405 with `Allow: POST`; 400 `invalid-seed`. Each no-store, nothing kept | K20 (1–3) |
+| S5 | 01 | 30 pairs, one every 13 s: a POST signing (slice 01's shape, a fresh session each) + a GET `?table=` | p95 < 1000 ms | K10 |
+| S6 | 01 | Steps 5, 8a, 8b and 9 as before, then **8c**: a session request every 6 s for 120 s (quick-game pace) | As before. 8c: record how many are accepted in each 60 s window (about 10, plus the lag), which quantifies D19 | K14 |
+| S7 | 02 | Sign the corpus's longest game (at least 15 minutes) with a session for its seed; then post a generated 60-minute body of the worst spacing (about 119 KB) | 200 within 5 s on the client, then the owner reads its `scores.signed` line: `replayMs`, scaled to 60 minutes, under 1 s. The 60-minute body's time is recorded (refused as `replay-mismatch` after a short replay) | **K22** |
+| S8 | 02 | 30 pairs, one every 13 s: each POST signs a different 10-minute bot game (the corpus bot in Node, seeds whose games last 9–11 minutes), then a GET | p95 < 1,250 ms, and the 10-minute replays' `replayMs` p95 < 250 ms (the owner reads the log) | **K10 under D21** |
+| S9 | 02 | A claimed deposit that isn't the replayed one; a record of 432,001 steps; a body of 128 KB + 1 byte; a claim of £500,050 | `replay-mismatch`; `game-too-long`; 413; `implausible-score`, never replayed | K20 (5–8, 10, 11) |
+| S10 | 02 | The burst run, on a throwaway preview without the rate-limit rule, as before: 20 simultaneous signings of 20 scripted games (20 seeds, distinct deposits), each with its own session; then 3 simultaneous signings of one game under three sessions | All 20 answer 200 with their own ids; each in the true top 10 finds its id; after 61 s the GET equals the true top 10 (0 lost). The table never shows more than one row for the 3-signing game | K11, K20 (3) |
+| S11 | 03 | A scripted game of about 30 s, signed straight after a fresh session; then the same game with a new session, signed after waiting its length | `too-fast`, then 200 | K20 (9) |
+| S12 | 03 | A record of another `RULES_VERSION` | `rules-changed`, never replayed | K20 |
+| S13 | 03, then on release-check triggers | K10 with the clock check on: sessions for 30 scripted 10-minute games, asked over about 6½ minutes, then the 30 pairs once each game's length has passed | As S8 | K10 under D21 |
+
+**Read by hand** from these runs:
+- The `sessions.issued` and `scores.signed` lines carry `scope=deploy` and `published=false`, plus `steps` and `replayMs`, and never a seed, a game id, a token or a record.
+- The header set of a session answer and of its refusals: `no-store`, `Netlify-Vary: query=table` and `nosniff`.
+
+**Cost**: about 30–40 minutes per slice preview, about 25 minutes for S13, and a few hundred invocations each, under 1 % of the month.
+
+## Wave: DEVOPS / [REF] Monitoring contracts
+
+The KPI rows are K20–K25 in [kpi-contracts.yaml](../../product/kpi-contracts.yaml), registered here. DISTILL adds their `local_scenarios`.
+
+| KPI | Gate | Instrument | When |
+|---|---|---|---|
+| K20 Forgeries are refused | hard | The `@server` forgery catalogue in the build gate; on Netlify, smoke steps S4, S9, S10 and S11–S12 | Every build; each slice's preview |
+| K21 Honest games replay to their own deposit | hard | The corpus replayed in Node (build gate) and in the three browsers (`npm test`); every signing of the browser scenarios | Every build, every `npm test` |
+| K22 A long game is verified in time | hard | S7, plus the `replayMs` of its log line | Slice 02's preview; release-check triggers |
+| K23 Honest players are never refused, or the log says why | soft | The weekly log reading: counts of `replay-mismatch`, `too-fast`, `rules-changed` and `session-expired`, each investigated | Weekly for 30 days after slice 03's release |
+| K24 Forgers leave no row | soft | A weekly GET of the production table, the owner's notes of rows deleted and re-entered, and the log's refusal counts | Weekly for 30 days after release |
+| K25 A game's session comes back quickly | hard | S2 and S3 | Slice 01's preview; release-check triggers |
+| K10 (re-run, D21 from slice 02) | hard | S5, S8 and S13 | Each slice's preview |
+| K14 (re-run, with 8c) | hard | S6 | Slice 01's preview |
+| K15 | soft | The daily check, unchanged; expect at most one more invocation per game | Daily |
+
+**New log signals** (the function's log, DDD-R14):
+
+| Signal | Means | Action |
+|---|---|---|
+| `sessions.error` `secret-missing` | The secret is missing in this deploy's context, or too short | Set it, then trigger a deploy (owner guide) |
+| `scores.rejected` `replay-mismatch` | Tampering, or a determinism bug | K23: investigate each one in the first 30 days. A cluster right after a deploy suggests a gameplay change without a `RULES_VERSION` bump: roll back |
+| `scores.rejected` `too-fast` | A forger, or a clock problem | K23 |
+| `scores.rejected` `rules-changed` after a deploy | Pages opened before a gameplay change | Expected for a few hours after such a deploy, then gone |
+| A burst of `scores.rejected` `session-required` | Pages loaded before the release (D12), or `curl` forgers | Expected on release day; afterwards, forgers |
+| `scores.rejected` `already-signed` | Re-sent requests | Look for a pattern; a deleted row coming back (D16) |
+| `replayMs` above 250 at p95 for 10-minute games, or above 1 s for any game | The replay is outgrowing its budget | D21: reopen DESIGN |
+
+**The daily check** gains one step: scan for `secret-missing` (none expected), and note the refusals by reason.
+
+## Wave: DEVOPS / [REF] Quota and outage risk
+
+- **Per game start**: the session request always runs the function and lists the table, where the game-start GET was often a CDN hit. That is at most one more invocation and one more Blobs listing per game.
+  - At the brief's 5,000 games a month: under 10,000–15,000 invocations, against K15's 62,500.
+  - The rate-limit count is unchanged, because cache hits counted already (K14's baseline, step 9), and the probe showed the session path shares the one rule.
+- **Per signing**: the replay's CPU, which legacy Free doesn't bill (it bills invocations), and a body of up to 128 KB, a negligible share of bandwidth.
+- **Abuse**: unchanged in kind. A forger now spends a session request per row, under the same 10 requests a minute per IP.
+- **Smoke-test runs**: a few hundred invocations per slice.
+
+## Wave: DEVOPS / [REF] Deployment strategy
+
+**Netlify atomic deploys with instant rollback**, unchanged, released **slice by slice**: each slice's pull request gets its preview run (the smoke steps above), and merges to `main` only when its hard KPIs pass.
+
+**Order for slice 01's release**:
+1. The owner sets P and V.
+2. The slice's pull request is pushed; its preview is built with V.
+3. The preview run passes S1–S6.
+4. Merge: the production build picks up P.
+5. The owner plays one game on production, and the log shows `sessions.issued ok` with `scope=site` and `published=true`.
+
+**Rollback across slices.** Rows survive every rollback, because the key format is unchanged both ways (D4).
+
+| Rolled back | Pages loaded before the rollback | Rows on the table |
+|---|---|---|
+| Slice 01 → before | They sign `{ initials, score, session }`, which the old function refuses as `invalid-signature`; "Couldn't confirm" until a reload | Unchanged; the old code reads them |
+| Slice 02 → slice 01 | They send a record, which slice 01's envelope refuses; and the ceiling is back to £250,000 | Unchanged |
+| Slice 03 → slice 02 | They sign normally (slice 02 has no clock check) | Unchanged |
+| Across a secret rotation | Sessions issued under the newer value stop verifying | Unchanged |
+
+**Kill switch**: unchanged (the leaderboard's DEVOPS). A game on the kill-switch deploy makes no table calls.
+
+## Wave: DEVOPS / [REF] Mutation testing strategy
+
+**Disabled**, as in `CLAUDE.md`. No change.
+
+## Wave: DEVOPS / [REF] Observability stack
+
+Unchanged tools: the function's logs, the Usage page, the usage emails and the daily check. What changes:
+- **New events, reasons and fields** (DDD-R14): `sessions.*` events, nine new refusal reasons, and `steps` and `replayMs` on every line that replayed.
+- **Never logged**: a session, a token, a seed, a game id, a record, initials or an IP. `scores-log-leak.spec.js` grows to cover them.
+- **No record is kept** (D16 out of scope), so a `replay-mismatch` can't be replayed from the log: K23's investigation works from counts, timing and deploys.
+
+## Wave: DEVOPS / [REF] Branching strategy
+
+**Trunk-based on `main`, with previews**, unchanged:
+- **PR #5** carries the DISCUSS, DESIGN and DEVOPS docs.
+- **Each slice** gets a pull request of its own, from a branch of its own, with its own preview run. DISTILL may land with slice 01's pull request.
+- **The probe's branch** `probe/config-path` (draft PR #6) was pushed with the user's OK, run, closed, and deleted.
+- **Every pushed preview** goes on the kill switch's list of live function hostnames until its deploy is deleted.
+- **The secret must be set** before the first slice's preview is pushed.
+
+## Wave: DEVOPS / [REF] Coexistence matrix
+
+Unchanged tools, and **no new dependency**. HMAC and SHA-256 come from the built-in `node:crypto`. The owner uses the Netlify CLI's `env:set` only if they prefer it to the UI, with its syntax checked first. Still no husky, pre-commit or GitHub Actions.
+
+## Wave: DEVOPS / [REF] Pre-requisites
+
+DESIGN's open questions for DEVOPS, answered:
+
+| Open question | Answer |
+|---|---|
+| 2. K22 and the clock check | K22 runs on slice 02's preview, before D8 lands (S7). A re-run after slice 03 waits each game's length |
+| 3. The smoke test | The spec above: records made in Node, one session per signing, 13 s pacing, and the steps by slice |
+| 4. One secret per context | P for production, V for previews and branch deploys. A change applies only through a new deploy (Netlify docs); the owner guide covers rotation |
+| 5. Two paths, one rule | **Measured: one counter** (the probe). DDD-R1 stands |
+
+**For the owner, before slice 01's pull request is pushed:**
+- Set `SCORES_SESSION_SECRET` (P and V), following the guide above.
+- Delete `deploy-preview-6`'s deploy.
+- Record the count of forged rows deleted at S0 (K24).
+
+**For DISTILL**: as DESIGN listed. Also:
+- read [environments.yaml](environments.yaml);
+- the smoke test reuses the corpus bot, so the corpus tooling stays importable from `scripts/`.
+
+**For DELIVER**:
+1. Implement the smoke-test extension (S1–S13).
+2. Add `config`'s contract test for both paths.
+3. Extend the log-leak test.
+4. Run each slice's preview steps, with the user's OK to push.
+
+## Wave: DEVOPS / [REF] Changed assumptions
+
+- **DESIGN, Open questions 4**: "whether a change in Netlify's environment reaches the functions without a redeploy (checked on a preview)" → answered from Netlify's docs, without a preview: only a new deploy applies a changed value.
+- **DESIGN, Open questions 5**: "If they don't, `/api/sessions` moves to a function of its own" → they do share one counter (the probe), so it stays on the one function.
+- **DISCUSS, Outcome KPIs**: "DISTILL registers K20–K25 in kpi-contracts.yaml" → DEVOPS registers them with their instruments, and DISTILL adds their `local_scenarios`, as with K10–K15.
+- **The leaderboard's DEVOPS, smoke test**: "a POST goes only to `deploy-preview-<n>…` or `<branch>…`" → unchanged, and it now also covers `POST /api/sessions`.
+
+## Wave: DEVOPS / [REF] Wave decisions summary
+
+- **Inherited** (user, 2026-10-24): Netlify serverless, the Netlify build gate, logs and emails, atomic deploys with rollback, trunk-based with previews, mutation testing disabled.
+- **The user, 2026-10-26**: the OK to push the throwaway probe, which was run and cleaned up.
+- **Measured**: two paths on one function share one rate-limit counter (DDD-R1 stands).
+- **From Netlify's docs**:
+  - the secret's value applies at deploy time, so rotating it needs a deploy;
+  - per-context values are available;
+  - scopes are Pro-only.
+- **Decided here**:
+  - **The secret**: P for production, V for previews and branch deploys, 32 random bytes each, set by the owner, never seen by anyone else.
+  - **The smoke test**: steps S1–S13, by slice.
+  - **K20–K25** are registered in `kpi-contracts.yaml`.
+  - **Releases go slice by slice**, with the rollback matrix above.
+- **Hand-off**: DISTILL (nw-acceptance-designer).

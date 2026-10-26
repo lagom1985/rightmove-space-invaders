@@ -1,0 +1,79 @@
+# environments.yaml for rightmove-invaders-replay-verified-scores (DEVOPS, 2026-10-26), consumed by DISTILL (Mandate 4).
+# It extends docs/feature/rightmove-invaders-leaderboard/environments.yaml, which stays the record of the platform
+# itself (Netlify site, plan, CDN, rate limit, cache, kill switch): only what this feature changes is here.
+# Decisions 1-9 are inherited from the leaderboard's DEVOPS (user, 2026-10-24): Netlify (CDN, Functions v2 on Node 22,
+# Blobs), serverless, the Netlify build gate (no GitHub Actions), the function's logs and usage emails, atomic deploys
+# with instant rollback, no continuous learning, trunk-based with previews, mutation testing disabled.
+
+target_environments:
+  - name: production
+    description: "The published production deploy: sessions issued and checked with the production secret; every signing replayed (from slice 02)"
+    platform: [netlify-functions-v2-node22]
+    secret: "SCORES_SESSION_SECRET, value P, deploy context Production"
+    preconditions:
+      - "SCORES_SESSION_SECRET set for Production, then a deploy built after it (values apply at deploy time)"
+      - "the slice's preview run passed (its go/no-go KPIs)"
+  - name: deploy-preview
+    description: "A pull request's preview: its own empty deploy store, the preview secret"
+    platform: [netlify-functions-v2-node22]
+    secret: "SCORES_SESSION_SECRET, value V, deploy context Deploy Previews"
+    preconditions:
+      - "SCORES_SESSION_SECRET set for Deploy Previews before the preview is built"
+      - "the user's OK to push"
+  - name: branch-deploy
+    description: "As deploy-preview, where branch deploys are on"
+    platform: [netlify-functions-v2-node22]
+    secret: "SCORES_SESSION_SECRET, value V, deploy context Branch deploys"
+    preconditions: ["as deploy-preview"]
+  - name: deploy-permalink
+    description: "Every deploy keeps its function and the secret value it was built with; an older production deploy's sessions verify on the published deploy, which checks the signing with its own code (ADR-005, qualified by ADR-010)"
+    platform: [netlify-functions-v2-node22]
+    preconditions: []
+  - name: local
+    description: "npm start (scripts/serve.mjs): a random 32-byte secret per start; test boards only: test-clock=lenient (DDD-R11) and POST /__test/rows (DDD-R17)"
+    platform: [macos, linux]
+    preconditions: ["npm install", "npx playwright install for the browser projects"]
+  - name: netlify-dev
+    description: "Unsupported, as before (chooseStore gives deploy; no production data reachable). Leave the Local development value of the secret empty"
+    platform: []
+    preconditions: []
+
+secrets:
+  - name: SCORES_SESSION_SECRET
+    format: "32 random bytes, base64 (44 characters): openssl rand -base64 32"
+    contexts: {production: P, deploy-preview: V, branch-deploy: V, local-development: unset}
+    read_by: "the function's composition root only (process.env), never the build, the browser or a log line"
+    missing_or_short: "no session is issued and no signing is saved: 500 unexpected, logged secret-missing (DDD-R2)"
+    applies: "at deploy time: a changed value reaches the functions only through a new deploy (Netlify functions env docs)"
+    rotation: "set the new value, then trigger a deploy of that context; sessions issued before it stop verifying"
+    scopes: "scope selection is Pro and above; on legacy Free the variable is visible to builds too, which never read it"
+    secret_flag: "tick Contains secret values if the plan offers it (write-only, build secret scanning); its plan availability isn't documented"
+
+coexistence_matrix:
+  - tool: "@playwright/test 1.62.1"
+    must_not_break: true
+  - tool: "playwright-bdd 9.2.1"
+    must_not_break: true
+  - tool: "fast-check 4.10.2"
+    must_not_break: true
+  - tool: "@netlify/blobs 11.1.6 (the function's only runtime dependency)"
+    must_not_break: true
+  - tool: "Netlify functions bundler: esbuild (family pinned in netlify.toml)"
+    must_not_break: true
+    note: "now inlines src/game/{replay,record,game,shields,chance,particles,config,events,high-scores}.js, src/theme/theme.js and netlify/scores/sessions.mjs: about 35 KB of source, static imports only"
+  - tool: "netlify-cli 27.14.2 via npx (owner only)"
+    must_not_break: false
+    note: "env:set for the secret, blobs:list/delete for moderation, logs; syntax unverified until checked with --help"
+
+platform_coverage:
+  browsers: [desktop Chrome, desktop Edge, desktop Firefox, desktop Safari]
+  engines_checked_for_replay: [Node 22 (the function), Chromium, Firefox, WebKit]   # K21's corpus replays in all four
+  netlify: [Functions v2, Node 22, legacy Free plan]
+
+deployment_assumptions:
+  - "Slice by slice: each slice merges to main only after its preview run passes its hard KPIs (slice 01: K25, K10, K14; slice 02: K22, K10 under D21, K11; slice 03: the clock check on the preview)"
+  - "The secret is set for Production, and a deploy built after it, before slice 01 reaches production; otherwise nobody can sign"
+  - "Rollback across a slice is safe for the table (the key format is unchanged both ways); pages loaded on the newer slice sign in a shape the older function refuses, which shows Couldn't confirm until a reload"
+  - "A rollback also restores the secret value the deploy was built with"
+  - "Every pushed preview or branch deploy, the probe's included, goes on the kill switch's list of live function hostnames until its deploy is deleted"
+  - "Release-check triggers grow: a change to src/game/** or src/theme/** that the function bundles re-runs K10 and K22 on a preview; a gameplay change also needs a RULES_VERSION bump and a re-recorded corpus (D10)"

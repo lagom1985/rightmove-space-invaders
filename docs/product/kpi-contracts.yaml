@@ -192,3 +192,59 @@ kpis:
     on_miss: "investigate, then decide. The investigation can ask the playtesters (did anyone want past the entry without finding Esc?), but the public table records no cause for an AAA row, so it can't say whether a production row was deliberate. The PO then decides whether a change is needed, and if so opens it via /nw-bugfix"
     local_scenarios: "@kpi-K19 'Esc skips signing' (milestone-5-skip-with-esc.feature): a skip sends nothing to the table. Observational in production (low traffic)"
     baseline: "0 AAA rows on the production top 10 on release day, 2026-10-26 (3 rows: ALF, CAR, FAB)"
+
+  # rightmove-invaders-replay-verified-scores, registered by DEVOPS on 2026-10-26 (the feature delta's "Outcome KPIs"
+  # and DEVOPS "Monitoring contracts"). The smoke steps S1-S13 are specified in that feature delta (DEVOPS, "Preview
+  # smoke test, extended"); DELIVER implements them in scripts/smoke-leaderboard.mjs. DISTILL adds local_scenarios.
+  # Release-check triggers grow: a change to anything the function bundles (src/game/**, src/theme/**,
+  # netlify/scores/**) re-runs K10 and K22 on a preview. K10's budget for signings that replay is D21's (1,250 ms).
+  - id: K20
+    feature: rightmove-invaders-replay-verified-scores
+    name: Forgeries are refused
+    target: "11 of 11 forgeries in the catalogue refused with their reason, and 0 rows saved: (1) no session; (2) an altered session; (3) a game signed twice, with the same or another session; (4) an expired session; (5) a claimed deposit that isn't the replayed one; (6) a record that doesn't end at game over; (7) a malformed record; (8) a record over 60 minutes; (9) a record faster than the clock; (10) a body over the cap; (11) a deposit above 500000"
+    measured_by: "the @server forgery catalogue in the build gate (real function, real Blobs emulator); on Netlify, smoke steps S4, S9, S10 and S11-S12 on each slice's preview; the console forgery by hand on the preview (DoD)"
+    window: "every build; each slice's preview"
+    gate: hard
+    baseline: "2 of 11 refused today (a body over the 1 KB cap; a deposit above the 250000 ceiling)"
+  - id: K21
+    feature: rightmove-invaders-replay-verified-scores
+    name: Honest games replay to their own deposit
+    target: "0 mismatches over the recorded-games corpus (at least 6 bot games made in Node, from 1 minute to at least one of 15 minutes or more), replayed in Node and in Chromium, Firefox and WebKit, and over every signing of the browser acceptance suite (games played with the keyboard, replayed by the local function)"
+    measured_by: "the corpus replay in the unit project (build gate) and in the browser projects (npm test); the browser scenarios' signings"
+    window: "every build and every npm test"
+    gate: hard
+    baseline: "probe, 2026-10-26, on a patched copy of the rules: 7 of 7 games identical in Node 22, Chromium 151, Firefox 153 and WebKit 26.5"
+  - id: K22
+    feature: rightmove-invaders-replay-verified-scores
+    name: A long game is verified in time on Netlify
+    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line), scaled to 60 minutes of game time, under 1 s; a 60-minute worst-spacing body (about 119 KB) is timed too"
+    measured_by: "smoke step S7, and the owner reading the log line"
+    window: "slice 02's preview, before the clock check lands; again on the release-check triggers (after slice 03 a re-run waits each game's length)"
+    gate: hard
+    baseline: "probe: about 50 ms for 10 minutes in Node 22 on an M4 Pro, so about 0.3 s for 60 minutes; not measured on Netlify"
+  - id: K23
+    feature: rightmove-invaders-replay-verified-scores
+    name: Honest players are never refused, or the log says why
+    target: "every replay-mismatch, too-fast, rules-changed and session-expired in the 30 days after slice 03's release is investigated; 0 traced to a determinism bug or a clock problem"
+    measured_by: "the function's log, read weekly (Netlify > Functions > scores, or netlify logs --function scores --since 7d)"
+    window: "weekly for 30 days after release"
+    gate: soft
+    on_miss: "a fix, opened via /nw-bugfix"
+    baseline: "0: none of these reasons exists before release"
+  - id: K24
+    feature: rightmove-invaders-replay-verified-scores
+    name: Forgers leave no row
+    target: "0 rows on the production table that the owner judges forged in the 30 days after release, re-entered rows included (D7, D16)"
+    measured_by: "GET /api/scores on production weekly (read-only), the owner's notes of rows deleted and re-entered, and the log's refusals by reason"
+    window: "weekly for 30 days after release"
+    gate: soft
+    on_miss: "investigate, then decide whether the accepted residual risk (ADR-010) needs more"
+    baseline: "2026-10-26: forged rows of about 9999950, deleted by the owner at S0; the owner records their count before release"
+  - id: K25
+    feature: rightmove-invaders-replay-verified-scores
+    name: A game's session comes back quickly
+    target: "p95 of the session request (POST /api/sessions, timed on the client) under 1000 ms over 30 paced requests (one every 13 s) on a deploy preview; the first request of a fresh deploy recorded apart"
+    measured_by: "smoke steps S2 and S3"
+    window: "slice 01's preview; again on the release-check triggers"
+    gate: hard
+    baseline: "not measured with sessions. The probe's /api/sessions (a fixed answer, no store) took 155-158 ms on deploy-preview-6, 2026-10-26; K10's POST + GET pairs: p95 924 ms (2026-10-25)"

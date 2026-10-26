@@ -204,7 +204,7 @@ The handler reaches the store only through the restricted table-store port; unit
 
 ## Platform and Delivery
 
-*Owner: nw-platform-architect · Last updated: 2026-10-25 (rightmove-invaders-leaderboard, DELIVER: the smoke test is written; the go/no-go is still owed)*
+*Owner: nw-platform-architect · Last updated: 2026-10-26 (rightmove-invaders-replay-verified-scores, DEVOPS: the session secret per deploy context, the `config.path` probe, the smoke test's steps S1–S13, K20–K25; edits marked "replay-verified". Before that, 2026-10-25: rightmove-invaders-leaderboard, DELIVER: the smoke test is written; the go/no-go is still owed)*
 
 ### Deployment
 
@@ -231,7 +231,10 @@ The game is published on **Netlify** from the GitHub repo `lagom1985/rightmove-s
   - **Older production deploys**, reached through their permalinks, write a deploy store of their own, so they can't sign the real table with old code.
   - **Deploy previews and branch deploys** each get an empty deploy store, which follows its deploy and is deleted with it.
   - **Locally**: the `BlobsServer` emulator, with one store per `test-board` cookie.
-- **Rate limit**: `config.rateLimit` allows 10 requests per 60 s per IP and domain, GET and POST together. It is one of the 2 code rules the plan allows.
+- **Rate limit**: `config.rateLimit` allows 10 requests per 60 s per IP and domain, GET and POST together. It is one of the 2 code rules the plan allows. *replay-verified* (DEVOPS, 2026-10-26): the function will also serve `POST /api/sessions` (`config.path` as an array). A probe on a throwaway preview (deploy-preview-6) showed that both paths share the rule's one counter: 14 accepted in all, then 429 on both paths.
+- *replay-verified* (DEVOPS, 2026-10-26; the owner's guide is in the feature delta): **the session secret**, `SCORES_SESSION_SECRET`. It is 32 random bytes, with one value for Production and another for Deploy Previews and Branch deploys.
+  - Netlify applies a changed value only through a new deploy, so rotating the secret needs one, and a rollback restores the old value.
+  - Without the secret nobody can sign, and the log says `secret-missing`.
   - Netlify answers the 429 itself; enforcement can lag by up to 10 s.
   - It is checked on a deploy preview before the first production deploy (K14). If it doesn't hold, the function isn't merged.
 - **GET cache**: a successful GET is cached at the CDN for 15 s (`Netlify-CDN-Cache-Control: public, s-maxage=15, durable`), and browsers revalidate.

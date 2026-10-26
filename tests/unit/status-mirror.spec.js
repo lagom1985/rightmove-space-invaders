@@ -7,7 +7,7 @@ import { createFakeStatusRoot } from './support/fake-status-root.js';
 import { assertStateDelta, appendedWith, satisfying, setTo, unchanged } from '../common/state-delta.js';
 import { createStatus } from '../../src/view/status.js';
 import { pounds } from '../../src/theme/theme.js';
-import { ALPHABET, BLOCKED_INITIALS, INITIALS_LENGTH } from '../../src/game/high-scores.js';
+import { BLOCKED_INITIALS, INITIALS_LENGTH, isAllowedInitials } from '../../src/game/high-scores.js';
 import { GameEvent } from '../../src/game/events.js';
 
 // The status mirror (src/view/status.js) over the real rules (a fresh copy of src/game/game.js per run), synced any
@@ -19,7 +19,7 @@ import { GameEvent } from '../../src/game/events.js';
 // through snapshot().
 
 const STEP = 1 / 120;
-const SETTLE_S = 0.7;   // Enter restarts only 0.6 s after game over
+const SETTLE_S = 0.7;   // Enter restarts, and the entry takes typed presses, only 0.6 s after game over
 const keyboard = { isDown: () => false };
 const UNIVERSE = ['heard', 'list', 'initials'];
 
@@ -31,10 +31,19 @@ const SAID = {
 };
 const ANY_OUTCOME = /Signed [A-Z]{3}, #\d+\.|The table filled up before [A-Z]{3} arrived\.|Couldn't confirm [A-Z]{3}'s signing\./;
 
-// What the initials field reads (DISTILL, Messages): the letters spaced, and the one being chosen; empty when not entering.
-const FIELD = (letters, index) => `${[...letters].join(' ')}, letter ${index + 1} of ${INITIALS_LENGTH}`;
-const REFUSAL = 'Those initials aren\'t allowed. Change a letter.';
-const ABOUT_THE_INITIALS = /[A-Z] [A-Z] [A-Z], letter [1-3] of 3|Those initials aren't allowed/;
+// What the initials field reads (typed-initials, Player-facing wording): the letters typed, spaced, and the next one to
+// type, or Enter once all three are in; empty when not entering.
+const FIELD = letters => {
+  const spaced = [...letters].join(' ');
+  if (!letters) return `No letters yet, letter 1 of ${INITIALS_LENGTH}`;
+  return letters.length < INITIALS_LENGTH ? `${spaced}, letter ${letters.length + 1} of ${INITIALS_LENGTH}` : `${spaced}, press Enter to sign`;
+};
+const REFUSAL = 'Those initials aren\'t allowed. Type different ones.';
+const ABOUT_THE_INITIALS = /No letters yet, letter 1 of 3|\b[A-Z](?: [A-Z]){0,2}, (?:letter [2-3] of 3|press Enter to sign)|Those initials aren't allowed|Type 3 letters to sign/;
+const isLetter = key => /^[A-Za-z]$/.test(key);
+// A key press's position, as the keyboard reports it beside the key (DDD-T1): a letter's key, or the key's own name.
+const KEY_CODES = { é: 'Digit2', 1: 'Digit1' };
+const codeOf = key => (isLetter(key) ? `Key${key.toUpperCase()}` : KEY_CODES[key] ?? key);
 
 class MirroredGame {
   // The page load has answered with an empty table, unless the table is to stay unknown until something says otherwise.
@@ -57,7 +66,7 @@ class MirroredGame {
   // The entry the rules are showing, as the field reads it.
   expectedField() {
     const { entry } = this.game.snapshot();
-    return entry ? FIELD(entry.letters, entry.index) : '';
+    return entry ? FIELD(entry.letters) : '';
   }
 
   // The rows shown while the table is available, the confirmed current signing's marked.
@@ -100,6 +109,15 @@ class MirroredGame {
 
   press(key) { this.game.handlePresses(new Set([key])); }
 
+  // One frame's typed presses, as main.js hands them over: their positions as a set of codes, and { key } in order.
+  type(...keys) { this.game.handlePresses(new Set(keys.map(codeOf)), keys.map(key => ({ key }))); }
+
+  // Enter, as a position alone: it starts a game only once no entry is open, since an open entry takes typed presses.
+  restart() {
+    expect(this.game.snapshot().entry, 'arranging: a new game is started only once no entry is open').toBeNull();
+    this.press('Enter');
+  }
+
   screen() { return this.game.snapshot().screen; }
 }
 
@@ -108,19 +126,18 @@ const command = (description, check, run) => ({ check, run, toString: () => desc
 
 const playAndSign = (initials, times) => command(`playAndSign(${initials})`, m => !m.paused, (m, r) => {
   if (r.screen() === 'over') r.act(() => r.game.update(SETTLE_S, keyboard));
-  if (r.screen() !== 'play') r.act(() => r.press('Enter'));
+  if (r.screen() !== 'play') r.act(() => r.restart());
   r.act(() => { arrange.deposit(r.game, 50); arrange.formationOnPin(r.game); r.game.update(STEP, keyboard); });
   expect(r.game.snapshot().entry, 'arranging: £50 should make a table that has room').not.toBeNull();
-  for (const letter of initials) {
-    for (let i = 0; i < ALPHABET.indexOf(letter); i++) r.act(() => r.press('ArrowUp'));
-    r.act(() => r.press('Enter'), times);
-  }
+  r.act(() => r.game.update(SETTLE_S, keyboard));
+  for (const letter of initials) r.act(() => r.type(letter.toLowerCase()), times);
+  r.act(() => r.type('Enter'), times);
   m.inFlight.push(r.signed.at(-1));
 });
 
 const startNewGame = times => command('startNewGame', m => !m.paused, (m, r) => {
   if (r.screen() === 'over') r.act(() => r.game.update(SETTLE_S, keyboard));
-  if (r.screen() !== 'play') r.act(() => r.press('Enter'), times);
+  if (r.screen() !== 'play') r.act(() => r.restart(), times);
 });
 
 const togglePause = times => command('togglePause', () => true, (m, r) => {
@@ -183,87 +200,85 @@ test('each settled signing is announced exactly once, however often the mirror s
   expect(WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 
-// ---- the initials field and its announcements (DDD-14) ----
-// The entry as DESIGN's rules operations describe it: every letter starts at A, Up and Down move it round the alphabet,
-// Enter takes it and moves on, and the third Enter signs, unless the initials are on the word filter: then the letters
-// are kept and the first letter is current again (DISTILL's choice). A frame's presses reach the rules as one set (the
-// keyboard has already made presses of the same key within a frame one press).
-const rotate = (letter, by) => ALPHABET[(ALPHABET.indexOf(letter) + by + ALPHABET.length) % ALPHABET.length];
-const NEW_ENTRY = Object.freeze({ letters: 'A'.repeat(INITIALS_LENGTH), index: 0 });
+// ---- the initials field and its announcements (DDD-T10) ----
+// The typed entry as DESIGN's rules operations describe it: the entry opens empty, a letter fills the next slot in
+// capitals (a fourth is ignored), every other key does nothing, and Enter with three allowed letters signs and drops the
+// rest of the frame. A frame's typed presses reach the rules together, in order, so the mirror hears the field the frame
+// leaves, once. Enter too early (roadmap 01-03) and the word filter's refusal (01-08, parked below) are not drawn here:
+// a frame with Enter in it is played only when that Enter signs.
+const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'ArrowUp', '1', 'é', 'Enter'];
+const QUIET_KEYS = ['a', 'l', 'x', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
 
-// One frame's keys on the entry -> { entry (null once signed), refused }.
-function keysDo({ letters, index }, keys) {
-  const chosen = [...letters];
-  chosen[index] = rotate(chosen[index], keys.has('ArrowUp') - keys.has('ArrowDown'));
-  const initials = chosen.join('');
-  if (!keys.has('Enter')) return { entry: { letters: initials, index }, refused: false };
-  if (index + 1 < INITIALS_LENGTH) return { entry: { letters: initials, index: index + 1 }, refused: false };
-  if (BLOCKED_INITIALS.includes(initials)) return { entry: { letters: initials, index: 0 }, refused: true };
-  return { entry: null, refused: false };
+// One frame's typed presses on the entry -> { letters (null once signed), signed (the initials signed) }, or null when an
+// Enter in it wouldn't sign.
+function keysDo(letters, keys) {
+  let typed = letters;
+  for (const key of keys) {
+    if (key === 'Enter') return typed.length === INITIALS_LENGTH && isAllowedInitials(typed) ? { letters: null, signed: typed } : null;
+    if (isLetter(key) && typed.length < INITIALS_LENGTH) typed += key.toUpperCase();
+  }
+  return { letters: typed, signed: null };
 }
 
 const nothingAboutTheInitials = satisfying('nothing said about the initials', (was, now) =>
   now.length >= was.length && now.slice(was.length).every(text => !ABOUT_THE_INITIALS.test(text)));
 
-// What the first sync after a frame on an open entry hears and shows, and which moment that frame was.
-function heardAfter(was, { entry, refused }) {
-  const field = FIELD(entry.letters, entry.index);
-  if (field === FIELD(was.letters, was.index)) return { heard: unchanged(), field, moment: 'no change' };
-  const moment = refused ? 'refused' : entry.index !== was.index ? 'position' : 'letter';
-  return { heard: appendedWith(refused ? `${REFUSAL} ${field}` : field), field, moment };
+// What the first sync after a frame on an open entry hears and shows, and which moment that frame was. The Enter that
+// signs is heard as the signing alone, as the game-over screen describes it.
+function heardAfter(was, { letters, signed }) {
+  if (signed) return { heard: appendedWith(`Signing ${signed}… Press Enter to house-hunt again.`), field: '', moment: 'signed' };
+  const field = FIELD(letters);
+  if (letters === was) return { heard: unchanged(), field, moment: 'no change' };
+  return { heard: appendedWith(field), field, moment: letters.length - was.length > 1 ? 'letters within one frame' : 'a letter' };
 }
 
-// A game, then a game over with £50 on an empty table: the entry opens, announced by the prompt rather than spelled.
+// A game, then a game over with £50 on an empty table: the entry opens empty, announced by the prompt rather than spelled,
+// and takes typed presses once 0.6 s of game over have passed.
 function openEntry(m, r, times) {
   const quiet = { heard: nothingAboutTheInitials, field: '' };
   if (r.screen() === 'over') r.frame(() => r.game.update(SETTLE_S, keyboard), times, quiet);
-  r.frame(() => r.press('Enter'), times, quiet);
+  r.frame(() => r.restart(), times, quiet);
   r.frame(() => { arrange.deposit(r.game, 50); arrange.formationOnPin(r.game); r.game.update(STEP, keyboard); }, times,
-    { heard: nothingAboutTheInitials, field: FIELD(NEW_ENTRY.letters, NEW_ENTRY.index) });
-  m.entry = NEW_ENTRY;
+    { heard: nothingAboutTheInitials, field: FIELD('') });
+  r.frame(() => r.game.update(SETTLE_S, keyboard), times, { heard: unchanged(), field: FIELD('') });
+  m.entry = '';
 }
 
-const pressKeys = (keys, times) => command(`press(${[...keys].join('+') || 'no key'}, ${times} syncs)`, () => true, (m, r) => {
-  const press = () => r.game.handlePresses(keys);
-  if (!m.entry) {
-    m.seen.add('not entering');
-    r.frame(press, times, { heard: unchanged(), field: '' });
-    return;
-  }
-  const after = keysDo(m.entry, keys);
-  if (after.entry) {
+// The model's entry is the letters typed, or null while no entry is open.
+const typeKeys = (keys, times) => command(`type(${keys.join(' ') || 'nothing'}, ${times} syncs)`,
+  m => m.entry !== null && keysDo(m.entry, keys) !== null, (m, r) => {
+    const after = keysDo(m.entry, keys);
     const { heard, field, moment } = heardAfter(m.entry, after);
     m.seen.add(moment);
-    r.frame(press, times, { heard, field });
-  } else {
-    m.seen.add('signed');
-    r.frame(press, times, { heard: nothingAboutTheInitials, field: '' });
-  }
-  m.entry = after.entry;
+    r.frame(() => r.type(...keys), times, { heard, field });
+    m.entry = after.letters;
+  });
+
+const typeWithNoEntry = (keys, times) => command(`typeWithNoEntry(${keys.join(' ') || 'nothing'}, ${times} syncs)`, m => m.entry === null, (m, r) => {
+  m.seen.add('not entering');
+  r.frame(() => r.type(...keys), times, { heard: unchanged(), field: '' });
 });
 
-const signLetters = (initials, times) => command(`signLetters(${initials}, ${times} syncs)`, m => m.entry !== null && m.entry.index === 0, (m, r) => {
-  for (const letter of initials) {
-    const ups = (ALPHABET.indexOf(letter) - ALPHABET.indexOf(m.entry.letters[m.entry.index]) + ALPHABET.length) % ALPHABET.length;
-    for (let i = 0; i < ups; i++) pressKeys(new Set(['ArrowUp']), times).run(m, r);
-    pressKeys(new Set(['Enter']), times).run(m, r);
-  }
+const signLetters = (initials, times) => command(`signLetters(${initials}, ${times} syncs)`, m => m.entry === '', (m, r) => {
+  for (const letter of initials.toLowerCase()) typeKeys([letter], times).run(m, r);
+  typeKeys(['Enter'], times).run(m, r);
 });
 
 const nextEntry = times => command(`nextEntry(${times} syncs)`, m => m.entry === null, (m, r) => openEntry(m, r, times));
 
-const frameKeys = fc.subarray(['ArrowUp', 'ArrowDown', 'Enter', 'Space']).map(keys => new Set(keys));
+const frameOf = keys => fc.array(fc.constantFrom(...keys), { maxLength: 4 });
 const ENTRY_COMMANDS = [
-  fc.tuple(frameKeys, syncs).map(([keys, times]) => pressKeys(keys, times)),
-  fc.tuple(frameKeys, syncs).map(([keys, times]) => pressKeys(keys, times)),
-  fc.tuple(fc.constantFrom('FAB', 'ZZY', ...BLOCKED_INITIALS), syncs).map(([initials, times]) => signLetters(initials, times)),
+  fc.tuple(frameOf(ENTRY_KEYS), syncs).map(([keys, times]) => typeKeys(keys, times)),
+  fc.tuple(frameOf(ENTRY_KEYS), syncs).map(([keys, times]) => typeKeys(keys, times)),
+  fc.tuple(frameOf(QUIET_KEYS), syncs).map(([keys, times]) => typeWithNoEntry(keys, times)),
+  fc.tuple(fc.constantFrom('FAB', 'ZZY'), syncs).map(([initials, times]) => signLetters(initials, times)),
   syncs.map(nextEntry),
 ];
 
 // Moments every run together must reach.
-const ENTRY_WITNESSES = ['letter', 'position', 'refused', 'no change', 'signed', 'not entering'];
+const ENTRY_WITNESSES = ['a letter', 'letters within one frame', 'no change', 'signed', 'not entering'];
 
-test('the initials field reads the entry and is empty otherwise, each change of letter or position is announced once (a refusal with it), and a frame or a sync that changes neither says nothing', async () => {
+test('the initials field reads the typed entry and is empty otherwise, each frame that changes the letters is announced once as the field it leaves, a frame or a sync that changes nothing says nothing, and the Enter that signs is heard as the signing', async () => {
   const seen = new Set();
   await fc.assert(fc.asyncProperty(syncs, fc.commands(ENTRY_COMMANDS, { maxCommands: 30 }), async (times, commands) => {
     const mirrored = await MirroredGame.fresh();
@@ -273,6 +288,19 @@ test('the initials field reads the entry and is empty otherwise, each change of 
     fc.modelRun(() => ({ model, real: mirrored }), commands);
   }));
   expect(ENTRY_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
+});
+
+// The word filter's refusal (D4): the entry is emptied, and the refusal is heard once, with the empty field. Parked until
+// roadmap step 01-08, which brings its wording and announces each notice by its number (DDD-T6, DDD-T10).
+test.fixme('initials on the word filter are refused at Enter: the entry is emptied, and the refusal is heard once, with the empty field', async () => {
+  await fc.assert(fc.asyncProperty(fc.constantFrom(...BLOCKED_INITIALS), syncs, async (blocked, times) => {
+    const mirrored = await MirroredGame.fresh();
+    const model = { entry: null, seen: new Set() };
+    mirrored.frame(() => {}, times, { heard: nothingAboutTheInitials, field: '' });   // the title
+    openEntry(model, mirrored, times);
+    for (const letter of blocked.toLowerCase()) typeKeys([letter], times).run(model, mirrored);
+    mirrored.frame(() => mirrored.type('Enter'), times, { heard: appendedWith(`${REFUSAL} ${FIELD('')}`), field: FIELD('') });
+  }));
 });
 
 // ---- what game over says about the table (DDD-9) ----

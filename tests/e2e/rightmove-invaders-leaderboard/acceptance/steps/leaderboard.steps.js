@@ -27,7 +27,7 @@ Then('I am asked for my initials for a deposit saved of {string}', async ({ page
   await expect(status(page)).toContainText('Enter your initials');
 });
 
-// On the letter wheel today, typed once DELIVER flips INITIALS_ENTRY (steps/initials-entry.js, domain-types.js).
+// Typed, as a player types them (steps/initials-entry.js; rightmove-invaders-typed-initials).
 When('I enter the initials {string}', ({ page }, initials) => enterInitials(page, initials));
 
 // The table arrives over the network, and the page only redraws on frames, so keep the clock going until it shows.

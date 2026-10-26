@@ -2,7 +2,7 @@ import { W, H, PX, GROUND } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { GameEvent } from './events.js';
-import { ALPHABET, INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
+import { INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
 
 // Sizes in logical units, derived from the pixel art.
 export const IW = HURDLES[0].frames[0][0].length * PX, IH = HURDLES[0].frames[0].length * PX;
@@ -30,8 +30,9 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 //   best first }, from the answers main.js hands over (tableAnswered, tableFailed). Unknown until the first answer,
 //   unavailable only while no table has ever loaded (DDD-9): nobody is asked for initials unless it is available.
 // lastListedAt: when the server listed the rows shown (DDD-12), null before any.
-// initials: while a score that makes the table is being signed, { letters, index (the letter being chosen), refused (the
-//   last Enter's initials are on the word filter, shown until the next key) }.
+// initials: while a score that makes the table is being signed, { letters (0 to 3 capitals, in the order typed), notice
+//   (null, or Enter's answer, { kind: 'too-few' | 'refused', n }, shown until the next key the entry acts on) }.
+// skipped: this game over's signing was skipped (typed initials, slice 02); false until Esc can skip.
 // signing: the current signing, { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank },
 //   id and rank set once confirmed; null before the first. A new game keeps it: only the next signing replaces it (DDD-8).
 // signedThisGame: the current signing was made at this game over (the game-over screen describes no earlier one).
@@ -41,7 +42,7 @@ export const g = {
   state: 'title', paused: false, t: 0, settings: { sound: true, music: true },
   score: 0, best: 0, newBest: false, lives: LIVES, level: 0,
   table: { status: 'unknown', rows: [] }, lastListedAt: null, initials: null,
-  signing: null, signedThisGame: false, settled: null,
+  signing: null, signedThisGame: false, skipped: false, settled: null,
   player: { x: W / 2 - PW / 2, y: H - 80 },
   shot: null, bolts: [], particles: [], texts: [], shields: [], invaders: [],
   formation: { x: 0, y: 0, dir: 1, timer: 0, frame: 0 },
@@ -118,8 +119,8 @@ function settle(n, outcome, { id = null, rank = null } = {}) {
 
 // The rules' read model for tests; the views read g directly. No production code calls it: the in-memory acceptance
 // model (tier-b/signing-rules.js) and the unit properties read it (DISTILL, "WS strategy"), so they never reach into g.
-// A fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows }, entry: { letters: 'AAA', index } or
-// null, signing, settled, lastListedAt: number or null }.
+// A fresh, frozen { screen: 'title' | 'play' | 'over', table: { status, rows }, entry: { letters: '' to 'ABC', notice:
+// null or { kind, n } } or null, skipped, signing, settled, lastListedAt: number or null }.
 const SCREENS = { title: 'title', play: 'play', dead: 'play', clear: 'play', over: 'over' };
 
 const deepFreeze = value => {
@@ -131,7 +132,8 @@ export function snapshot() {
   return deepFreeze({
     screen: SCREENS[g.state],
     table: { status: g.table.status, rows: g.table.rows.map(row => ({ ...row })) },
-    entry: g.initials && { letters: g.initials.letters.join(''), index: g.initials.index },
+    entry: g.initials && { letters: g.initials.letters, notice: g.initials.notice && { ...g.initials.notice } },
+    skipped: g.skipped,
     signing: g.signing && { ...g.signing }, settled: g.settled && { ...g.settled },
     lastListedAt: g.lastListedAt,
   });
@@ -145,38 +147,69 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
 
-// One-shot keys, handled once per frame.
-export function handlePresses(pressed) {
+const NO_PRESSES = Object.freeze([]);
+
+// A frame's presses, handed over once a frame as plain data (DDD-T2): the positions pressed, a Set of codes, and the
+// keys typed, in order, [{ key }]. A frame that starts with the initials entry open belongs to the entry: it takes the
+// typed presses and ignores the positions, so M, N and P are letters there, and the Enter that signs can't also start a
+// game. Any other frame reads the positions only.
+export function handlePresses(pressed, typed = NO_PRESSES) {
+  if (g.initials) return enterTyped(typed);
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
-  else if (g.initials) enterInitials(pressed);   // Enter takes a letter here: it can't start a game by mistake
   else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
-  // M and N work on every screen, and never touch the game itself.
+  // M and N work on every screen but the initials entry, and never touch the game itself.
   if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);
   if (pressed.has('KeyN')) toggleSetting('music', GameEvent.MUSIC_TOGGLED);
 }
 
-// Arcade initials: every letter starts at A, Up and Down move it round the alphabet, Enter takes it and moves on.
-const blankInitials = () => ({ letters: Array(INITIALS_LENGTH).fill(ALPHABET[0]), index: 0, refused: false });
-const turned = (letter, by) => ALPHABET[(ALPHABET.indexOf(letter) + by + ALPHABET.length) % ALPHABET.length];
+// The entry opens empty (D5).
+const blankInitials = () => ({ letters: '', notice: null });
 
-function enterInitials(pressed) {
-  const entry = g.initials;
-  if (pressed.size) entry.refused = false;   // a refusal shows until the next key
-  entry.letters[entry.index] = turned(entry.letters[entry.index], pressed.has('ArrowUp') - pressed.has('ArrowDown'));
-  if (!pressed.has('Enter')) return;
-  entry.index++;
-  if (entry.index < INITIALS_LENGTH) return;
-  const initials = entry.letters.join('');
-  if (isAllowedInitials(initials)) sign(initials);
-  else refuse(entry);
+// Each typed press, in order, through the entry step. A press that closes the entry drops the rest of the frame.
+function enterTyped(typed) {
+  for (const press of typed) {
+    applyPlan(entryStep(g.initials, press));
+    if (!g.initials) return;
+  }
 }
 
-// Initials on the word filter are refused here, before anything is sent (ADR-007): no signing and no event. The letters
-// are kept and the first one is current again, so one can be changed.
-function refuse(entry) {
-  entry.index = 0;
-  entry.refused = true;
+// The entry step's shell (DDD-T6): it writes the entry, numbers a new notice, and signs through sign().
+function applyPlan({ letters, notice, signing }) {
+  g.initials = letters === null ? null : { letters, notice: numbered(notice) };
+  if (signing) sign(signing);
+}
+
+// Notices are numbered across games, outside g like the outbox, so the status mirror can tell each one from the last
+// even when its words are the same. A notice the entry kept has its number already.
+let noticesShown = 0;
+const numbered = notice => (notice && notice.n === undefined ? { ...notice, n: ++noticesShown } : notice);
+
+// A letter is a key that is exactly one character, A to Z or a to z as typed, checked before it is put in capitals:
+// é, ß, ı (dotless i), ſ (long s) and K (the Kelvin sign) aren't letters, and none is turned into one (DDD-T3).
+const isLetter = key => /^[A-Za-z]$/.test(key);
+
+// The entry step (DDD-T6): what one typed press does to the entry { letters, notice }, as a plan for handlePresses to
+// apply. Pure: it reads only its arguments and publishes nothing. The plan is { letters: the letters after the press,
+// or null once it closes the entry; notice: the entry's own notice when the press leaves it be, a fresh one without a
+// number for Enter's answer, else null; skip: false (Esc skips in slice 02); signing: the initials to sign, or null }.
+// Every key it doesn't name leaves the entry as it is, its notice included.
+export function entryStep(entry, { key }) {
+  if (isLetter(key)) return entry.letters.length < INITIALS_LENGTH ? plan(entry.letters + key.toUpperCase()) : asItIs(entry);
+  if (key === 'Enter') return enter(entry.letters);
+  return asItIs(entry);
+}
+
+const plan = (letters, notice = null, signing = null) => ({ letters, notice, skip: false, signing });
+const asItIs = ({ letters, notice }) => plan(letters, notice);
+
+// Enter signs three allowed letters. Initials on the word filter are refused here, before anything is sent (ADR-007):
+// no signing and no event, and the entry is emptied for different ones. With fewer than three, a hint, and the letters
+// are kept.
+function enter(letters) {
+  if (letters.length < INITIALS_LENGTH) return plan(letters, { kind: 'too-few' });
+  if (!isAllowedInitials(letters)) return plan('', { kind: 'refused' });
+  return plan(null, null, letters);
 }
 
 // A new signing n replaces any earlier one as the current signing. main.js takes it to the table once, and hands its
@@ -224,8 +257,9 @@ function startWave(level) {
   g.state = 'play';
 }
 
-// Advance the game by one fixed step of dt seconds.
-export function update(dt, keyboard) {
+// Advance the game by one fixed step of dt seconds. The keyboard, as the rules see it, is only which keys are down:
+// keys.isDown(code) (DDD-T14).
+export function update(dt, keys) {
   g.t += dt;
   updateParticles(dt);
   switch (g.state) {
@@ -242,18 +276,18 @@ export function update(dt, keyboard) {
       if (g.lives === 0) return gameOver('Offer rejected');
       g.state = 'play'; g.player.x = W / 2 - PW / 2;
   }
-  if (g.state === 'play') movePlayer(dt, keyboard);
+  if (g.state === 'play') movePlayer(dt, keys);
   moveShot(dt);
   moveBolts(dt);
   moveDream(dt);
   if (g.state === 'play') { stepFormation(dt); enemyFire(dt); }
 }
 
-function movePlayer(dt, keyboard) {
-  const right = keyboard.isDown('ArrowRight') || keyboard.isDown('KeyD');
-  const left = keyboard.isDown('ArrowLeft') || keyboard.isDown('KeyA');
+function movePlayer(dt, keys) {
+  const right = keys.isDown('ArrowRight') || keys.isDown('KeyD');
+  const left = keys.isDown('ArrowLeft') || keys.isDown('KeyA');
   g.player.x = clamp(g.player.x + (right - left) * PLAYER_SPEED * dt, EDGE_MARGIN, W - EDGE_MARGIN - PW);
-  if (keyboard.isDown('Space') && !g.shot) {
+  if (keys.isDown('Space') && !g.shot) {
     g.shot = { x: g.player.x + PW / 2 - SHOT_W / 2, y: g.player.y - 10 };
     emit(GameEvent.SHOT_FIRED);
   }

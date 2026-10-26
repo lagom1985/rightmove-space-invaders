@@ -8,7 +8,7 @@ Feature: Typing my initials (US-01)
   # the table (two rows of £1,000 make the £50 #3). The hint is checked without its last word ("Type 3 letters to sign"),
   # so these scenarios hold for slice 01's hint and for slice 02's ("..., or press Esc to skip.").
 
-  @US-01 @slice-01 @kpi @kpi-K16 @real-io @contract-shape:bounded-change @pending
+  @US-01 @slice-01 @kpi @kpi-K16 @real-io @contract-shape:bounded-change
   Scenario: Typed initials sign the table
     Given the high-score table holds 2 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -18,7 +18,7 @@ Feature: Typing my initials (US-01)
     And the game tells me "Signed ALX, #3."
     And ALX's row on the high-score table is marked as mine
 
-  @US-01 @slice-01 @real-io @contract-shape:bounded-change @DDD-T6 @pending
+  @US-01 @slice-01 @real-io @contract-shape:bounded-change @DDD-T6
   Scenario: The entry opens empty
     Given the high-score table holds 9 signatures of £1,000
     When I finish a game with a deposit of £50

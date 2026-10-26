@@ -1,22 +1,29 @@
 import { ladderName, pounds } from '../theme/theme.js';
 import { INITIALS_REFUSED, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_LENGTH } from '../game/high-scores.js';
 
 const SETTING_MESSAGES = {
   sound: { on: 'Sound on.', off: 'Sound off. Press M to turn it on.' },
   music: { on: 'Music on.', off: 'Music off. Press N to turn it on.' },
 };
 
-const INITIALS_HELP = 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.';
+const INITIALS_HELP = 'New high score! Enter your initials: type 3 letters, then press Enter to sign.';
 const NO_ROWS = Object.freeze([]);
 
 // What game over says about the table (DISTILL, Messages): only that it can't be reached. While it is unknown (at most
 // 5 s after a load starts) nothing at all, and while it is available its rows say it.
 const tableLine = g => (g.state === 'over' && g.table.status === 'unavailable' ? TABLE_UNAVAILABLE : '');
 
-// The letters spaced, so a screen reader spells them, and the one being chosen: 'F A A, letter 2 of 3'.
-const initialsField = ({ letters, index }) => `${letters.join(' ')}, letter ${index + 1} of ${letters.length}`;
+// The letters typed, spaced so a screen reader spells them (no underscores: they are read inconsistently), and the next
+// one to type, or Enter once all three are in: 'No letters yet, letter 1 of 3', 'A L, letter 3 of 3',
+// 'A L X, press Enter to sign'.
+function initialsField({ letters }) {
+  if (!letters) return `No letters yet, letter 1 of ${INITIALS_LENGTH}`;
+  const spelled = [...letters].join(' ');
+  return letters.length < INITIALS_LENGTH ? `${spelled}, letter ${letters.length + 1} of ${INITIALS_LENGTH}` : `${spelled}, press Enter to sign`;
+}
 
-// While the initials are being entered, Enter takes a letter; once they're signed it starts a new game again. Only a
+// While the initials are being entered, Enter signs them; once they're signed it starts a new game again. Only a
 // signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
   if (g.signedThisGame) return g.signing.status === 'pending' ? `${SIGNING_MESSAGES.pending(g.signing)} ${PLAY_AGAIN_SENTENCE}` : PLAY_AGAIN_SENTENCE;
@@ -65,11 +72,11 @@ export function createStatus(root) {
     }));
   }
 
-  // Each change of letter or position once, while the entry is open (the prompt announced its opening), the refusal
-  // first. The rules see a frame's presses once, so presses of the same key within a frame are one change.
+  // Each change of the letters once, while the entry is open (the prompt announced its opening), the refusal first. The
+  // rules take a frame's typed presses together, so letters typed within one frame are heard as the field they leave.
   const initialsAnnouncement = (g, field) => {
     if (!g.initials || !last.entering || field === last.field) return '';
-    return g.initials.refused ? `${INITIALS_REFUSED} ${field}` : field;
+    return g.initials.notice?.kind === 'refused' ? `${INITIALS_REFUSED} ${field}` : field;
   };
 
   // The table line on its own, once, when the table turns unavailable on the game-over screen; game over itself says it

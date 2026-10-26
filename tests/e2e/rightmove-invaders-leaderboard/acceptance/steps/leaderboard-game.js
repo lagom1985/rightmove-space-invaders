@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import {
   ALPHABET, BLOCKED_INITIALS, Message, INITIALS_FIELD_PATTERN, SigningStatus, SigningTrouble, PressSpacing,
-  START, OTHER_HOUSE_HUNTERS, EntryMethod, INITIALS_ENTRY,
+  START, OTHER_HOUSE_HUNTERS,
 } from './domain-types.js';
 
 // Drives the real game page with real key presses, against the real high-score table: scripts/serve.mjs answers
@@ -215,11 +215,10 @@ export class LeaderboardGame {
     await this.signAs(blocked);
   }
 
-  // The way INITIALS_ENTRY says (domain-types.js, the switch DELIVER flips in typed-initials roadmap step 01-01). Every
-  // caller has let SETTLE_MS of game over pass first, so the typed entry's 0.6 s stray-key guard is over.
+  // Typed (rightmove-invaders-typed-initials). Every caller has let SETTLE_MS of game over pass first, so the typed
+  // entry's 0.6 s stray-key guard is over.
   async enterLetters(letters) {
-    if (INITIALS_ENTRY === EntryMethod.TYPED) return this.typeLettersAndSign(letters);
-    for (const letter of letters) await this.chooseLetter(letter);
+    await this.typeLettersAndSign(letters);
   }
 
   // Typed initials (rightmove-invaders-typed-initials): each letter as a player types it, lowercase, then Enter.

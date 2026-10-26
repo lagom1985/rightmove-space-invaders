@@ -53,7 +53,8 @@ Feature: Every signing has an outcome
       | 4.9 seconds | still pending | Signing FAB…                    |
       | 5 seconds   | given up      | Couldn't confirm FAB's signing. |
 
-  @OUT-11 @OUT-14 @DDD-10 @real-io @error
+  # Parked: the letter wheel's refusal. Deleted in typed-initials roadmap step 01-08, with "Refused initials are cleared".
+  @OUT-11 @OUT-14 @DDD-10 @real-io @error @pending
   Scenario: Initials on the word filter are refused, and I can change a letter
     Given my deposit of £50 makes the high-score table
     When I sign the table with initials on the word filter
@@ -61,14 +62,16 @@ Feature: Every signing has an outcome
     And the initials field still shows those initials, with letter 1 of 3 to change
     And the high-score table is still empty
 
-  @OUT-11 @OUT-14 @DDD-14 @real-io
+  # Parked: the letter wheel's field. Deleted in typed-initials roadmap step 01-02, with "Letters show, and are heard…".
+  @OUT-11 @OUT-14 @DDD-14 @real-io @pending
   Scenario: The initials field tells me the letters and which one I am choosing
     Given my deposit of £50 makes the high-score table
     When I choose the letter F and move on to the next letter
     Then the initials field shows "F A A, letter 2 of 3"
     And the game tells me "F A A, letter 2 of 3"
 
-  @OUT-11 @OUT-14 @DDD-14 @real-io @edge
+  # Parked: the letter wheel's cadence. Deleted in typed-initials roadmap step 01-02, with "Letters show, and are heard…".
+  @OUT-11 @OUT-14 @DDD-14 @real-io @edge @pending
   Scenario Outline: Up pressed 3 times <spacing> is announced <count> times, once per change of letter
     Given my deposit of £50 makes the high-score table
     When I press Up 3 times <spacing>

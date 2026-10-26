@@ -4,7 +4,7 @@ import './support/seed.js';
 import { loadFreshGame, arrange } from './support/fresh-game.js';
 import { assertStateDelta, setTo } from '../common/state-delta.js';
 import { createLeaderboard } from '../../src/platform/leaderboard.js';
-import { ALPHABET, SCORE_STEP, TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
+import { SCORE_STEP, TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
 import { GameEvent } from '../../src/game/events.js';
 
 // A 200 from the table can carry anything: a proxy's page, an older or a newer function, a body cut short. The adapter
@@ -16,6 +16,7 @@ import { GameEvent } from '../../src/game/events.js';
 // Universe: the rules' snapshot(), and the timers the adapter still has set.
 
 const STEP = 1 / 120;
+const SETTLE_S = 0.7;   // the entry takes typed presses only 0.6 s after game over
 const keyboard = { isDown: () => false };
 const UNIVERSE = ['screen', 'table', 'entry', 'signing', 'settled', 'lastListedAt', 'timers.set'];
 
@@ -120,10 +121,9 @@ async function signedAtGameOver(shown, initials, score) {
   arrange.deposit(rules, score);
   arrange.formationOnPin(rules);
   rules.update(STEP, keyboard);
-  for (const letter of initials) {
-    for (let i = 0; i < ALPHABET.indexOf(letter); i++) rules.handlePresses(new Set(['ArrowUp']));
-    rules.handlePresses(new Set(['Enter']));
-  }
+  rules.update(SETTLE_S, keyboard);
+  for (const letter of initials) rules.handlePresses(new Set([`Key${letter}`]), [{ key: letter.toLowerCase() }]);
+  rules.handlePresses(new Set(['Enter']), [{ key: 'Enter' }]);
   const entered = rules.takeEvents().find(event => event.type === GameEvent.INITIALS_ENTERED);
   expect(entered, `arranging: ${initials} was not signed`).toMatchObject({ initials, score });
   return { rules, entered };

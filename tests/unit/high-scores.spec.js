@@ -110,6 +110,7 @@ test('rows apply only when listed no earlier than the rows shown, and only a fir
     const game = await loadFreshGame();
     expect(game.snapshot(), 'a fresh game: the table unknown').toEqual({
       screen: 'title', table: { status: 'unknown', rows: [] }, entry: null, signing: null, settled: null, lastListedAt: null,
+      skipped: false,
     });
     for (const outcome of outcomes) {
       const before = game.snapshot();

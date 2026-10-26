@@ -23,7 +23,7 @@ Scope: application (nw-solution-architect) · mode: propose · paradigm: OOP · 
 | DDD-B4 | **A backdrop that can't be built** (ADR-010; Earned Trust). The build can fail: `getContext('2d')` returns null, or a draw call throws (canvas memory limits, a lost GPU). Then:<br>• the cache records that rung as failed, and **the screen is filled with the palette's `bg`**, straight on the main context;<br>• it is **not retried until the next rescale**;<br>• nothing is thrown to the loop, and nothing is logged.<br>The first build, on the title, is the probe. A failure there leaves a flat background and the game starts anyway. | Accepted | Today a throw inside `draw()` would skip `main.js`'s `requestAnimationFrame(frame)` and freeze the game over a piece of decoration. This is the same stance as the synth's fail-safe (ADR-002 amendment) |
 | DDD-B5 | **The crossfade is a pure plan**. `backdropPlan({ level, state, banner })` returns `{ here, next, mix }`. It lives in `backdrop.js`, is pure, and reads no `g`; the name is a suggestion. `drawBackdrop` in `render.js` is its shell: it draws `here`, then `next` at `globalAlpha = mix` when `next` isn't null. The cases are in the table under Component decomposition. | Accepted | Inline in `drawBackdrop`, the fade could only be checked by eye. As a plan, every case can be enumerated in a unit test. The rules hold no view state |
 | DDD-B6 | **The legibility rule** (ADR-011): a test-only unit check, `tests/unit/backdrop-legibility.spec.js`. It checks **every pair**, in plain loops, without fast-check. The WCAG relative-luminance and contrast maths lives in `tests/unit/support/contrast.js`. Two clauses:<br>**(i) The cap**: every palette colour of every neighbourhood has relative luminance **≤ 0.05**.<br>**(ii) Contrast need per use**: each use in the needs table (under Component decomposition) meets its need, 4.5:1 for text and 3:1 for objects. It is checked against every palette colour it can stand on, with that colour's luminance **raised by 0.001**. That is the largest overshoot the spike measured for an anti-aliased pixel: 0.0488 against a palette maximum of 0.048.<br>The named exemptions are in DDD-B7. | Accepted | Clause (i) alone is not enough. The Dream-home bonus text is 8 px in `COLORS.dream` (`game.js:428`), whose luminance of 0.396 gives only 4.46:1 against 0.05. Its real ceiling is about 0.049, not the dim label's 0.052. Fast-check is unseeded in the unit project, and about 540 pairs are few enough to check them all |
-| DDD-B7 | **Exemptions, by name and with their reasons**:<br>• **The door** (`COLORS.door`, 1.6–1.8:1). For 3:1 against a 0.05 backdrop it would need a luminance of at least 0.25. Brick is 0.285, so the door would fall from 2.2:1 to 1.1:1 against its own brick and vanish into the house. No colour satisfies both. The house's outline is carried by the brick.<br>• **Gazumper's name in the title legend** (16 px text, 3.51:1 on Studio flat against 4.5:1 needed). It was already 3.84:1 on the old backdrop. Held to 3:1, like the hurdle itself, and **logged as a follow-up, not this feature** (Open questions).<br>• **`COLORS.danger`** isn't checked against the palettes: it is drawn only on the game-over overlay. | Accepted | Neither exemption is caused by this feature, and the door can't be fixed with a colour |
+| DDD-B7 | **Exemptions, by name and with their reasons**:<br>• **The door** (`COLORS.door`, 1.6–1.8:1). For 3:1 against a 0.05 backdrop it would need a luminance of at least 0.25. Brick is 0.285, so the door would fall from 2.2:1 to 1.1:1 against its own brick and vanish into the house. No colour satisfies both. The house's outline is carried by the brick.<br>• **`COLORS.danger`** isn't checked against the palettes: it is drawn only on the game-over overlay.<br>**No longer exempt: Gazumper's name in the title legend** (16 px text, 3.51:1 on Studio flat against 4.5:1 needed; 3.84:1 on the old backdrop). DESIGN logged it as a follow-up. The follow-up (the user, 2026-10-26) draws every name in the legend on a 2 px dark outline, `COLORS.outline` (`#141420`), and checks the names against it: Gazumper gets 6.0:1 (ADR-011's amendment). | Accepted; amended by the follow-up (the user, 2026-10-26) | The door's shortfall isn't caused by this feature, and no colour fixes it. Gazumper's label predated the feature too; the outline fixes it without changing a colour |
 | DDD-B8 | **The status mirror**. The `data-hud="neighbourhood"` field names `neighbourhood(g.level).name` (as built), and changes in the same frame as the ladder field. **The arrival sentence** becomes "Now on the property ladder at {rung}. {Neighbourhood name}.", for example "Now on the property ladder at Terrace. Terraced streets in the morning." It is still one live-region write, made when the wave starts. "Wave cleared! Moving up the ladder to {rung}." is unchanged. The wording and the six names in `theme.js` were approved by the user (2026-10-26). The words live in `status.js`, because the mirror alone says them (DDD-T9's rule). | Accepted | Screen-reader users hear where they have arrived at the moment the place appears, with nothing added to the live region's cadence |
 | DDD-B9 | **The title shows Studio flat**, as now. The title only appears at page load: Enter after game over starts a new game directly (`game.js:172`). So "the rung the game is on" is always level 0. There is no attract-mode tour of the neighbourhoods. | Accepted (product decision, the user) | The higher rungs stay a reward for climbing. The title's 16 px legend text has to pass on one backdrop, not six |
 | DDD-B10 | **Reduced motion: no change**. The crossfade is a 2.4 s fade in opacity between two dark images, every colour at luminance ≤ 0.05. It has no movement, scaling, parallax or flashing. The game doesn't honour `prefers-reduced-motion` anywhere, and an instant swap would be the more abrupt change. | Accepted | A setting covering the whole game would be its own feature |
@@ -40,8 +40,8 @@ What each component gains. The contract shapes and checks are in the Reuse Analy
 | Component | Path | Change | What this feature changes |
 |---|---|---|---|
 | Backdrops | `src/view/backdrop.js` | EXTEND (new in the skeleton) | The pure `backdropPlan` (DDD-B5). The recipes paint on a context they are given, and `buildBackdrop` only creates the canvas (DDD-B2). The backdrop cache moves here from `render.js`, with its canvas factory injected, its limit of two, and the fail-safe (DDD-B3, DDD-B4). It imports only `theme/` and `game/config.js` (the seventh rule) |
-| Rendering | `src/view/render.js` | EXTEND | `drawBackdrop` becomes the shell of the plan: `here`, then `next` at `mix`, or the palette's `bg` for a rung that failed. `resize()` still rescales the cache. Nothing else it draws changes (the Rendering universe) |
-| Theme | `src/theme/theme.js` | EXTEND (as built) | `NEIGHBOURHOODS` and `neighbourhood(level)`. DELIVER may darken a palette colour if DDD-B6's check fails, but never lightens a foreground colour: that would be a product decision |
+| Rendering | `src/view/render.js` | EXTEND | `drawBackdrop` becomes the shell of the plan: `here`, then `next` at `mix`, or the palette's `bg` for a rung that failed. `resize()` still rescales the cache. Nothing else it draws changes (the Rendering universe), except the title legend's names, drawn on a dark outline by `outlinedText` (DDD-B7's follow-up, as built) |
+| Theme | `src/theme/theme.js` | EXTEND (as built) | `NEIGHBOURHOODS` and `neighbourhood(level)`; `COLORS.outline` (DDD-B7's follow-up, as built). DELIVER may darken a palette colour if DDD-B6's check fails, but never lightens a foreground colour: that would be a product decision |
 | Status mirror | `src/view/status.js` | EXTEND | The arrival sentence (DDD-B8). The field is as built |
 | Layering test | `tests/unit/layering.spec.js` | EXTEND (DISTILL or DELIVER) | The seventh rule (DDD-B15) |
 
@@ -61,16 +61,16 @@ This table is the plan's unit-test oracle. `here` and `next` are `NEIGHBOURHOODS
 
 ### Legibility needs (DDD-B6's clause ii)
 
-The check's oracle. "Every palette" means all 54 colours of the six palettes, each with its luminance raised by 0.001.
+The check's oracle. "Every palette" means all 54 colours of the six palettes, each with its luminance raised by 0.001. The title legend's row is already checked, by `tests/unit/legend-legibility.spec.js` (DDD-B7's follow-up).
 
 | Use | Colour | Need | Against |
 |---|---|---|---|
 | HUD labels, the tagline, the controls line, "Moving up the ladder to", "Sound off" and "Music off" (8 px) | `COLORS.dim` | 4.5:1 | Every palette |
 | HUD values, the banner's rung, the legend's values | `COLORS.text` | 4.5:1 | Every palette |
 | The ladder value, "Press Enter to start", "Wave cleared!", "Right Move"; also the pin and the shot | `COLORS.green` | 4.5:1 | Every palette |
-| "Dream home saved +£…" (8 px, `game.js:428`) and the title's "Dream home"; also the Dream Home and its particles | `COLORS.dream` | 4.5:1 | Every palette |
+| "Dream home saved +£…" (8 px, `game.js:428`); also the Dream Home and its particles | `COLORS.dream` | 4.5:1 | Every palette |
 | The hurdles, their bolts and hit particles | The five `HURDLES` colours | 3:1 | Every palette |
-| The hurdle names in the title legend (16 px) | The five `HURDLES` colours | 4.5:1, Gazumper exempt (held to 3:1) | Studio flat's palette only, the title's one backdrop (DDD-B9) |
+| The names in the title legend (16 px): the five hurdles' and "Dream home", each drawn on a 2 px outline | The five `HURDLES` colours, `COLORS.dream` | 4.5:1 | `COLORS.outline`, whatever the backdrop, with no allowance: it is one solid colour (DDD-B7) |
 | The houses | `COLORS.brick`, `COLORS.window` | 3:1 | Every palette |
 | The houses' door | `COLORS.door` | Exempt (DDD-B7) | – |
 | The game-over reason, the refusal, "Couldn't confirm…" | `COLORS.danger` | Not checked: drawn only on the game-over overlay | – |
@@ -79,7 +79,7 @@ The tightest pair, by the architect's estimate, is dream against Detached's `lig
 
 ### Rendering universe (the canvas checklist, by hand under D10)
 
-**Changes**: the backdrop on every screen, one neighbourhood per rung; the fade during "Wave cleared!", except from Forever home onwards; a flat palette background for a rung whose backdrop couldn't be built.
+**Changes**: the backdrop on every screen, one neighbourhood per rung; the fade during "Wave cleared!", except from Forever home onwards; a flat palette background for a rung whose backdrop couldn't be built. Already built by DDD-B7's follow-up: the title legend's names on a dark outline.
 
 **Must not move or change**: everything else the canvas draws, on every screen: the title, the HUD, the houses, the formation, the Dream Home, the pin, the shot, the bolts, the particles, the floating texts, the lives, the banner, the paused and game-over overlays, the initials entry and the high-score lists.
 
@@ -143,7 +143,7 @@ The decisions themselves are in the DDD list. This table holds only what was rej
 | DDD-B4 | Letting it throw (the game freezes); a try/catch around `draw()` in `main.js` (it would hide every rendering bug); retrying every frame (a failing build would cost a frame, every frame); refusing to start (decoration must never stop the game) |
 | DDD-B5 | Inline in `drawBackdrop` (only checkable by eye); a fade state in `g` (view state in the rules, and a write the rules would own for the view's sake) |
 | DDD-B6 | The cap alone (fails on dream's 8 px text); the rule and the WCAG maths as theme data (nothing in production would read them); fast-check sampling (unseeded in the unit project, and about 540 pairs are few enough to check them all); reading pixels in a browser test (waiver D10, and it would need the canvas) |
-| DDD-B7 | A lighter door (it vanishes into the brick); fixing Gazumper's legend label here (it predates the feature, and changing a hurdle's colour is a product decision) |
+| DDD-B7 | A lighter door (it vanishes into the brick); fixing Gazumper's legend label inside this feature (it predates the feature, and changing a hurdle's colour is a product decision). In the follow-up, with the user: a dark plate behind the legend rows (5.2:1, but it hides part of the neighbourhood on the title), and a lighter red for Gazumper's name alone (`#ff888c`, 4.6:1: the name would no longer match its sprite, with about 3% headroom) |
 | DDD-B8 | The field only (screen-reader users wouldn't hear the arrival); the place in the "Wave cleared!" sentence too (it would be said twice) |
 | DDD-B9 | An attract-mode tour of the neighbourhoods (it gives away the reveal, the legend text would have to pass on all six backdrops, and it means a build every 5 s) |
 | DDD-B10 | An instant swap under `prefers-reduced-motion` (more abrupt than a slow fade, and the only reduced-motion behaviour in the game) |
@@ -178,7 +178,7 @@ Contract shapes, as in typed-initials: **pure** · **bounded-change** (a declare
 | Seeded wave driver | `tests/e2e/…/steps/backdrops.steps.js` | Plays wave 1 for real | REUSE | – | – | The only scripted wave (DDD-B13) |
 | Rung reachers | `tests/unit/support/fresh-game.js` (`arrange.lastHurdleShot`), `fake-status-root.js` | Clearing a wave in Node, and the mirror's fields | REUSE | – | – | The fake root reads its fields from `index.html`, so it already has the neighbourhood field |
 | Layering scan | `tests/unit/layering.spec.js` | The import scan and its rules | EXTEND | pure (test) | One more rule, with a broken and a kept case | Keeps a backdrop from ever reading `g` |
-| Contrast maths | `tests/unit/support/contrast.js` | – | CREATE NEW | pure (test) | – | **Evidence**: no `luminance` or `contrast` anywhere in `src/` or `tests/`, and production needs none |
+| Contrast maths | `tests/unit/support/contrast.js` | – | CREATE NEW (created by DDD-B7's follow-up: `luminance` and `contrastRatio`) | pure (test) | – | **Evidence**: no `luminance` or `contrast` anywhere in `src/` or `tests/`, and production needs none |
 | Recording 2D context | `tests/unit/support/fake-canvas.js` | – | CREATE NEW | test double | It offers only the calls the recipes make and refuses any other, as `fake-status-root.js` does | **Evidence**: no `getContext` or `CanvasRenderingContext` anywhere in `tests/`. `fake-audio.js` and `fake-status-root.js` set the pattern |
 
 **No CREATE NEW under `src/`**: `backdrop.js` already exists (skeleton), and the plan, the painting split and the cache are its exports.
@@ -220,7 +220,7 @@ C4Component
 The originals are quoted verbatim, with their path, and the new assumption follows the arrow. DESIGN doesn't edit the spike docs, the journey or the code.
 
 `docs/feature/rightmove-invaders-level-backdrops/spike/findings.md`:
-- **Probe question**: "Hurdles, bolts, shot, pin, Dream home and the houses' bricks and windows need at least 3:1 contrast (WCAG 1.4.11, non-text). The HUD's small text needs at least 4.5:1 (WCAG 1.4.3)." → The spike missed some text. The Dream-home bonus text is 8 px and needs 4.5:1 (`game.js:428`). The hurdle names in the title legend are 16 px text and need 4.5:1 against Studio flat (Gazumper exempt, DDD-B7). Green is text too (4.5:1). Danger is drawn only on the overlay. The full table is under Legibility needs.
+- **Probe question**: "Hurdles, bolts, shot, pin, Dream home and the houses' bricks and windows need at least 3:1 contrast (WCAG 1.4.11, non-text). The HUD's small text needs at least 4.5:1 (WCAG 1.4.3)." → The spike missed some text. The Dream-home bonus text is 8 px and needs 4.5:1 (`game.js:428`). The hurdle names in the title legend are 16 px text and need 4.5:1; they are drawn on a dark outline and checked against it (DDD-B7's follow-up). Green is text too (4.5:1). Danger is drawn only on the overlay. The full table is under Legibility needs.
 - **Where the 0.05 comes from**: "The dim HUD label (0.410) needs 0.052 for 4.5:1, so it is the binding limit." → Dream (0.396) is the binding colour, with a ceiling of about 0.049. So the 0.05 cap alone doesn't guarantee legibility, and the check also compares each use with every palette colour, plus 0.001 (DDD-B6).
 - **Edge case 1**: "This was there before the feature, so it is not a gate, but a slightly lighter door would fix it everywhere." → No colour fixes it. 3:1 against the backdrop needs a luminance of at least 0.25, which takes the door to 1.1:1 against its own brick. It is exempt by name (DDD-B7).
 - **Design implications, Accessibility**: "It could also name the place and the time of day, for example "Terrace, morning", so screen-reader users get the same sense of moving up." → "Now on the property ladder at Terrace. Terraced streets in the morning." It uses the full neighbourhood name, with wording approved by the user (DDD-B8).
@@ -248,7 +248,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
 
    | ID | Kind | Summary | Inputs | Output | Keywords | Artifact |
    |---|---|---|---|---|---|---|
-   | OUT-17 | invariant | Backdrop legibility | The six neighbourhood palettes and the foreground uses (Legibility needs) | Every palette colour has relative luminance ≤ 0.05. Every use meets its need (4.5:1 text, 3:1 objects) against every palette colour it can stand on, raised by 0.001. Exempt by name: the door, and Gazumper's title-legend label (held to 3:1). `COLORS.danger` is not checked (overlay only) | backdrop-legibility, palette-luminance-cap, contrast-need, wcag-contrast | `src/theme/theme.js` |
+   | OUT-17 | invariant | Backdrop legibility | The six neighbourhood palettes and the foreground uses (Legibility needs) | Every palette colour has relative luminance ≤ 0.05. Every use meets its need (4.5:1 text, 3:1 objects) against every palette colour it can stand on, raised by 0.001. Exempt by name: the door. The title legend's names meet 4.5:1 against their outline, `COLORS.outline`. `COLORS.danger` is not checked (overlay only) | backdrop-legibility, palette-luminance-cap, contrast-need, wcag-contrast | `src/theme/theme.js` |
    | OUT-18 | specification | A neighbourhood for every rung, faded in on "Wave cleared!" | `g.level`, `g.state`, `g.banner`, each frame | `backdropPlan` per the plan table: `here` = `neighbourhood(level)`, clamped at Forever home; `next` only while `clear` below Forever home, with mix = 1 − banner / BANNER_TIME in [0, 1]. `data-hud=neighbourhood` reads `neighbourhood(level).name`. On arriving at a rung, the live region says "Now on the property ladder at {rung}. {name}." | neighbourhood, backdrop-crossfade, ladder-rung-place, arrival-sentence | `src/view/backdrop.js` |
    | OUT-19 | invariant | Backdrops are seeded, palette-only and fail safe | Painting any neighbourhood at any scale; a canvas that can't be allocated | Painting never calls `Math.random`, makes the same calls every time, and uses only its palette's colours and `COLORS.green`. A failed build leaves the palette's `bg`, is retried only after the next resize, and never reaches the loop | backdrop-determinism, seeded-backdrop, no-math-random, backdrop-fail-safe | `src/view/backdrop.js` |
 
@@ -263,7 +263,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
 3. The Rendering universe, by hand (D10), including the art constraint (DDD-B11) and the play-test of Terrace's streets.
 
 **Follow-ups, not this feature**:
-- **Gazumper's name in the title legend**: 3.51:1 on Studio flat, against 4.5:1 needed for 16 px text (3.84:1 before this feature). Changing a hurdle's colour is a product decision.
+- **Gazumper's name in the title legend**: done (the user, 2026-10-26). It was 3.51:1 on Studio flat, against 4.5:1 needed for 16 px text (3.84:1 before this feature). Every name in the legend is now drawn on a 2 px dark outline, and Gazumper gets 6.0:1 against it, with no colour changed (DDD-B7, ADR-011's amendment).
 - The door: exempt by design, because no colour fixes it (DDD-B7).
 - Seeding fast-check in the unit project (Open questions, DISTILL 4).
 - A read-only view of `g` for the views (DDD-T14, still waived).
@@ -274,7 +274,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
 
 - **Pattern**: unchanged. A modular monolith with ports and adapters, and the OOP paradigm (`CLAUDE.md`). Palettes are theme data. The view holds seeded recipes painted on a given context, a pure fade plan with `drawBackdrop` as its shell, and a cache of at most two with a fail-safe (ADR-010). Legibility is a rule on data, checked over every pair (ADR-011).
 - **Changes**:
-  - **New**: ADR-010 and ADR-011. No new source file beyond the skeleton's `backdrop.js`. Two test helpers, `support/contrast.js` and `support/fake-canvas.js`, written by DISTILL or DELIVER.
+  - **New**: ADR-010 and ADR-011. No new source file beyond the skeleton's `backdrop.js`. Two test helpers: `support/contrast.js`, written by DDD-B7's follow-up, and `support/fake-canvas.js`, written by DISTILL or DELIVER.
   - **Extended**: `view/backdrop.js`, `view/render.js` and `view/status.js`; `theme/theme.js` as built; the layering test (the seventh rule).
   - **Unchanged**: `game/**`, `main.js`, `sound/**`, `platform/**`, `netlify/**`, `messages.js`, and `index.html` after the skeleton.
 - **Constraints**:
@@ -284,7 +284,7 @@ The code (DELIVER changes it; the quotes record what DESIGN overturns):
   - `backdrop.js` imports only `theme/` and `game/config.js`.
   - The skeleton stays the only scripted wave.
 - **Quality attributes**:
-  - **Legibility**: the cap, plus the contrast need of every use, checked over every pair with a 0.001 allowance for anti-aliasing; two exemptions, named.
+  - **Legibility**: the cap, plus the contrast need of every use, checked over every pair with a 0.001 allowance for anti-aliasing; one exemption, named (the door). The title legend's names are checked against their outline.
   - **Determinism**: seeded per rung, and checked with a `Math.random` that throws.
   - **Responsiveness**: no per-frame build; the fade adds one `drawImage`.
   - **Graceful degradation**: a flat background, never a frozen game.

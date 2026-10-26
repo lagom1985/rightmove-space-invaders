@@ -186,7 +186,7 @@ Style: modular monolith with ports and adapters · Language: JavaScript (ES modu
 7. *level-backdrops (ADR-010; DISTILL or DELIVER adds it to `tests/unit/layering.spec.js`, with a broken case and a kept case)*: `view/backdrop.js` imports only from `theme/` and `game/config.js`, so a backdrop depends only on its neighbourhood, its scale and the layout, and can never read `g`.
 
 *level-backdrops*:
-- **Legibility on data** (ADR-011): `tests/unit/backdrop-legibility.spec.js` checks every pair in plain loops, with no fast-check. Every palette colour is at luminance ≤ 0.05, and every use meets its contrast need against every palette colour, raised by 0.001. The door and Gazumper's title-legend label are exempt by name.
+- **Legibility on data** (ADR-011): `tests/unit/backdrop-legibility.spec.js` checks every pair in plain loops, with no fast-check. Every palette colour is at luminance ≤ 0.05, and every use meets its contrast need against every palette colour, raised by 0.001. The door is exempt by name. The title legend's names are drawn on a dark outline and checked against it (ADR-011's amendment).
 - **Recipes on a recording context** (ADR-010): every neighbourhood is painted with `Math.random` replaced by a stub that throws. It must make the same calls every time, use only palette colours and `COLORS.green`, and have both a map and a skyline recipe for every `look`. Also unit-checked: `backdropPlan`, enumerated; the cache's limit of two and its fail-safe; and `LADDER` and `NEIGHBOURHOODS` having the same length.
 
 *typed-initials*:

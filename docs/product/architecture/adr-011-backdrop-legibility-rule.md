@@ -1,6 +1,6 @@
 # ADR-011: The backdrop legibility rule: a luminance cap on palette data, and a contrast need per use, checked over every pair
 
-**Status**: Accepted (DESIGN, 2026-10-26; approved by the user) · **Feature**: rightmove-invaders-level-backdrops
+**Status**: Accepted (DESIGN, 2026-10-26; approved by the user); amended by a follow-up (user, 2026-10-26): the title legend's names are drawn on a dark outline and checked against it, so Gazumper's label is no longer exempt · **Feature**: rightmove-invaders-level-backdrops
 
 ## Context
 Six neighbourhood backdrops (ADR-010) now sit behind everything the player must see:
@@ -11,7 +11,7 @@ The SPIKE ([findings](../../feature/rightmove-invaders-level-backdrops/spike/fin
 
 DESIGN found that the spike's list of needs missed some text:
 - The Dream-home bonus text, "Dream home saved +£…", is 8 px in `COLORS.dream` (`game.js:428`). Its luminance is 0.396, so it needs a backdrop at about 0.049 or below. **The cap alone doesn't guarantee it**: against 0.05 it gets 4.46:1.
-- The title's hurdle legend draws the hurdles' names as 16 px text in their own colours. Gazumper gets 3.51:1 on Studio flat, and already got 3.84:1 on the old backdrop.
+- The title's hurdle legend draws the hurdles' names as 16 px text in their own colours. Gazumper gets 3.51:1 on Studio flat, and already got 3.84:1 on the old backdrop (fixed by the amendment below).
 - The door (`COLORS.door`) is 1.6–1.8:1. For 3:1 against the backdrop it would need a luminance of 0.25 or more, which drops it to 1.1:1 against its own brick (0.285). No colour satisfies both.
 
 No test reads the canvas (waiver D10). Fast-check is unseeded in the unit project, which has already made one property flaky (the spike's findings).
@@ -24,10 +24,9 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
 - **The needs table** (the feature delta's "Legibility needs"):
   - 4.5:1 for `COLORS.dim`, `text`, `green` and `dream`;
   - 3:1 for the five hurdle colours, `brick` and `window`;
-  - 4.5:1 for the hurdle names in the title legend, against Studio flat only, the title's one backdrop.
+  - 4.5:1 for the names in the title legend (the five hurdles' and "Dream home"), against `COLORS.outline`, the dark outline they are drawn on, whatever the backdrop (amended, see below).
 - **Exemptions, by name and with their reasons, written in the test**:
   - the door (no colour fixes it);
-  - Gazumper's name in the title legend, held to 3:1 like the hurdle itself, and logged as a follow-up because it predates this feature;
   - `COLORS.danger`, which is drawn only on the game-over overlay.
 - **A failing check is fixed in the palette**: darken the palette colour. Lightening a foreground colour changes the whole game's look, and is a product decision.
 
@@ -47,4 +46,12 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
   - The needs table restates which colour `render.js` and `game.js` draw as small text. A new use in a new colour must be added to it by hand, and the Rendering universe's manual check is the backstop.
   - The tightest pair, dream against Detached's `light`, has about 1% of headroom.
   - Contrast doesn't measure clutter: whether Terrace's busy streets hide the 3 px bolts is left to play-testing.
-  - Two pre-existing shortfalls stay, named: the door and Gazumper's legend label.
+  - One pre-existing shortfall stays, named: the door. The other, Gazumper's legend label, is fixed by the amendment.
+
+## Amendment (follow-up, user, 2026-10-26): Gazumper's legend label
+- **The shortfall**: the title legend draws Gazumper's name as 16 px text in `#ff5a5f`, its hurdle colour. That is 3.51:1 against Studio flat's brightest palette colour (`light`, luminance 0.048), and 4.5:1 is needed. DESIGN exempted it by name, because it predates the feature.
+- **The fix**: every name in the legend, the five hurdles' and "Dream home", is drawn on a 2 px outline in `COLORS.outline` (`#141420`, luminance 0.0075) by `outlinedText` in `src/view/render.js`. No colour changes. The legend's values stay plain `COLORS.text`, which passes against every palette.
+- **The check**: `tests/unit/legend-legibility.spec.js` checks each name's colour against `COLORS.outline` for 4.5:1. Gazumper's 6.0:1 is the lowest. The outline is one solid colour, so it gets no 0.001 allowance. The WCAG formulas are in `tests/unit/support/contrast.js` (`luminance`, `contrastRatio`), ready for `backdrop-legibility.spec.js` to reuse. Because the names are checked against their outline, they pass on any backdrop, not only Studio flat.
+- **Rejected, with the user**:
+  - a dark plate behind the legend rows: 5.2:1 at 70% opacity, but it hides part of the neighbourhood on the title;
+  - a lighter red for Gazumper's name alone (`#ff888c`, 4.6:1): the name would no longer match its sprite, with about 3% headroom.

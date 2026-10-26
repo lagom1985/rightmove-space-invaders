@@ -78,6 +78,15 @@ function text(ctx, s, x, y, size, color, align = 'left') {
   ctx.fillText(s.toUpperCase(), x, y);
 }
 
+// Text on a dark outline, 2 px round each letter (half the stroke is under the fill). Its contrast is against the
+// outline, not the backdrop: Gazumper red has only 3.5:1 against Studio flat on its own.
+function outlinedText(ctx, s, x, y, size, color, align = 'left') {
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = align;
+  ctx.strokeStyle = COLORS.outline; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  ctx.strokeText(s.toUpperCase(), x, y);
+  text(ctx, s, x, y, size, color, align);
+}
+
 const blink = () => (g.t * 2 | 0) % 2 === 0;
 
 function drawShields(ctx, shieldCanvas) {
@@ -148,11 +157,11 @@ function drawHurdleLegend(ctx, sprites) {
   HURDLES.forEach((h, i) => {
     const y = 290 + i * 44;
     blit(ctx, sprites.hurdles[i][(g.t * 2 | 0) % 2], 290, y);
-    text(ctx, h.name, 350, y + 20, 16, h.color);
+    outlinedText(ctx, h.name, 350, y + 20, 16, h.color);
     text(ctx, pounds(h.value), 670, y + 20, 16, COLORS.text, 'right');
   });
   blit(ctx, sprites.dream, 290 + IW / 2 - sprites.dream.width * PX / 2, 508);
-  text(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
+  outlinedText(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
 }
 
 // Rank, initials and deposit, a row each. The confirmed current signing's row is picked out in green, in any later game

@@ -34,7 +34,7 @@ npx playwright install   # first time only
 npm test
 ```
 
-The acceptance suites live in `tests/e2e/<feature>/acceptance/`, one per feature: `rightmove-invaders` (the game), `rightmove-invaders-sound` (sound and music), `rightmove-invaders-leaderboard` (the shared high-score table) and `rightmove-invaders-typed-initials` (typing your initials on a new high score). They drive the real page with keyboard events in Chromium, Firefox and WebKit, and use Playwright's fake clock to fast-forward game time. Scenarios tagged `@in-memory` or `@server` need no browser and run once, in the `in-memory` project; the unit properties are in `tests/unit/`.
+The acceptance suites live in `tests/e2e/<feature>/acceptance/`, one per feature: `rightmove-invaders` (the game), `rightmove-invaders-sound` (sound and music), `rightmove-invaders-leaderboard` (the shared high-score table), `rightmove-invaders-typed-initials` (typing your initials on a new high score) and `rightmove-invaders-level-backdrops` (a neighbourhood for every rung of the ladder). They drive the real page with keyboard events in Chromium, Firefox and WebKit, and use Playwright's fake clock to fast-forward game time. Scenarios tagged `@in-memory` or `@server` need no browser and run once, in the `in-memory` project; the unit properties are in `tests/unit/`.
 
 ## Deploy
 

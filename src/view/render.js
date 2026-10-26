@@ -1,14 +1,13 @@
-import { W, H, PX, GROUND } from '../game/config.js';
+import { W, H, PX } from '../game/config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
 import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
+import { backdropPlan, createBackdropCache, showBackdrop } from './backdrop.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
-const MAP_BLOCK = 48;   // side of one block of the backdrop's grid
-const ROADS = [[0, 180, 960, 260], [300, 0, 220, 720], [700, 0, 760, 720], [0, 600, 960, 560]];   // [x0, y0, x1, y1]
 const ATTRACT_SECONDS = 5;   // the title screen takes turns showing the hurdles and the high-score table
 const ROW_GAP = 26;          // between rows of the high-score table
 // Game over: the classic screen, or a compact one when the initials or the high-score table need the room below.
@@ -45,42 +44,21 @@ function createShieldCache() {
   };
 }
 
-// A faint "map search" backdrop: block grid, roads and a river. Drawn once per resize, on a canvas of its own.
-function drawBackground(canvas, k) {
-  const c = document.createElement('canvas');
-  c.width = canvas.width; c.height = canvas.height;
-  const b = c.getContext('2d');
-  b.setTransform(k, 0, 0, k, 0, 0);
-  b.fillStyle = COLORS.bg; b.fillRect(0, 0, W, H);
-  drawMapGrid(b);
-  drawRoads(b);
-  drawRiver(b);
-  b.fillStyle = COLORS.green; b.fillRect(0, GROUND, W, 2);
-  return c;
-}
-
-function drawMapGrid(b) {
-  b.strokeStyle = COLORS.grid; b.lineWidth = 1;
-  for (let x = 0; x <= W; x += MAP_BLOCK) { b.beginPath(); b.moveTo(x + 0.5, 0); b.lineTo(x + 0.5, H); b.stroke(); }
-  for (let y = 0; y <= H; y += MAP_BLOCK) { b.beginPath(); b.moveTo(0, y + 0.5); b.lineTo(W, y + 0.5); b.stroke(); }
-}
-
-function drawRoads(b) {
-  b.strokeStyle = COLORS.road; b.lineWidth = 6;
-  for (const [x0, y0, x1, y1] of ROADS) { b.beginPath(); b.moveTo(x0, y0); b.lineTo(x1, y1); b.stroke(); }
-}
-
-function drawRiver(b) {
-  b.strokeStyle = COLORS.river; b.lineWidth = 18;
-  b.beginPath(); b.moveTo(-20, 420); b.bezierCurveTo(240, 340, 520, 520, 980, 380); b.stroke();
-}
-
 function blit(ctx, s, x, y, scale = PX) { ctx.drawImage(s, Math.round(x), Math.round(y), s.width * scale, s.height * scale); }
 
 function text(ctx, s, x, y, size, color, align = 'left') {
   ctx.font = `${size}px ${FONT}`;
   ctx.fillStyle = color; ctx.textAlign = align;
   ctx.fillText(s.toUpperCase(), x, y);
+}
+
+// Text on a dark outline, 2 px round each letter (half the stroke is under the fill). Its contrast is against the
+// outline, not the backdrop: Gazumper red has only 3.5:1 against Studio flat on its own.
+function outlinedText(ctx, s, x, y, size, color, align = 'left') {
+  ctx.font = `${size}px ${FONT}`; ctx.textAlign = align;
+  ctx.strokeStyle = COLORS.outline; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  ctx.strokeText(s.toUpperCase(), x, y);
+  text(ctx, s, x, y, size, color, align);
 }
 
 const blink = () => (g.t * 2 | 0) % 2 === 0;
@@ -153,11 +131,11 @@ function drawHurdleLegend(ctx, sprites) {
   HURDLES.forEach((h, i) => {
     const y = 290 + i * 44;
     blit(ctx, sprites.hurdles[i][(g.t * 2 | 0) % 2], 290, y);
-    text(ctx, h.name, 350, y + 20, 16, h.color);
+    outlinedText(ctx, h.name, 350, y + 20, 16, h.color);
     text(ctx, pounds(h.value), 670, y + 20, 16, COLORS.text, 'right');
   });
   blit(ctx, sprites.dream, 290 + IW / 2 - sprites.dream.width * PX / 2, 508);
-  text(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
+  outlinedText(ctx, 'Dream home', 350, 536, 16, COLORS.dream); text(ctx, '£???', 670, 536, 16, COLORS.text, 'right');
 }
 
 // Rank, initials and deposit, a row each. The confirmed current signing's row is picked out in green, in any later game
@@ -233,7 +211,8 @@ export function createRenderer(canvas) {
     pin: sprite(PIN_ART, COLORS.green), dream: sprite(DREAM_ART, COLORS.dream),
   };
   const shieldCanvas = createShieldCache();
-  let background;
+  // The neighbourhoods' backdrops, each built when first shown: a build takes a few ms, too long for every frame.
+  const store = createBackdropCache(() => document.createElement('canvas'));
 
   // Size the backing store to the window at device resolution and keep drawing in logical units.
   function resize() {
@@ -245,11 +224,11 @@ export function createRenderer(canvas) {
     const k = canvas.width / W;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    background = drawBackground(canvas, k);
+    store.rescale(k);
   }
 
   function draw() {
-    ctx.drawImage(background, 0, 0, W, H);
+    showBackdrop(ctx, backdropPlan({ level: g.level, state: g.state, banner: g.banner }), store.canvasFor);
     if (g.state === 'title') { drawTitle(ctx, sprites); drawHud(ctx); return; }
 
     drawShields(ctx, shieldCanvas);

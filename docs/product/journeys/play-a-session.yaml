@@ -6,6 +6,9 @@
 # Revised 2026-10-26, after the Final Wave Review Gate: the skip as its own branch of the sign step, feels on every error
 # path, losing focus mid-entry, and the wording artifact's three owners. Revised again 2026-10-26, after the second
 # review cycle: the losing-focus error path states that letters already typed stay (D20, locked by the user).
+# Extended by DISTILL for rightmove-invaders-level-backdrops, 2026-10-26, with the user's approval (no DISCUSS ran): the
+# neighbourhood behind each rung of the ladder in the start and outcome steps, and its shared artifact. This is the edit
+# that feature's DESIGN recorded under Changed assumptions.
 id: play-a-session
 persona: casual-arcade-player
 jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE, J-TABLE-SIGN, J-TABLE-SKIP]
@@ -20,7 +23,7 @@ steps:
     feels: curious
   - id: start
     action: Press Enter.
-    sees: The formation and four terraced-house shields.
+    sees: The formation and four terraced-house shields, over the first rung's neighbourhood, City centre at dawn.
     hears: A "ding-dong" doorbell, then the marching beat (and music, if on).
     feels: engaged
   - id: fight
@@ -46,6 +49,10 @@ steps:
     feels: in control
   - id: outcome
     action: Clear the wave, or lose.
+    sees: >
+      On "Wave cleared!", the next rung's neighbourhood fades in while the banner shows (Terraced streets in the morning
+      after the city centre, and so on up to Seaside at night, which stays from Forever home on). Screen readers hear
+      "Now on the property ladder at Terrace. Terraced streets in the morning." when the next wave starts.
     hears: A rising fanfare for "Wave cleared!", or a descending tune for "Offer rejected" / "Gazumped!".
     feels: proud, or wry and motivated to retry
   - id: qualify
@@ -92,6 +99,7 @@ shared_artifacts:
   high_score_table: {source: "the Score API /api/scores (netlify/functions/scores.mjs over Netlify Blobs), held by the rules as g.table", consumers: [game-over list, title attract list, status mirror High scores list]}
   initials_entry: {source: "g.initials (rules)", consumers: [canvas slots, "data-hud=initials field", live region]}
   signing: {source: "g.signing and g.settled (rules)", consumers: [canvas signing line, live region, "the row marked as yours"]}
+  neighbourhood: {source: "NEIGHBOURHOODS in src/theme/theme.js, through neighbourhood(g.level)", consumers: [canvas backdrop, "data-hud=neighbourhood field", arrival sentence]}
   wording: {source: "src/view/messages.js (the phrases both views say), src/view/status.js (status mirror only, such as the prompt and the initials field) and src/view/render.js (canvas only, such as the slots and the help line)", consumers: [canvas, status mirror]}
 
 error_paths:

@@ -5,3 +5,4 @@ export const GROUND = H - 34;
 
 export const STEP = 1 / 120;    // fixed simulation step (s), so speed is the same at 60, 100 or 120 Hz
 export const MAX_FRAME = 0.25;  // clamp after a hidden tab so the game doesn't jump ahead
+export const BANNER_TIME = 2.4; // seconds the "Wave cleared!" banner shows; the fanfare must fit inside it

@@ -1,4 +1,4 @@
-import { ladderName, pounds } from '../theme/theme.js';
+import { ladderName, neighbourhood, pounds } from '../theme/theme.js';
 import { INITIALS_NOTICES, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, SIGNING_SKIPPED_SENTENCE, TABLE_UNAVAILABLE } from './messages.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 
@@ -55,7 +55,7 @@ export function createStatus(root) {
     switch (g.state) {
       case 'title': return 'Press Enter to start. Move with the arrow keys or A and D, fire with Space, pause with P.';
       case 'play':
-        if (last.state === 'clear') return `Now on the property ladder at ${ladderName(g.level)}.`;
+        if (last.state === 'clear') return `Now on the property ladder at ${ladderName(g.level)}. ${neighbourhood(g.level).name}.`;
         return last.state === 'dead' || last.paused ? '' : 'Game started. Defend your dream home from the hurdles.';
       case 'dead': return g.lives ? `Home lost. ${g.lives} left.` : 'Home lost. No homes left.';
       case 'clear': return `Wave cleared! Moving up the ladder to ${ladderName(g.level + 1)}.`;
@@ -102,6 +102,7 @@ export function createStatus(root) {
   function showHud(g) {
     set('deposit', pounds(g.score));
     set('ladder', ladderName(g.level));
+    set('neighbourhood', neighbourhood(g.level).name);
     set('best', pounds(Math.max(g.best, g.score)));
     set('homes', String(g.lives));
     set('sound', g.settings.sound ? 'On' : 'Off');

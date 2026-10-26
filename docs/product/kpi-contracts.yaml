@@ -148,8 +148,8 @@ kpis:
   # Firefox and WebKit. DELIVER enabled them (2026-10-26), and they are green in every npm test run (browser scenarios:
   # not in the Netlify build, which runs no browser). They back a KPI and never replace its playtest or production
   # measurement, and the targets are unchanged.
-  # Measured so far (DELIVER, 2026-10-26): nothing. K16-K18 wait for the playtest on the pull request's deploy preview,
-  # and K19's baseline for release day; the baselines below are the ones DISCUSS wrote. Pipeline baselines on the
+  # Measured so far (release, 2026-10-26): K19's baseline (below). K16-K18 not run: the PO merged without the playtest;
+  # their baselines are the ones DISCUSS wrote. Pipeline baselines on the
   # developer machine: npm run build (the unit and in-memory projects) passes 159 tests; npm test passes 525 tests, in
   # 26.2 min (it was 326 tests and about 14 min before this feature).
   - id: K16
@@ -191,4 +191,4 @@ kpis:
     gate: soft
     on_miss: "investigate, then decide. The investigation can ask the playtesters (did anyone want past the entry without finding Esc?), but the public table records no cause for an AAA row, so it can't say whether a production row was deliberate. The PO then decides whether a change is needed, and if so opens it via /nw-bugfix"
     local_scenarios: "@kpi-K19 'Esc skips signing' (milestone-5-skip-with-esc.feature): a skip sends nothing to the table. Observational in production (low traffic)"
-    baseline: "to be recorded on release day: the AAA rows on the production top 10"
+    baseline: "0 AAA rows on the production top 10 on release day, 2026-10-26 (3 rows: ALF, CAR, FAB)"

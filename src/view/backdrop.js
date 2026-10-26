@@ -2,12 +2,14 @@ import { W, H, GROUND, BANNER_TIME } from '../game/config.js';
 import { COLORS, NEIGHBOURHOODS, neighbourhood } from '../theme/theme.js';
 
 // Each rung's backdrop: its neighbourhood from above, faint, like a property search map, with a skyline of its homes on
-// the ground line, all in the neighbourhood's palette (src/theme/theme.js). The recipes below take the drawing context b,
-// the palette p and the rung's random generator r. After them: the plan of what a frame shows, the painting, the store
-// of what was built and the shell that draws a plan. No DOM global: the store is handed its canvases.
+// the ground line, all in the neighbourhood's palette (src/theme/theme.js) but the 2 px green ground line itself,
+// COLORS.green: the game's ground, drawn on every backdrop as it was before there were backdrops, and not a palette
+// colour. The recipes below take the drawing context b, the palette p and the rung's random generator r. After them:
+// the plan of what a frame shows, the painting, the store of what was built and the shell that draws a plan. No DOM
+// global: the store is handed its canvases.
 
-const SEED = 1000;   // + the rung
-const KEPT = 2;      // backdrops the store keeps: the rung's own and the next one's, fading in
+const SEED = 1000;     // + the rung
+const MAX_HELD = 2;    // backdrops the store holds at most: the rung's own and the next one's, fading in
 
 // mulberry32. A backdrop never calls Math.random: it comes out the same every time it is built, and the game's own
 // random sequence is left alone.
@@ -34,13 +36,45 @@ const rect = (b, color, x, y, w, h) => { b.fillStyle = color; b.fillRect(x, y, w
 const disc = (b, color, x, y, r) => { b.fillStyle = color; b.beginPath(); b.arc(x, y, r, 0, Math.PI * 2); b.fill(); };
 const oval = (b, color, x, y, rx, ry, turn) => { b.fillStyle = color; b.beginPath(); b.ellipse(x, y, rx, ry, turn, 0, Math.PI * 2); b.fill(); };
 
-// A road winding across the map: y0 its middle, a how far it swings, l how long its bends are, ph where they start.
-const wave = (x, y0, a, l, ph) => y0 + a * Math.sin(x / l + ph);
+// A road winding across the map: bendY(x, ...bends) is how far down it is at x, with bends = [y0, a, l, ph]: y0 its
+// middle, a how far it swings, l how long its bends are, ph where they start.
+const bendY = (x, y0, a, l, ph) => y0 + a * Math.sin(x / l + ph);
 function windingRoad(b, color, w, bends) {
   const points = [];
-  for (let x = -10; x <= W + 10; x += 10) points.push([x, wave(x, ...bends)]);
+  for (let x = -10; x <= W + 10; x += 10) points.push([x, bendY(x, ...bends)]);
   line(b, color, w, points);
 }
+
+// The country map's parts, in the order it draws them, sharing the rung's generator r in that order.
+// Fields edged with dotted hedgerows: a grid of corners, each nudged off it except at the map's edges, and every field
+// filled in one of four tints, then edged.
+function fields(b, p, r) {
+  const cols = 8, rows = 6, corners = [];
+  const nudge = (i, n, spread) => (i % n ? (r() - 0.5) * spread : 0);
+  for (let j = 0; j <= rows; j++) {
+    corners.push([]);
+    for (let i = 0; i <= cols; i++) corners[j].push([i * W / cols + nudge(i, cols, 60), j * H / rows + nudge(j, rows, 50)]);
+  }
+  const tints = [p.bg, p.block, p.park, p.grid];
+  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+    polygon(b, tints[r() * tints.length | 0], [corners[j][i], corners[j][i + 1], corners[j + 1][i + 1], corners[j + 1][i]]);
+    b.setLineDash([3, 4]); b.strokeStyle = p.road; b.lineWidth = 2; b.stroke(); b.setLineDash([]);   // round the field just filled
+  }
+}
+// Four woods, each a clump of trees in the top seven tenths of the map.
+function woods(b, p, r) {
+  for (let wood = 0; wood < 4; wood++) {
+    const x = r() * W, y = r() * H * 0.7;
+    for (let i = 0; i < 14; i++) disc(b, p.park, x + (r() - 0.5) * 90, y + (r() - 0.5) * 60, 7);
+  }
+}
+// The winding lane, the long drive off it and the big house at its end.
+function driveAndHouse(b, p) {
+  curve(b, p.road, 5, -10, 520, 300, 300, 600, 700, 970, 240);
+  line(b, p.road, 4, [[600, 470], [600, 250]]);
+  rect(b, p.light, 560, 200, 80, 34); rect(b, p.light, 560, 234, 24, 30);
+}
+const lake = (b, p) => oval(b, p.water, 770, 300, 80, 34, -0.3);
 
 // Neighbourhood maps, top-down.
 const MAPS = {
@@ -73,7 +107,7 @@ const MAPS = {
     for (const bends of [[110, 30, 120, 0], [290, 40, 150, 1], [470, 35, 110, 2]]) {
       windingRoad(b, p.road, 6, bends);
       for (let x = 20; x < W; x += 70) {
-        const y = wave(x, ...bends);
+        const y = bendY(x, ...bends);
         for (const side of [-1, 1]) { rect(b, p.block, x - 12, y + side * 22 - 7, 11, 14); rect(b, p.block, x, y + side * 22 - 7, 11, 14); }
         if (r() < 0.35) {   // a cul-de-sac, up or down from the road
           const end = y + (r() < 0.5 ? -1 : 1) * 60;
@@ -88,7 +122,7 @@ const MAPS = {
     for (const bends of [[150, 60, 180, 0.5], [420, 70, 200, 2.5]]) {
       windingRoad(b, p.road, 6, bends);
       for (let x = 40; x < W; x += 110) for (const side of [-1, 1]) {
-        const y = wave(x, ...bends) + side * 46;
+        const y = bendY(x, ...bends) + side * 46;
         rect(b, p.park, x - 26, y - 22, 52, 44); rect(b, p.block, x - 10, y - 10, 20, 18);
         for (let i = 0; i < 3; i++) disc(b, p.grid, x - 20 + r() * 40, y - 16 + r() * 32, 4);
       }
@@ -98,25 +132,10 @@ const MAPS = {
   },
   // Fields edged with dotted hedgerows, woods, a winding lane, a long drive up to the big house, and a lake.
   country: (b, p, r) => {
-    const cols = 8, rows = 6, corners = [];   // the fields' corners: a grid, each nudged off it except at the map's edges
-    const nudge = (i, n, spread) => (i % n ? (r() - 0.5) * spread : 0);
-    for (let j = 0; j <= rows; j++) {
-      corners.push([]);
-      for (let i = 0; i <= cols; i++) corners[j].push([i * W / cols + nudge(i, cols, 60), j * H / rows + nudge(j, rows, 50)]);
-    }
-    const tints = [p.bg, p.block, p.park, p.grid];
-    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-      polygon(b, tints[r() * tints.length | 0], [corners[j][i], corners[j][i + 1], corners[j + 1][i + 1], corners[j + 1][i]]);
-      b.setLineDash([3, 4]); b.strokeStyle = p.road; b.lineWidth = 2; b.stroke(); b.setLineDash([]);   // round the field just filled
-    }
-    for (let wood = 0; wood < 4; wood++) {
-      const x = r() * W, y = r() * H * 0.7;
-      for (let i = 0; i < 14; i++) disc(b, p.park, x + (r() - 0.5) * 90, y + (r() - 0.5) * 60, 7);
-    }
-    curve(b, p.road, 5, -10, 520, 300, 300, 600, 700, 970, 240);
-    line(b, p.road, 4, [[600, 470], [600, 250]]);
-    rect(b, p.light, 560, 200, 80, 34); rect(b, p.light, 560, 234, 24, 30);
-    oval(b, p.water, 770, 300, 80, 34, -0.3);
+    fields(b, p, r);
+    woods(b, p, r);
+    driveAndHouse(b, p);
+    lake(b, p);
   },
   // Streets on the land, the sea below a cliff edge and round a bay, the waves, a pier and a cliff path.
   coast: (b, p, r) => {
@@ -221,12 +240,15 @@ export function paintBackdrop(context, place) {
 // after createCanvas(): sizing, getting the context, scaling or painting). A failed build leaves a failed mark, kept
 // apart from the two and never evicted: a marked neighbourhood gets null at once, and no new canvas is asked for it.
 // rescale(k) with a new scale drops every canvas and every failed mark; with the same scale it returns at once, keeping
-// them all. Nothing is thrown or logged: only the build is guarded, as a built canvas is assumed not to throw when drawn
-// (Catalogued lies).
+// them all. A dropped canvas, evicted past the two or dropped by a rescale, is released at once, sized 0 by 0: at 3x a
+// backdrop holds about 25 MB. Only built canvases are held, so only they are released. Nothing is thrown or logged, as
+// long as the injected createCanvas doesn't throw itself (document.createElement('canvas') doesn't): only the build is
+// guarded, as a built canvas is assumed not to throw when drawn or released (Catalogued lies).
 export function createBackdropCache(createCanvas) {
   const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first
   const failed = new Set();  // neighbourhoods whose build failed at this scale
   let k = 1;
+  const release = canvas => { canvas.width = canvas.height = 0; };
   const build = place => {
     const canvas = createCanvas();
     try {
@@ -239,13 +261,20 @@ export function createBackdropCache(createCanvas) {
     } catch { return null; }
   };
   return {
-    rescale(scale) { if (scale === k) return; k = scale; built.clear(); failed.clear(); },
+    rescale(scale) {
+      if (scale === k) return;
+      k = scale;
+      built.forEach(release); built.clear(); failed.clear();
+    },
     canvasFor(place) {
       if (failed.has(place)) return null;
       const canvas = built.get(place) ?? build(place);
       if (!canvas) { failed.add(place); return null; }
       built.delete(place); built.set(place, canvas);
-      if (built.size > KEPT) built.delete(built.keys().next().value);
+      if (built.size > MAX_HELD) {
+        const [oldest, dropped] = built.entries().next().value;
+        built.delete(oldest); release(dropped);
+      }
       return canvas;
     },
   };

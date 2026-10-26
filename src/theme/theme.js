@@ -40,8 +40,9 @@ export const LADDER = ['Studio flat', 'Terrace', 'Semi-detached', 'Detached', 'C
 export const ladderName = level => LADDER[Math.min(level, LADDER.length - 1)];
 
 // Each rung's backdrop, in the ladder's order: a neighbourhood at its time of day, its look (the map and skyline drawn,
-// src/view/backdrop.js) and its palette. Every palette colour stays at relative luminance 0.05 or less, so the hurdles
-// and the houses keep 3:1 contrast against the backdrop and the HUD text 4.5:1 (spike findings).
+// src/view/backdrop.js) and its palette. Every palette colour stays at relative luminance 0.05 or less. That cap alone
+// isn't enough: it and a contrast check per use, against every palette colour, together keep every foreground use at its
+// WCAG minimum, 3:1 for objects such as the hurdles and the houses and 4.5:1 for text, the door alone exempt (ADR-011).
 export const NEIGHBOURHOODS = [
   { name: 'City centre at dawn', look: 'city', palette: {
     bg: '#262339', grid: '#2f2b47', block: '#2d2944', road: '#3a3557', water: '#2b3360', park: '#28343a',

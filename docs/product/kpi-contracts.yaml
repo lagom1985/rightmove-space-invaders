@@ -119,7 +119,7 @@ kpis:
     feature: rightmove-invaders-leaderboard
     name: The rate limit and the GET cache hold on Netlify
     target: "on the shipped config: the deploy log lists the rule (10 per 60 s, ip + domain); steps 8a and 8b record the send rate actually achieved, and below 2 requests/s (8a) or 20 requests/s (8b) the step is inconclusive, never a pass; step 8a (2 requests/s for 125 s): a 429 within 16 s and at most 30 accepted in each full 60 s window (more than 20 is not a fail but triggers a documented recompute of the abuse table before the merge); step 8b (20 requests/s for 60 s, at most 1,200 invocations): a 429 within 11 s, and the count replaces the 10 + 10r assumption in the abuse table (a count above 210 is not a no-go: it triggers a documented recompute, and the user decides before the merge); a GET 61 s later is 200; a GET is a CDN hit within 15 s, also with an unrelated query string; no 429 is served from the cache. A missing Cache-Status header is a fail, not a vacuous pass; the header's real name is confirmed on the first preview. The first preview also records a function answer's full header set (a GET 200, a 400, a POST 200): exactly one Cache-Control value as in DDD-6, Netlify-Vary query=table present, and nothing conflicting with DDD-6 (the netlify.toml /* security headers are expected to be absent, since Netlify doesn't apply custom headers to function answers; if present, they are recorded and harmless)"
-    measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 5, 8a, 8b and 9, plus the deploy log's post-processing stage"
+    measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 5, 8a, 8b and 9, plus the deploy log's post-processing stage. Re-run by rightmove-invaders-replay-verified-scores (smoke step S6) with 8c, session requests at quick-game pace (D19), and 8d, sessions and GETs alternating on the shipped config: one counter for both paths"
     window: "the preview before the first merge (go/no-go: no-go = no merge to main); again on every release-check trigger"
     gate: hard
     local_scenarios: "@kpi-K14 'An empty high-score table is read as empty, and everyone sees it at most 15 seconds old' (milestone-1-reading-the-table.feature) and 'A valid signature is saved, and the answer shows where it ranks' (milestone-2-signing-the-table.feature): the header set of a GET 200 (Netlify-CDN-Cache-Control public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate) and of a POST 200 (no-store), with Netlify-Vary query=table and nosniff; every refusal scenario checks no-store and Netlify-Vary too. The local check is at handler level: it proves what the function sets, not that Netlify honours it. The rate limit and the CDN's real behaviour stay K14's on a preview"
@@ -217,9 +217,9 @@ kpis:
   - id: K22
     feature: rightmove-invaders-replay-verified-scores
     name: A long game is verified in time on Netlify
-    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line), scaled to 60 minutes of game time, under 1 s; a 60-minute worst-spacing body (about 119 KB) is timed too"
+    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line), scaled to 60 minutes of game time, under 1 s. A 60-minute worst-spacing body (about 119 KB) is posted too, for its upload and parsing time only: its junk inputs end the game early, so its replay is short"
     measured_by: "smoke step S7, and the owner reading the log line"
-    window: "slice 02's preview, before the clock check lands; again on the release-check triggers (after slice 03 a re-run waits each game's length)"
+    window: "slice 02's preview, before the clock check lands; again on the release-check triggers (after slice 03, each session is asked at least its game's length ahead, 60 minutes for the 60-minute body)"
     gate: hard
     baseline: "probe: about 50 ms for 10 minutes in Node 22 on an M4 Pro, so about 0.3 s for 60 minutes; not measured on Netlify"
   - id: K23
@@ -227,7 +227,7 @@ kpis:
     name: Honest players are never refused, or the log says why
     target: "every replay-mismatch, too-fast, rules-changed and session-expired in the 30 days after slice 03's release is investigated; 0 traced to a determinism bug or a clock problem"
     measured_by: "the daily check: the counts by reason, with the deploy times, recorded in the owner's notes from the function's log (Netlify > Functions > scores, or netlify logs --function scores --since 24h), plus Netlify's own timeout lines for scores; a weekly summary"
-    window: "daily for 30 days after slice 03's release; the day-1 log-retention check is done before that release"
+    window: "daily from slice 01's release (session-expired exists from slice 01, replay-mismatch from slice 02) until 30 days after slice 03's release; the day-1 log-retention check is done before slice 03's release"
     gate: soft
     on_miss: "a fix, opened via /nw-bugfix"
     baseline: "0: none of these reasons exists before release"
@@ -244,7 +244,7 @@ kpis:
     feature: rightmove-invaders-replay-verified-scores
     name: A game's session comes back quickly
     target: "p95 of the session request (POST /api/sessions, timed on the client) under 1000 ms over 30 paced requests (one every 13 s) on a deploy preview; the first request of a fresh deploy recorded apart"
-    measured_by: "smoke steps S2 and S3"
+    measured_by: "smoke steps S2, S3 and S5's session phase"
     window: "slice 01's preview; again on the release-check triggers"
     gate: hard
     baseline: "not measured with sessions. The probe's /api/sessions (a fixed answer, no store) took 155-158 ms on deploy-preview-6, 2026-10-26; K10's POST + GET pairs: p95 924 ms (2026-10-25)"

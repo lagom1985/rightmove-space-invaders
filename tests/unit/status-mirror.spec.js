@@ -347,9 +347,9 @@ test('a too-few hint in the next game is heard, once, even after the last game\'
   }));
 });
 
-// The word filter's refusal (D4): the entry is emptied, and the refusal is heard once, with the empty field. Parked until
-// roadmap step 01-08, which brings its wording and announces each notice by its number (DDD-T6, DDD-T10).
-test.fixme('initials on the word filter are refused at Enter: the entry is emptied, and the refusal is heard once, with the empty field', async () => {
+// The word filter's refusal (D4): the entry is emptied, and the refusal is heard once, by its number, with the empty
+// field, in one write (DDD-T6, DDD-T9, DDD-T10).
+test('initials on the word filter are refused at Enter: the entry is emptied, and the refusal is heard once, with the empty field', async () => {
   await fc.assert(fc.asyncProperty(fc.constantFrom(...BLOCKED_INITIALS), syncs, async (blocked, times) => {
     const mirrored = await MirroredGame.fresh();
     const model = { entry: null, hint: false, seen: new Set() };

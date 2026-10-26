@@ -53,15 +53,6 @@ Feature: Every signing has an outcome
       | 4.9 seconds | still pending | Signing FAB…                    |
       | 5 seconds   | given up      | Couldn't confirm FAB's signing. |
 
-  # Parked: the letter wheel's refusal. Deleted in typed-initials roadmap step 01-08, with "Refused initials are cleared".
-  @OUT-11 @OUT-14 @DDD-10 @real-io @error @pending
-  Scenario: Initials on the word filter are refused, and I can change a letter
-    Given my deposit of £50 makes the high-score table
-    When I sign the table with initials on the word filter
-    Then the game tells me "Those initials aren't allowed. Change a letter."
-    And the initials field still shows those initials, with letter 1 of 3 to change
-    And the high-score table is still empty
-
   # Not @pending: the skeleton already sends a signing once, and DELIVER must keep it so (regression guard, ADR-008).
   @OUT-11 @DDD-8 @DDD-16 @real-io @error
   Scenario: A signing that was dropped is sent exactly once, never retried

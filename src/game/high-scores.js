@@ -4,7 +4,7 @@
 // builds its signatures from these rules too.
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
-export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials, Up and Down move round it
+export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials
 export const INITIALS_LENGTH = 3;
 export const SCORE_STEP = 50;                          // every hurdle value and Dream Home bonus is a multiple of £50
 export const MAX_SCORE = 9_999_999;                    // the 7-digit score field of a row's key (ADR-004)

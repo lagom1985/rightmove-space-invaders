@@ -15,9 +15,13 @@ Then open http://localhost:4173.
 | ← → or A D | Move |
 | Space | Fire |
 | P or Esc | Pause |
-| Enter | Start / play again |
+| Enter | Start / sign / play again |
 | M | Sound on / off |
 | N | Music on / off |
+| A–Z, on a new high score | Type your initials |
+| Backspace | Take back the last letter |
+
+On a new high score, type 3 letters and press Enter to sign the shared high-score table. While you type, every letter key types its letter, A, D, M, N and P included.
 
 The game needs a physical keyboard. Phones and narrow windows get a "play on desktop" screen.
 

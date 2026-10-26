@@ -18,7 +18,7 @@ Feature: My initials follow the rules, whatever I type
     When I press any key that isn't a letter A to Z, after typing up to three letters
     Then my initials never change, and nothing is announced or sent
 
-  @US-01 @US-04 @slice-01 @in-memory @property @error @contract-shape:bounded-change @DDD-T3 @pending
+  @US-01 @US-04 @slice-01 @in-memory @property @error @contract-shape:bounded-change @DDD-T3
   Scenario: Only three letters A to Z, never on the word filter, ever leave for the table
     When I type anything and press Enter, over any number of games
     Then only three letters A to Z, never on the word filter, ever leave for the high-score table
@@ -51,7 +51,7 @@ Feature: My initials follow the rules, whatever I type
       | keys  | gap          | outcome         | initials | notice           |
       | Esc   | 0.6 seconds  | is dropped      |          | no notice        |
 
-  @US-04 @slice-01 @in-memory @edge @contract-shape:unbounded-preservation @DDD-T6 @pending
+  @US-04 @slice-01 @in-memory @edge @contract-shape:unbounded-preservation @DDD-T6
   Scenario: A key the entry ignores leaves the refusal on show
     Given my game has ended with a deposit that makes the table, on the game's rules alone
     And the rules have refused initials on the word filter

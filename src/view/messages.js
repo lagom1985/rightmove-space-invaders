@@ -6,10 +6,10 @@ export const PLAY_AGAIN_SENTENCE = `${PLAY_AGAIN}.`;           // the same words
 export const TABLE_UNAVAILABLE = 'High-score table unavailable.';
 
 // Enter's answer on the initials entry, by the kind of the rules' notice ({ kind, n }): fewer than 3 letters, or
-// initials on the word filter.
+// initials on the word filter, which empty the entry for different ones (D4).
 export const INITIALS_NOTICES = Object.freeze({
   'too-few': 'Type 3 letters to sign.',
-  refused: 'Those initials aren\'t allowed. Change a letter.',
+  refused: 'Those initials aren\'t allowed. Type different ones.',
 });
 
 // A signing { initials, rank } by its status: on its way, then what it settled as (a replaced signing's included).

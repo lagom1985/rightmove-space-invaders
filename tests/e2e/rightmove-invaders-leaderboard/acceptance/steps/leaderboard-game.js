@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import {
-  BLOCKED_INITIALS, Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS,
+  Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS,
 } from './domain-types.js';
 
 // Drives the real game page with real key presses, against the real high-score table: scripts/serve.mjs answers
@@ -207,13 +207,6 @@ export class LeaderboardGame {
     await this.wait(SETTLE_FRAMES * FRAME_MS);
   }
 
-  async signWithBlockedInitials() {
-    const [blocked] = BLOCKED_INITIALS;
-    expect(blocked, 'DATA GAP: the owner-reviewed word list is empty (BLOCKED_INITIALS in src/game/high-scores.js)').toBeTruthy();
-    this.blocked = blocked;
-    await this.signAs(blocked);
-  }
-
   // Typed (rightmove-invaders-typed-initials). Every caller has let SETTLE_MS of game over pass first, so the typed
   // entry's 0.6 s stray-key guard is over.
   async enterLetters(letters) {
@@ -368,8 +361,6 @@ export class LeaderboardGame {
     await expect(this.initialsField()).toHaveText(text, { timeout: 1000 });
   }
 
-  async expectBlockedInitialsKept(letter) { await this.expectInitialsField(Message.initialsField(this.blocked, letter)); }
-
   async expectMarkedAsMine(initials) {
     await this.until(async () => (await this.markedRows().count()) === 1 && (await this.markedRows().textContent()).includes(initials));
     await expect(this.markedRows(), 'rows marked as mine').toHaveCount(1, { timeout: 1000 });
@@ -397,12 +388,6 @@ export class LeaderboardGame {
     await this.expectListShowsRows();
     await this.until(async () => !(await this.rows().allTextContents()).some(text => text.includes(initials)));
     expect(await this.rows().allTextContents(), `${initials} is still on the table`).not.toContainEqual(expect.stringContaining(initials));
-  }
-
-  // Asks the real table directly (not through the page), so nothing the page shows can stand in for it.
-  async expectTableEmptyAtTheSource() {
-    const answer = await this.page.context().request.get(SCORES);
-    expect((await answer.json()).scores, 'the table holds a signature').toEqual([]);
   }
 
   async expectGameOverWithout(initials) {

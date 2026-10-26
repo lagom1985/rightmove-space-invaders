@@ -1,14 +1,12 @@
 // The high-score table's test vocabulary: domain nouns only, each one used by a driver. The table rules come from the
 // game's own shared module (src/game/high-scores.js, ADR-006) and the event names from src/game/events.js.
 // The player-facing wording lives in the .feature files, which are the scenario SSOT ("Wave: DISTILL / [REF] Messages").
-// This file holds only the phrases a driver itself waits for or builds: the prompt, "Game started", "Game over",
-// "High-score table unavailable." and the letter wheel's initials-field format (retired with its parked scenarios).
+// This file holds only the phrases a driver itself waits for or builds: the prompt, "Game started", "Game over" and
+// "High-score table unavailable.".
 // Technical detail (the persisted key format, header names, log fields, store operations) lives in the table-service
 // harness (steps/table-service.js), which maps these domain names onto it.
 export { TABLE_SIZE, ALPHABET, INITIALS_LENGTH, BLOCKED_INITIALS } from '../../../../../src/game/high-scores.js';
 export { GameEvent } from '../../../../../src/game/events.js';
-
-const spaced = letters => [...letters].join(' ');
 
 // What the status mirror's live region says, where a driver has to recognise it. The initials are typed
 // (rightmove-invaders-typed-initials): the prompt is slice 01's words, which slice 02's prompt starts with.
@@ -17,9 +15,6 @@ export const Message = Object.freeze({
   TABLE_UNAVAILABLE: 'High-score table unavailable.',
   GAME_STARTED: 'Game started',
   GAME_OVER: 'Game over',
-  // The data-hud="initials" field while the initials are chosen on the letter wheel, as the parked refusal scenario reads
-  // it. Retired with that scenario (typed-initials: its own field wording is in that feature's .feature files).
-  initialsField: (letters, letter) => `${spaced(letters)}, letter ${letter} of 3`,
 });
 
 // A signing as the player arranges it in a Given (browser scenarios).

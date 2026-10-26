@@ -103,13 +103,18 @@ test('Enter with fewer than 3 letters keeps them and shows a fresh too-few hint,
 // ---- the entry step, enumerated against its oracle: DESIGN's Rules operations table ("the entry step", DDD-T3, DDD-T6) ----
 // bypass: an enumerated table rather than a property, because its oracle is a table of rows: each row is checked by name
 // over one representative of every entry state and of every press class, DDD-T3's traps among them, the plan compared
-// whole. Rows to come: 01-08 adds the word filter (3 letters on it, and Enter on them); 02-01 turns Esc into the skip.
+// whole. Rows to come: 02-01 turns Esc into the skip.
 const CAPITAL_OF = { j: 'J', Z: 'Z' };
+// Three letters on the word filter, the list's first entry as the acceptance tests take it. The entry holds capitals
+// whichever case they were typed in (the letter row puts a letter typed in either case in capitals), so this one entry
+// stands for both.
+const [ON_THE_WORD_FILTER] = BLOCKED_INITIALS;
 const LETTERS_IN = [
   { letters: '', withoutLast: null },
   { letters: 'C', withoutLast: '' },
   { letters: 'CA', withoutLast: 'C' },
   { letters: 'CAM', withoutLast: 'CA' },   // allowed
+  { letters: ON_THE_WORD_FILTER, withoutLast: ON_THE_WORD_FILTER.slice(0, -1) },
 ];
 // No notice, a hint or a refusal, each with the number the shell gave it. Frozen, so a step that wrote to one would throw.
 const NOTICES_ON_SHOW = [null, Object.freeze({ kind: 'too-few', n: 7 }), Object.freeze({ kind: 'refused', n: 12 })];
@@ -133,9 +138,12 @@ const ENTRY_STEP_TABLE = [
     plan: ({ entry, withoutLast }) => (entry.letters ? planned({ letters: withoutLast }) : identityOf(entry)),
   },
   {
-    operation: 'Enter: on 3 allowed letters, the entry closes and signs them; with fewer, the letters are kept with a fresh too-few hint, without a number',
+    operation: 'Enter: on 3 allowed letters, the entry closes and signs them; on 3 on the word filter, the entry is emptied with a fresh refusal, without a number, and nothing is signed; with fewer, the letters are kept with a fresh too-few hint, without a number',
     keys: ['Enter'],
-    plan: ({ entry }) => (entry.letters.length === INITIALS_LENGTH ? planned({ letters: null, signing: entry.letters }) : planned({ letters: entry.letters, notice: { kind: 'too-few' } })),
+    plan: ({ entry: { letters } }) => {
+      if (letters.length < INITIALS_LENGTH) return planned({ letters, notice: { kind: 'too-few' } });
+      return BLOCKED_INITIALS.includes(letters) ? planned({ letters: '', notice: { kind: 'refused' } }) : planned({ letters: null, signing: letters });
+    },
   },
   { operation: 'Esc, in slice 01: the identity', keys: ['Escape'], plan: identity },
   { operation: "a key that isn't one ASCII letter (DDD-T3's traps, a space, the digits, '/', 'ab'): the identity", keys: NOT_ONE_ASCII_LETTER, plan: identity },

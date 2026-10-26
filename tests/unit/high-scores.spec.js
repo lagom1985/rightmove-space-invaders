@@ -3,7 +3,9 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { loadFreshGame } from './support/fresh-game.js';
 import { assertStateDelta, setTo } from '../common/state-delta.js';
-import { BLOCKED_INITIALS, SCORE_STEP, TABLE_SIZE, isAllowedInitials, isValidSignature, makesTheTable } from '../../src/game/high-scores.js';
+import {
+  BLOCKED_INITIALS, MAX_PLAUSIBLE_SCORE, MAX_SCORE, SCORE_STEP, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature, makesTheTable,
+} from '../../src/game/high-scores.js';
 import { HURDLES, DREAM_BONUSES } from '../../src/theme/theme.js';
 
 // The shared high-score rules (ADR-006, DDD-3). The word filter and makesTheTable are pure: no state to watch, so their
@@ -59,10 +61,35 @@ test('a table that isn\'t available, or no deposit, never asks for initials, wha
   }));
 });
 
-test('while an available table has room, any deposit above £0 makes it', () => {
+const EMPTY_TABLE = Object.freeze({ status: 'available', rows: Object.freeze([]) });
+
+test('while an available table has room, any deposit above £0 up to the plausible ceiling makes it', () => {
   fc.assert(fc.property(tableOf(fc.constant('available'), withRoom), deposit.filter(amount => amount > 0), (table, amount) => {
     expect(makesTheTable(table, amount)).toBe(true);
-  }));
+  }), { examples: [[EMPTY_TABLE, MAX_PLAUSIBLE_SCORE]] });
+});
+
+// ---- the plausible ceiling (docs/analysis/root-cause-analysis-forged-high-scores.md, S1) ----
+// The key's 7-digit field holds up to £9,999,999 (ADR-004), far beyond any game. Above MAX_PLAUSIBLE_SCORE the table
+// refuses a score (400 implausible-score) and the game asks for no initials, so it never sends one.
+const unitsOf = amount => Math.floor(amount / SCORE_STEP);
+const aboveTheCeiling = fc.integer({ min: unitsOf(MAX_PLAUSIBLE_SCORE) + 1, max: unitsOf(MAX_SCORE) }).map(units => units * SCORE_STEP);
+const anyValidScore = fc.integer({ min: 1, max: unitsOf(MAX_SCORE) }).map(units => units * SCORE_STEP);
+
+test('the plausible ceiling is itself a deposit the table takes', () => {
+  expect(isValidSignature({ initials: 'FAB', score: MAX_PLAUSIBLE_SCORE })).toBe(true);
+});
+
+test('a valid score is plausible exactly when it is no more than the ceiling', () => {
+  fc.assert(fc.property(anyValidScore, score => {
+    expect(isPlausibleScore(score)).toBe(score <= MAX_PLAUSIBLE_SCORE);
+  }), { examples: [[MAX_PLAUSIBLE_SCORE], [MAX_PLAUSIBLE_SCORE + SCORE_STEP], [unitsOf(MAX_SCORE) * SCORE_STEP]] });
+});
+
+test('a deposit above the plausible ceiling never makes the table, not even an empty one', () => {
+  fc.assert(fc.property(tableOf(fc.constant('available'), anyRows), aboveTheCeiling, (table, amount) => {
+    expect(makesTheTable(table, amount)).toBe(false);
+  }), { examples: [[EMPTY_TABLE, MAX_PLAUSIBLE_SCORE + SCORE_STEP]] });
 });
 
 // Deposits a few steps either side of the 10th row's score, so a tie comes up often.

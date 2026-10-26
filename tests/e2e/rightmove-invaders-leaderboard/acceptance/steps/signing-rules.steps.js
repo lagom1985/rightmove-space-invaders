@@ -10,6 +10,7 @@ const { Given, When, Then } = createBdd(test);
 // ---- arranging ----
 Given('the game\'s rules are running on their own', ({ rules }) => rules.start());
 Given('the high-score table has not answered yet', ({ rules }) => rules.expectTableUnknown());
+Given('the high-score table has answered with no signatures', ({ rules }) => rules.tableAnsweredEmpty());
 Given('{initials}\'s signing is on its way', ({ rules }, initials) => rules.signingOnItsWay(initials));
 Given('a newer signing by {initials} has been confirmed at #{int}', ({ rules }, initials, rank) => rules.newerSigningConfirmed(initials, rank));
 
@@ -20,6 +21,7 @@ When('the player plays any sequence of games, signings and table answers, in any
 
 // ---- observing ----
 Then('no initials are asked for', ({ rules }) => rules.expectNoEntry());
+Then('initials are asked for', ({ rules }) => rules.expectEntry());
 Then('the game-over screen shows no table', ({ rules }) => rules.expectNoTableAtGameOver());
 Then('{initials}\'s signing is announced once, as confirmed at #{int}', ({ rules }, initials, rank) => rules.expectSettledOnce(initials, SigningOutcome.CONFIRMED, rank));
 Then('{initials}\'s signing is still the current one, confirmed at #{int} and marked as mine', ({ rules }, initials, rank) => rules.expectCurrentConfirmed(initials, rank));

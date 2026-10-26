@@ -31,7 +31,7 @@ Feature: Signing the shared high-score table
     Examples:
       | signature                         |
       | FAB with £50                      |
-      | FAB with £9,999,950               |
+      | FAB with £250,000                 |
       | FAB with £1,000 stretched to 1 KB |
 
   @OUT-8 @DDD-5 @DDD-17 @server @real-io @error
@@ -56,6 +56,11 @@ Feature: Signing the shared high-score table
       | the signature FAB with £1,025            | as not a signature |
       | the signature FAB with £0                | as not a signature |
       | the signature FAB with £10,000,000       | as not a signature |
+
+    Examples: More than any game could save (docs/analysis/root-cause-analysis-forged-high-scores.md, S1)
+      | what                              | why            |
+      | the signature FAB with £250,050   | as implausible |
+      | the signature FAB with £9,999,950 | as implausible |
 
   @OUT-8 @OUT-10 @DDD-10 @DDD-17 @server @real-io @error @kpi-K12
   Scenario: Initials on the word filter are refused by the table too

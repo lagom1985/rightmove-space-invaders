@@ -138,7 +138,7 @@ outcomes:
       Date.now() in ms taken right after the listing that follows the write (also when
       best-effort pruning failed); function errors are JSON {error}: 415 json-required
       (content type), 413 payload-too-large (over 1 KB), 400 invalid-signature (any other
-      shape error) or initials-not-allowed, 405 method-not-allowed with Allow: GET, POST (clarified in DISTILL), 503 not-saved, 500 unexpected
+      shape error), initials-not-allowed or implausible-score (a score above 250000, checked last; amended after the forged-scores RCA, user, 2026-10-26), 405 method-not-allowed with Allow: GET, POST (clarified in DISTILL), 503 not-saved, 500 unexpected
       (including a port refusal of a key that is not well-formed); every answer from the
       function other than a GET 200 is no-store, and every answer carries Netlify-Vary
       query=table. 429 comes from Netlify only, above 10 requests per 60 s per IP and
@@ -180,8 +180,8 @@ outcomes:
   - shape: 'table state {status: unknown|available|unavailable, rows: [{initials, score,
       id}] best first}, deposit; signature {initials, score}'
   output:
-    shape: 'makesTheTable (browser only) = status available and deposit > 0 and (fewer
-      than 10 rows or deposit above the 10th; a tie misses). Valid signature shape (isValidSignature, browser and function) = exactly {initials, score}, initials of 3 letters A-Z, score a positive integer multiple of 50 up to 9999999; allowed initials (isAllowedInitials) = not on the word filter. The browser needs both; the function maps a bad shape to 400 invalid-signature and blocked initials to 400 initials-not-allowed (clarified in DISTILL). The function never decides qualification'
+    shape: 'makesTheTable (browser only) = status available and deposit > 0 and deposit
+      plausible and (fewer than 10 rows or deposit above the 10th; a tie misses). Valid signature shape (isValidSignature, browser and function) = exactly {initials, score}, initials of 3 letters A-Z, score a positive integer multiple of 50 up to 9999999; allowed initials (isAllowedInitials) = not on the word filter; plausible score (isPlausibleScore, browser and function) = at most MAX_PLAUSIBLE_SCORE, 250000 (amended after the forged-scores RCA, user, 2026-10-26). The browser needs all three; the function maps a bad shape to 400 invalid-signature, blocked initials to 400 initials-not-allowed (clarified in DISTILL) and an implausible score to 400 implausible-score. The function never decides qualification'
   keywords:
   - qualification
   - makes-the-table

@@ -32,7 +32,6 @@ Feature: Everything I need to see stays readable on every neighbourhood
 
     # The small "Dream home saved +£..." text falls just short today, on Leafy avenue's road and on Terraced streets'
     # road. DELIVER darkens those two road colours, never the Dream home's pink (DDD-B6, ADR-011), then runs this row.
-    @pending
     Examples:
       | use                                    | need |
       | the Dream home text and the Dream Home | text |
@@ -47,7 +46,7 @@ Feature: Everything I need to see stays readable on every neighbourhood
   # Every colour the game draws over a backdrop is measured against every colour of every neighbourhood, by the
   # strictest need of its uses, or excused by name, never both and never neither. It waits with the Dream home row: the
   # Dream home's pink falls short on two roads today.
-  @in-memory @pending @error @contract-shape:pure-function @DDD-B6 @DDD-B7
+  @in-memory @error @contract-shape:pure-function @DDD-B6 @DDD-B7
   Scenario: Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name
     When every colour the game draws over a backdrop is measured against every colour of every neighbourhood, a shade brighter
     Then each stands out as much as its use needs, except the houses' door, which no colour can fix, the game-over red, which is drawn only on the game-over screen, the outline round the title's names, which is there to set them off, and the veils of the paused and game-over screens, which only darken

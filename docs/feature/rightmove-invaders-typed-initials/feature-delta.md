@@ -1141,3 +1141,207 @@ The consolidated Final Wave Review Gate is the orchestrator's to re-dispatch. DI
 - every story and UAT covered;
 - the walking skeleton inherited, and user-centred;
 - outcomes asserted at the ports: the live region, the field, the HUD, the table, the requests sent, the sound journal, the next visit's best, `snapshot()`, the events and the whole of `g`.
+
+---
+
+## Wave: DELIVER / [REF] Implementation summary
+
+Delivered on 2026-10-26 on branch `rightmove-invaders-typed-initials`, from `81498c0` (the roadmap, on DISTILL's `62025b3`) to `96a2146`: 9 roadmap steps in 2 slices, an L1–L6 refactor, a fix for three flaky checks and one review revision. The branch is not pushed and not merged to `main`. The summary and lessons are in the [evolution document](../../evolution/rightmove-invaders-typed-initials-evolution.md).
+
+The entry follows DESIGN (DDD-T1…T14, ADR-009). The DELIVER amendments are under Changed assumptions.
+- **Keyboard** (`src/platform/input.js`, imports nothing):
+  - `takeTyped()`: every keydown since the last call, in order, as `{ key }`, without repeats or Cmd, Ctrl and Alt/Option chords.
+  - `preventsDefault(keydown)`: the pure default policy. The listener applies it on every screen.
+  - `releaseAll()` also empties the typed queue. The positions and their Cmd/Ctrl filter are unchanged.
+- **Rules** (`src/game/game.js`):
+  - `handlePresses(pressed, typed)`: a frame that starts with the entry open belongs to the entry. It ignores the positions, drops everything while `g.overT ≤ 0.6` (`STRAY_KEY_GUARD_S`), and otherwise runs each typed press through the entry step. A press that closes the entry drops the rest of the frame.
+  - `entryStep(entry, { key })`: the pure entry step. It returns the plan `{ letters, notice, skip, signing }` (`letters` is null once the entry closes) and emits nothing. Its rows are `typeLetter`, `takeBackLetter`, `enter` and `skipSigning`; any other key leaves the entry as it is, its notice the very object passed in. A letter is `/^[A-Za-z]$/` on the raw key, checked before uppercasing.
+  - `applyPlan`, the shell: it writes `g.initials` (`{ letters, notice }`) and `g.skipped`, numbers each new notice from the module-level `noticesShown`, and signs through `sign()`.
+  - `canPlayAgain()`: game over, no entry open, past the guard. It is the one rule for "Enter plays again", and `render.js` reads it too.
+  - `snapshot().entry` is `{ letters, notice }` or null, and `snapshot().skipped` is new. `update(dt, keys)` reads only `keys.isDown`.
+- **Wiring** (`src/main.js`): `handlePresses(keyboard.takePressed(), keyboard.takeTyped())` every frame, paused or not; `update` gets a frozen `{ isDown }` view of the keyboard.
+- **Views**:
+  - `status.js`: the typed prompt, ending "Esc skips."; the field, "No letters yet, letter 1 of 3" … "A L X, press Enter to sign"; each notice once, by its number, written with `always`; and "Signing skipped. Press Enter to house-hunt again." in place of the prompt after a skip.
+  - `render.js`: three slots with the next one blinking; the help line `Type 3 letters   Enter sign   Backspace delete   Esc skip`; the hint (white) and the refusal (red) under it; "Signing skipped" on the signing line.
+  - `messages.js`: `INITIALS_NOTICES` (the too-few hint and the refusal; it replaces `INITIALS_REFUSED`), `SIGNING_SKIPPED` and `SIGNING_SKIPPED_SENTENCE`.
+- **Unchanged**: `high-scores.js` except one comment line; `netlify/**`, `scripts/**`, `leaderboard.js`, `storage.js`, `events.js`, `sound/**`, `theme/**` and `index.html`; `package.json` and the lockfile. No new file under `src/`, and no new dependency.
+
+| Slice | Steps (commit) |
+|---|---|
+| 01 Type your initials | 01-01 (`e8fe3ee`; the switch flipped, the retirement begun) · 01-02 (`5a49b65`) · 01-03 (`2442abe`) · 01-04 (`a5bc496`; all five passed as soon as they were enabled) · 01-05 (`210990c`) · 01-06 (`f05027a`) · 01-07 (`2f26b25`; all of M3 passed as soon as it was enabled) · 01-08 (`923b2df`; the retirement ends) |
+| 02 Skip with Esc | 02-01 (`ed5a0d6`) |
+| — | L1–L6 refactor (`3698a36`) |
+| — | Three flaky checks made certain (`f081ed8`) |
+| — | Review revision (`96a2146`) |
+
+No step needed a fix cycle. The DES execution log is committed with this record, not after each step.
+
+## Wave: DELIVER / [REF] Files modified
+
+`git diff --stat 62025b3..96a2146`: 35 files, +1,287 / −421, with the roadmap (`81498c0`) and the execution log's empty start. Without the roadmap commit (`81498c0..96a2146`): 33 files, +981 / −421.
+
+**Production**:
+
+| File | Change | Commits |
+|---|---|---|
+| `src/game/game.js` | `handlePresses(pressed, typed)`, the guard, `entryStep` and its shell, numbered notices, `g.skipped`, `canPlayAgain()`, the new `snapshot()` shape (+98 / −38) | `e8fe3ee` `5a49b65` `2442abe` `210990c` `ed5a0d6` `3698a36` |
+| `src/platform/input.js` | `takeTyped()`, `preventsDefault`, `releaseAll()` empties the queue (+33 / −7) | `e8fe3ee` `5a49b65` `210990c` `f05027a` |
+| `src/main.js` | Both channels each frame; the `{ isDown }` view for `update` (+3 / −2) | `e8fe3ee` |
+| `src/view/status.js` | The prompt, the field, notices by number, the skip sentence (+34 / −18) | `e8fe3ee` `2442abe` `ed5a0d6` `3698a36` |
+| `src/view/render.js` | The slots, the help line, the hint and the refusal, "Signing skipped", the play-again blink on `canPlayAgain()` (+18 / −12) | `e8fe3ee` `2442abe` `ed5a0d6` `3698a36` |
+| `src/view/messages.js` | `INITIALS_NOTICES`, `SIGNING_SKIPPED`, `SIGNING_SKIPPED_SENTENCE` (+12 / −1) | `2442abe` `923b2df` `ed5a0d6` |
+| `src/game/high-scores.js` | Comment only: "Up and Down move round it" removed (DDD-T13) | `923b2df` |
+
+**Tests**:
+
+| File | Change | Commits |
+|---|---|---|
+| `tests/e2e/rightmove-invaders-typed-initials/acceptance/milestone-*.feature` (6 files) | `@pending` removed, nothing else | One or more per step |
+| `…/typed-initials/acceptance/steps/domain-types.js` | A comment no longer names the deleted `Message.initialsField` | `96a2146` |
+| `tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-4-who-is-asked.feature` | The wheel's field scenario deleted (Retirement item 1) | `e8fe3ee` |
+| `…/leaderboard/acceptance/milestone-5-signing-outcomes.feature` | Three wheel scenarios parked, then deleted (items 2 and 3) | `e8fe3ee` `5a49b65` `923b2df` |
+| `…/leaderboard/acceptance/steps/` (`domain-types.js`, `initials-entry.js`, `leaderboard-game.js`, `leaderboard.steps.js`, `high-score-table.steps.js`) | The switch flipped, then deleted; the skeleton's step and `enterLetters` type; the wheel's steps and helpers deleted; `pauseTheClock()` | `e8fe3ee` `5a49b65` `923b2df` `f081ed8` |
+| `…/leaderboard/acceptance/tier-b/signing-rules.js` | The typed entry; the wheel's side deleted | `e8fe3ee` |
+| `tests/unit/answers-while-paused.spec.js`, `malformed-answers.spec.js` | Sign by typing, after 0.7 s of game over | `e8fe3ee` |
+| `tests/unit/high-scores.spec.js` | A fresh `snapshot()` has `skipped: false` | `e8fe3ee` `3698a36` |
+| `tests/unit/status-mirror.spec.js` | The typed entry model; notices by number, in one game and across two; the refusal; the skip, with its witness set (3 tests → 6) | `e8fe3ee` `5a49b65` `2442abe` `923b2df` `ed5a0d6` `3698a36` `96a2146` |
+| `tests/unit/layering.spec.js` | The sixth rule, broken once and kept once | `f05027a` |
+| `playwright.config.js` | Firefox and WebKit project timeouts, 45 s and 60 s | `f081ed8` `96a2146` |
+
+The new unit specs are 3 files with 17 tests, mostly fast-check properties, each replayable with `FC_SEED`:
+
+| Spec | Proves | Commits |
+|---|---|---|
+| `keyboard.spec.js` (4) | Over a plain `EventTarget`: typed order, duplicates kept, no repeat or chord typed, positions as before, and each `defaultPrevented` equal to the policy; `releaseAll()` forgets held keys and empties the queue; the policy enumerated over its rows × none, Shift, Cmd, Ctrl, Ctrl+Alt, Alt × repeat; a repeat never changes the answer | `e8fe3ee` `210990c` `f05027a` `f081ed8` `96a2146` |
+| `entry-step.spec.js` (12) | The entry step against DESIGN's Rules operations table, its plan compared whole, over every entry state and press class (DDD-T3's traps included); any other key gives the identity plan, its notice the very object passed in; word-filter initials never sign | `e8fe3ee` `5a49b65` `2442abe` `2f26b25` `923b2df` `ed5a0d6` `3698a36` |
+| `update-keyboard.spec.js` (1) | `update` reads only `isDown`, over play steps that move and fire (DDD-T14) | `e8fe3ee` |
+
+**Docs**:
+
+| File | Change | Commits |
+|---|---|---|
+| `README.md` | The controls: type the initials, Backspace, Enter signs, Esc skips; the `messages.js` row | `923b2df` `ed5a0d6` |
+| `CLAUDE.md` | The sixth layering rule: `platform/input.js` imports nothing (ADR-009) | `f05027a` |
+| `docs/feature/rightmove-invaders-typed-initials/deliver/roadmap.json` | The roadmap | `81498c0` |
+| `docs/feature/rightmove-invaders-typed-initials/deliver/execution-log.json` | The DES log, 27 events | This record |
+| `docs/product/journeys/play-a-session.yaml`, `architecture/brief.md`, `architecture/adr-009-…md`, `outcomes/registry.yaml`, `kpi-contracts.yaml` | What shipped, and what is still pending | This record |
+
+**Unchanged in DELIVER**: DISTILL's typed-initials steps, drivers, fixtures, parameter types and Tier B (`tier-b/entry-rules.js`); everything under `netlify/` and `scripts/`; `index.html`, `netlify.toml`, `package.json` and `package-lock.json`.
+
+## Wave: DELIVER / [REF] Scenarios green count
+
+**46 of 46** typed-initials scenarios (**72 of 72** runs: 61 in each browser and 11 in-memory), plus the leaderboard's walking skeleton, now typing FAB, in three browsers: green on 2026-10-26. By slice, as DISTILL counted: `@slice-01` 37 scenarios (62 runs, two of them the `@slice-02` Examples rows of M2's game-over outline and M6's guard outline) and `@slice-02` 9 (10 runs).
+
+`PORT=4174 CI=1 npm test` at `f081ed8`: **525 passed**, 0 failed, 0 skipped, 0 flaky, in 26.2 min. `96a2146` changed only unit specs and comments: the unit project passed 92, and `npm run build` (bddgen, then unit and in-memory) passed 159.
+
+| Feature file | Scenarios | Runs | Project | Green |
+|---|---|---|---|---|
+| walking-skeleton (the leaderboard's, inherited) | 1 | 3 | chromium, firefox, webkit | 3 |
+| milestone-1-typing-the-initials | 12 | 17 × 3 | browsers | 51 |
+| milestone-2-only-letters-type | 11 | 24 × 3 | browsers | 72 |
+| milestone-3-letters-as-printed | 4 | 7 × 3 | browsers | 21 |
+| milestone-4-refused-initials | 4 | 4 × 3 | browsers | 12 |
+| milestone-5-skip-with-esc | 8 | 9 × 3 | browsers | 27 |
+| milestone-6-entry-rules | 7 | 11 | in-memory (`@in-memory`) | 11 |
+
+The whole suite, by project:
+
+| Project | Tests | Green |
+|---|---|---|
+| unit | 92 (29 specs: the 3 new ones have 17 tests, and `status-mirror.spec.js` grew from 3 to 6) | 92 |
+| in-memory | 67 (11 typed-initials, 33 leaderboard, 23 sound) | 67 |
+| chromium | 122 (61 typed-initials; 27 leaderboard, its walking skeleton included; 33 sound; the game's walking skeleton) | 122 |
+| firefox | 122 | 122 |
+| webkit | 122 | 122 |
+| **Total** | **525** | **525** |
+
+The leaderboard's browser share fell from 32 to 27 runs per engine: the retirement deleted its 4 wheel scenarios (5 runs), each replaced by a typed scenario (Changed assumptions). No `@pending` tag is left in any feature file. `npx bddgen export --unused-steps` lists none. The DISTILL RED baseline had 72 of 72 runs failing (MISSING_FUNCTIONALITY, Chromium and in-memory); all 72 now pass, and so do the Firefox and WebKit runs.
+
+## Wave: DELIVER / [REF] DoD check
+
+Checked against DISCUSS's Definition of Done (9 items). DISTILL's "Done when" adds only what items 1–3 and 5–6 already cover.
+
+| # | Item | Status | Evidence |
+|---|---|---|---|
+| 1 | Every acceptance criterion verified as DISTILL's traceability says; the automated ones green in Chromium, Firefox and WebKit | **Met** for the automated ACs · the manual ones are items 5 and 6 | 46 of 46 scenarios, 72 of 72 runs; all 28 UATs traced (DISTILL, Scenario list); the unit specs DESIGN asked for (Files modified) |
+| 2 | The leaderboard's walking skeleton green, typing FAB; `npm test` and `npm run build` green; no `@pending` left | **Met** | The skeleton in 3 engines since 01-01 (`e8fe3ee`); 525 passed at `f081ed8`; build 159 after `96a2146`; no `@pending` tag in any feature file |
+| 3 | No trace of the letter wheel: the prompt, the canvas help line, the field and the test drivers describe typing | **Met** in code · the canvas by eye is item 5 | `EntryMethod`, `INITIALS_ENTRY` and every wheel step and helper deleted (01-01, 01-02, 01-08); no "letter wheel", "Up and Down", `chooseLetter` or "Change a letter" in `src/`, `tests/`, `README.md` or `index.html`; `high-scores.js`'s last mention removed (`923b2df`) |
+| 4 | K16–K18 recorded with n from the playtest; K19's baseline recorded on release day | **Pending** | The playtest runs on the pull request's deploy preview, with the user; K19's baseline on release day (Pre-requisites) |
+| 5 | Manual checks on the deploy preview: a real AZERTY or QWERTZ keyboard in Chrome, Firefox and Safari; Firefox's quick find (`/`, `'`) and typeahead find; Backspace in Firefox and Safari; the canvas (slots, blinking slot, help line with "Esc skip", hint, refusal, "Signing skipped") in the compact layout | **Pending** | To do with the user on the pull request's deploy preview, against DESIGN's Rendering universe. 01-03 looked at the hint and the refusal only on a local screenshot |
+| 6 | VoiceOver on macOS speaks the prompt, each letter, the hint, the refusal and the skip | **Pending** | With the user, on the same preview (DESIGN Open questions, DELIVER 4, Quick Nav included) |
+| 7 | The README's controls describe typing the initials, Backspace and Esc | **Met** | `923b2df` (typing, Backspace, Enter) and `ed5a0d6` (Esc) |
+| 8 | The server contract, the word list and the signing lifecycle unchanged; no new dependency | **Met** | `git diff 62025b3..96a2146 -- netlify/ package.json package-lock.json` is empty; `high-scores.js` differs by one comment line; the leaderboard's lifecycle scenarios (M5–M7 in 3 engines, M8 in-memory) green |
+| 9 | The PO's check on the deploy preview, and the work merged to `main` | **Pending** | After items 4–6 (Pre-requisites) |
+
+## Wave: DELIVER / [REF] Demo evidence
+
+This is a browser game with no CLI, so each story's elevator pitch is demonstrated by the acceptance scenarios that play it, on the real page and keyboard, in Chromium, Firefox and WebKit. All are green in the final `PORT=4174 CI=1 npm test` run (525 passed, at `f081ed8`).
+
+| Story | The pitch's "After" | Scenario(s) |
+|---|---|---|
+| US-01 | Type `alx` and press Enter: `A L X` in the slots, "Signing ALX…", then "Signed ALX, #3." and the ALX row marked | M1 "Typed initials sign the table" (2 rows of £1,000 seeded, so £50 ranks #3); "The entry opens empty"; "Letters show, and are heard, as they are typed" |
+| US-02 | Type `m`, Up, `7`, Space, `n`, `p`: `M N P`, with Sound On and Music On; once signed, M mutes | M2 "Game keys type their letters: "mnp""; "Keys that aren't letters don't type" (Up, Down, Left, 7, Space, full stop, hyphen, slash, one after another); "The game keys work again once the entry closes" |
+| US-03 | On AZERTY, the keys printed C, A and M, then Enter: `C A M` and "Signing CAM…" | M3 "Letters on a French AZERTY keyboard"; "Letters on a German QWERTZ keyboard" ("Signing JAZ…"), with synthetic key events |
+| US-04 | Type `ass` and press Enter: "Those initials aren't allowed. Type different ones." and empty slots; then `sam` and Enter: "Signing SAM…" | M4 "Refused initials are cleared"; "Other initials sign after a refusal" |
+| US-05 | Press Esc: "Signing skipped." and "Press Enter to house-hunt again.", with no new row; Enter starts a new game | M5 "Esc skips signing" (no request, 3 rows still shown, no sound, the best kept for the next visit); "Enter plays again after a skip" |
+| WS | The leaderboard's walking skeleton: a fresh table, a £50 deposit, `f`, `a`, `b` typed and signed, and a second browser context sees FAB £50 at the top | "A house-hunter signs the high-score table and another house-hunter sees it" (`@walking_skeleton @driving_port`) |
+
+The deposits are £50, not the pitches' £1,250 or £850 (DISTILL, Upstream issues 1). What the pitches show on the canvas (the slots, "Signing skipped") is DoD 5's, by hand. The raw list output was captured in the delivery session and is not committed. To re-run one: `npx bddgen && PORT=4174 npx playwright test --reporter=list -g "<title>"`. By hand: `npm start`, open http://localhost:4173, play to game over with a deposit (the local table starts empty, so any deposit makes it), then type your initials and press Enter, or press Esc.
+
+## Wave: DELIVER / [REF] Quality gates
+
+| Gate | Result |
+|---|---|
+| Roadmap review | Conditionally approved by nw-acceptance-designer-reviewer (0 blockers); H1, H2, L3, L6, L7, L8 and L9 applied by the orchestrator. `des-roadmap validate` and `des-verify-integrity --roadmap-only` exit 0 |
+| Per-step TDD (DES RED → GREEN → COMMIT) | 9 of 9 steps, no fix cycle |
+| Integration gate at `ed5a0d6` (before the refactor) | 523 passed, 2 failed: both WebKit timeouts at the 90 s limit, under load, in "my deposit of £50 makes the high-score table". Both passed alone (40 s, 56 s). Fixed by the per-project timeouts in `f081ed8` |
+| Full suite and build gate | `PORT=4174 CI=1 npm test`: 525/525 at `f081ed8` (0 skipped, 0 flaky, 26.2 min). After `96a2146`: unit 92/92, `npm run build` 159/159, no unused steps |
+| Design compliance | Every production file is in DESIGN's component table; no new file under `src/`; no new dependency; the six layering rules green (`layering.spec.js`) |
+| Refactor L1–L6 | `3698a36`: L1/L4 `canPlayAgain()`, the one source for the 0.6 s guard on "Enter plays again"; L2 `typeLetter` and `takeBackLetter` extracted, and `initialsField()` with guard clauses; L3–L6 needed nothing. No assertion, universe or generator changed |
+| Adversarial review (nw-software-crafter-reviewer) | **NEEDS_REVISION**, with 0 behavioural, layering or test-integrity defects. Its 2 blockers asked for the contract-shape mandate's Python forms: `CONTRACT_SHAPE:` in test docstrings, checked by a Python CLI this repo doesn't have, and an "Outcome anchor" line per scenario. The orchestrator ruled them not applicable in that form: this repo declares contract shapes in DESIGN's component table (Reuse Analysis) and as `@contract-shape:…` tags on all 46 typed-initials scenarios, and anchors scenarios to stories with `@US-0N`. The revision `96a2146` applied the useful suggestions (Changed assumptions); one was not applied |
+| Mutation testing (Phase 5) | **Skipped**: disabled per `CLAUDE.md`. The crafters ran hand mutations in 7 of the 9 steps instead, each caught by a test and reverted (the step commits) |
+| DES integrity | `des-verify-integrity`: "All 9 steps have complete DES traces", exit 0 |
+| Build-gate stability | Two keyboard properties missed rare witnesses (6 runs in 500; about 3 in 1,000), and a slow page load could break the fake clock. Fixed in `f081ed8` with no generator, universe or assertion changed; the keyboard spec then passed 2,000 of 2,000 (`--repeat-each=500`) |
+| Not run | DoD 4–6 (the playtest, the manual checks, VoiceOver); CI (there is none: the Netlify build, unit and in-memory, is the only automated gate) |
+
+## Wave: DELIVER / [REF] Pre-requisites
+
+**What the implementation depended on**:
+- DISTILL: the 46 scenarios, the enable order, the Retirement list, the drivers, Tier B and the RED classification.
+- DESIGN: DDD-T1…T14, ADR-009, the Rules operations table (the entry step's oracle), the default policy's table and the Rendering universe.
+- The user's decisions: D1–D20, the wording, the every-screen policy (D19) and Alt/Option as a chord.
+
+**For whoever ships next**:
+- **Run it**: Node 22; `npm ci` (in DISTILL, this checkout's `node_modules` lacked `@netlify/blobs` until `npm ci`); `npx playwright install` for the test browsers; `npm start`, then open http://localhost:4173. Beside another checkout, set `PORT` (for example `PORT=4174`). `npm test` must show 525 passed (about 26 min), and `npm run build` 159.
+- **Rollback, designed first**: the change is client-only, with no server, store or data change. Netlify's instant rollback to the previous production deploy brings the letter wheel back; signatures typed in between are ordinary rows of 3 capital letters and stay valid.
+- **Before the merge to `main`, with the user**:
+  1. With the user's OK, push the branch and open a pull request, for its deploy preview. Netlify's build gate (unit and in-memory, 159 tests) runs on it; none of the leaderboard's release-check triggers fired (the function, `@netlify/blobs`, the bundler settings, the rate limit and the cache headers are unchanged), so its smoke test needs no re-run.
+  2. DoD 5 on the preview: a real AZERTY or QWERTZ keyboard in Chrome, Firefox and Safari; Firefox's quick find on `/` and `'`, also with "Search for text when you start typing" turned on; Backspace staying on the page in Firefox and Safari; the canvas, screen by screen, against DESIGN's Rendering universe. Record the results in this file.
+  3. DoD 6 on the preview: VoiceOver with Safari speaks the prompt, each letter, the hint, the refusal and the skip; with Quick Nav off, the arrows move, Space fires and letters reach the entry; with Quick Nav on, record which keys VoiceOver takes first.
+  4. The K16–K18 playtest on the same preview (protocol: DISCUSS, Outcome KPIs, and `kpi-contracts.yaml`), with n recorded for every result. A miss opens a fix via `/nw-bugfix` before the release record is written.
+  5. The PO's check, then the merge (DoD 9). A merge commit, as for PR #1, keeps the per-step `Step-Id` trailers.
+- **On release day**: K19's baseline, the `AAA` rows on the production top 10 (`GET /api/scores`), then weekly for 30 days.
+- Not part of the record: the uncommitted DES resume file `deliver/.develop-progress.json` and the session files under `.nwave/des/`. Removing them is finalize Phase C, with the user's approval.
+
+## Wave: DELIVER / [REF] Changed assumptions
+
+**From DISCUSS**: none. D1–D20 and the wording shipped as locked.
+
+**From DESIGN**:
+- **Names, as built** (DESIGN called its names suggestions): the entry step is `entryStep`, and its plan is `{ letters, notice, skip, signing }`, with `letters` null once the entry closes (DESIGN: `{ entry′, notice′, skip′, signing }`). The shell is `applyPlan`, run by `handlePresses` through `enterTyped`. The notice counter is `noticesShown`, the default policy `preventsDefault(keydown)`, and the guard `STRAY_KEY_GUARD_S` with `pastTheGuard()`.
+- **`canPlayAgain()`** (refactor L1/L4, `3698a36`): one exported rule for "Enter plays again": game over, no entry open, past the guard. `handlePresses` uses it, and `render.js` blinks "Press Enter to house-hunt again" on it in place of its own `g.overT > 0.6`. The Rendering universe's "after 0.6 s" still holds; the view now asks the rules.
+- **Backspace's default is prevented from 01-02**, not 01-06: in WebKit, Backspace left the page during the 01-02 scenarios. 01-06 folded that line into `preventsDefault`.
+- **`status.js` imports `INITIALS_LENGTH`** from `game/high-scores.js` for the field's wording. No layering rule restricts `view/`, and `high-scores.js` imports nothing.
+
+**From DISTILL**:
+- **The retirement went one step further** in 01-08: the step "the high-score table is still empty", its helper `expectTableEmptyAtTheSource`, `spaced` and the `BLOCKED_INITIALS` import had no user left once the wheel's refusal scenario went, so they were deleted too. `npx bddgen export --unused-steps` lists none.
+  - Each deleted leaderboard scenario has a typed replacement, traced in review: M4 "A deposit is asked for initials while the table has room" → M1 "The entry opens empty"; M5 "The initials field tells me the letters and which one I am choosing" and "Up pressed 3 times…" (2 runs) → M1 "Letters show, and are heard, as they are typed"; M5 "Initials on the word filter are refused, and I can change a letter" → M4 "Refused initials are cleared" ("nothing is sent" replaces "the table is still empty").
+  - The leaderboard keeps 40 of its 44 scenarios (59 runs).
+  - `status-mirror.spec.js`'s refusal case was parked with `test.fixme` in 01-01 and rewritten in 01-08, with its scenario.
+- **Test budgets** (`f081ed8`): DISTILL's "`playwright.config.js` needed no change" → Firefox and WebKit get 45 s and 60 s project timeouts (Chromium keeps Playwright's 30 s). The high-score-table scenarios triple their project's timeout (the leaderboard's `table` fixture): 90 s, 135 s and 180 s.
+- **The page driver's clock** (`f081ed8`): `LeaderboardGame.open()` now calls `pauseTheClock()`, which pauses at START + 5 s as before, or 1 s ahead of the page's own clock if that is later.
+- **Two keyboard properties try one example first** (`f081ed8`): A typed twice in one batch (`takeTyped()`), and a tap of A that no step has seen (`releaseAll()`), on top of the same 100 generated runs. Their witness checks now hold by construction for the moments those examples reach (3 of 8, and all 4), as the spec says (`96a2146`).
+
+**From the review** (`96a2146`):
+- Applied: the Esc property in `status-mirror.spec.js` names its 10 moments in `SKIP_WITNESSES`, like its siblings (400 test runs on fresh seeds, 0 misses); `keyboard.spec.js` says that the `POLICY` table pins `preventsDefault` and the property checks the wiring; the timeout comment says the 45 s and 60 s are project timeouts; two stale references fixed (a roadmap step cited for D4, and the deleted `Message.initialsField`).
+- Not applied: folding four entry-step properties into the enumerated table. They quantify over letter content and notice numbers, which a table of representatives can't.

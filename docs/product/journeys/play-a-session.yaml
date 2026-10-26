@@ -1,12 +1,8 @@
 # Journey SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23 (lightweight depth).
 # Extended by DISCUSS for rightmove-invaders-typed-initials, 2026-10-25: the high-score steps (qualify, type-initials,
 # sign, see-the-table) and their error paths. The table itself shipped with rightmove-invaders-leaderboard, which had no
-# DISCUSS. The type-initials step describes typed initials; until that feature ships, Up and Down choose each letter
-# and Enter takes it.
-# The qualify step's help line and prompt, the sign step's skip branch and the too-few hint in error_paths show the end
-# state after slice 02 (Esc skips). With slice 01 alone: the help line is "Type 3 letters   Enter sign   Backspace
-# delete", the prompt ends "type 3 letters, then press Enter to sign." with no "Esc skips.", the hint is "Type 3 letters
-# to sign.", and Esc does nothing at the entry.
+# DISCUSS. The high-score steps describe the entry as rightmove-invaders-typed-initials delivered it, both slices
+# (DELIVER, 2026-10-26): the initials are typed, Backspace takes one back, Enter signs and Esc skips.
 # Revised 2026-10-26, after the Final Wave Review Gate: the skip as its own branch of the sign step, feels on every error
 # path, losing focus mid-entry, and the wording artifact's three owners. Revised again 2026-10-26, after the second
 # review cycle: the losing-focus error path states that letters already typed stay (D20, locked by the user).

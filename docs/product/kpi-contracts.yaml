@@ -145,8 +145,13 @@ kpis:
   # putting your initials up". Times come from a screen recording, from the prompt appearing to "Signing …" or "Signing
   # skipped."; n is recorded with every result.
   # local_scenarios: the @kpi-K… acceptance scenarios that check the behaviour each KPI depends on, locally, in Chromium,
-  # Firefox and WebKit. They are @pending until DELIVER enables them; they back a KPI and never replace its playtest or
-  # production measurement, and the targets are unchanged.
+  # Firefox and WebKit. DELIVER enabled them (2026-10-26), and they are green in every npm test run (browser scenarios:
+  # not in the Netlify build, which runs no browser). They back a KPI and never replace its playtest or production
+  # measurement, and the targets are unchanged.
+  # Measured so far (DELIVER, 2026-10-26): nothing. K16-K18 wait for the playtest on the pull request's deploy preview,
+  # and K19's baseline for release day; the baselines below are the ones DISCUSS wrote. Pipeline baselines on the
+  # developer machine: npm run build (the unit and in-memory projects) passes 159 tests; npm test passes 525 tests, in
+  # 26.2 min (it was 326 tests and about 14 min before this feature).
   - id: K16
     feature: rightmove-invaders-typed-initials
     name: Signing is self-evident

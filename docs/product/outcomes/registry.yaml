@@ -279,7 +279,8 @@ outcomes:
   summary: Accessible initials entry and signing outcomes in the status mirror
   feature: rightmove-invaders-leaderboard
   inputs:
-  - shape: 'the game state g read each frame: the initials entry {letters, index}, the
+  - shape: 'the game state g read each frame: the initials entry {letters, notice} and the skip flag (amended by
+      typed-initials, DELIVER 2026-10-26; was: {letters, index}), the
       current signing {initials, status, id, rank}, the latest settled outcome {n, initials,
       outcome, rank}, the table {status, rows}'
   output:

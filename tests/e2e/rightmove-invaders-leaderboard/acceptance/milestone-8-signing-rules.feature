@@ -17,6 +17,21 @@ Feature: The signing and table rules, whatever order the answers arrive in
     Then no initials are asked for
     And the game-over screen shows no table
 
+  # The plausible ceiling (docs/analysis/root-cause-analysis-forged-high-scores.md, S1): the table refuses a score above
+  # it, so the game never asks for initials it would send in vain.
+  @OUT-10 @DDD-3 @in-memory @edge
+  Scenario Outline: An empty table asks a deposit of <deposit> for initials only up to the plausible ceiling
+    Given the game's rules are running on their own
+    And the high-score table has answered with no signatures
+    When a game ends with a deposit of <deposit>
+    Then <outcome>
+
+    Examples:
+      | deposit    | outcome                   |
+      | £250,000   | initials are asked for    |
+      | £250,050   | no initials are asked for |
+      | £9,999,950 | no initials are asked for |
+
   @OUT-11 @DDD-8 @in-memory @edge
   Scenario: The answer to a signing I have since replaced is announced once and changes nothing else
     Given the game's rules are running on their own

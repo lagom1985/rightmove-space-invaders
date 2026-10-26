@@ -5,7 +5,7 @@
 // "High-score table unavailable.".
 // Technical detail (the persisted key format, header names, log fields, store operations) lives in the table-service
 // harness (steps/table-service.js), which maps these domain names onto it.
-export { TABLE_SIZE, ALPHABET, INITIALS_LENGTH, BLOCKED_INITIALS } from '../../../../../src/game/high-scores.js';
+export { TABLE_SIZE, ALPHABET, INITIALS_LENGTH, BLOCKED_INITIALS, MAX_PLAUSIBLE_SCORE } from '../../../../../src/game/high-scores.js';
 export { GameEvent } from '../../../../../src/game/events.js';
 
 // What the status mirror's live region says, where a driver has to recognise it. The initials are typed
@@ -34,6 +34,7 @@ export const Refusal = Object.freeze({
   TOO_LONG: Object.freeze({ status: 413, error: 'payload-too-large' }),
   NOT_A_SIGNATURE: Object.freeze({ status: 400, error: 'invalid-signature' }),
   INITIALS: Object.freeze({ status: 400, error: 'initials-not-allowed' }),
+  IMPLAUSIBLE: Object.freeze({ status: 400, error: 'implausible-score' }),
   READ_OR_SIGN_ONLY: Object.freeze({ status: 405, error: 'method-not-allowed', allow: 'GET, POST' }),
   NOT_SAVED: Object.freeze({ status: 503, error: 'not-saved' }),
   UNEXPECTED: Object.freeze({ status: 500, error: 'unexpected' }),

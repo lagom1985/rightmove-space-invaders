@@ -58,7 +58,7 @@ Feature: Only letters type while I sign (US-02)
     When the held key is still repeating 1 second after the game ended
     Then the initials field still shows "No letters yet, letter 1 of 3"
 
-  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T4 @DDD-T8 @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T4 @DDD-T8
   Scenario Outline: A letter typed with <modifier> held types nothing, and the game leaves the shortcut to the browser
     Given my deposit of £50 makes the high-score table
     When I type "a" with <modifier> held
@@ -72,7 +72,7 @@ Feature: Only letters type while I sign (US-02)
       | Option   |
       | Alt      |
 
-  @US-02 @slice-01 @real-io @error @contract-shape:bounded-change @DDD-T8 @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:bounded-change @DDD-T8
   Scenario Outline: The <key> key never starts a browser feature while I sign
     Given my deposit of £50 makes the high-score table
     And I have pressed the <key> key
@@ -87,7 +87,7 @@ Feature: Only letters type while I sign (US-02)
       | Backspace  |
 
   # D19: on every screen of the game, not only while I sign (UAT 6's title and play rows).
-  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T8 @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T8
   Scenario Outline: The <key> key never starts a browser feature on the title screen
     Given I have opened the game
     When I press the <key> key
@@ -99,7 +99,7 @@ Feature: Only letters type while I sign (US-02)
       | apostrophe |
       | Backspace  |
 
-  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T8 @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T8
   Scenario Outline: The <key> key never starts a browser feature during play
     Given I have opened the game
     And I have started a new game
@@ -123,7 +123,6 @@ Feature: Only letters type while I sign (US-02)
     Then the game keeps the slash, apostrophe and Backspace keys from the browser
     And a new game starts
 
-    @pending
     Examples:
       | situation                                      |
       | after a deposit that doesn't make a full table |
@@ -134,7 +133,7 @@ Feature: Only letters type while I sign (US-02)
       | situation      |
       | after skipping |
 
-  @US-02 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T8 @pending
+  @US-02 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T8
   Scenario: The game leaves Enter to the browser, so a focused link can still open with it
     Given my deposit of £50 makes the high-score table
     And I have typed "al"

@@ -1,12 +1,13 @@
 # Persona SSOT. Created by DISCUSS for rightmove-invaders-sound, 2026-10-23.
-# Vocabulary extended by DISCUSS for rightmove-invaders-typed-initials, 2026-10-25 (the high-score table).
+# Vocabulary extended by DISCUSS for rightmove-invaders-typed-initials, 2026-10-25 (the high-score table); the UK
+# keyboard layout made explicit on 2026-10-26.
 id: casual-arcade-player
 name: Alex Morgan
 pronouns: they/them
 summary: >
   Plays Make the Right Move for fun, wherever they are, in 5 to 10 minute sessions on a laptop.
 characteristics:
-  - Plays on a MacBook Air with a physical keyboard, through the laptop speakers or AirPods.
+  - Plays on a MacBook Air with a physical keyboard (UK keyboard layout), through the laptop speakers or AirPods.
   - Has rented and bought in the UK and browses Rightmove, so "gazumped", "stamp duty" and "chain" land as jokes.
   - Grew up with arcade games; expects games to beep, boom and speed up when it gets tense.
   - Sometimes plays where sound isn't welcome (on a train, while someone nearby is on a call).

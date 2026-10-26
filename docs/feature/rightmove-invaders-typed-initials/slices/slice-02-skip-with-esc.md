@@ -9,7 +9,8 @@ A player whose deposit makes the table can pass on signing with one key. Nothing
 - Esc closes the entry at any point (empty, partly typed or full) and sends nothing. The game says "Signing skipped. Press Enter to house-hunt again.", and the canvas shows "Signing skipped".
 - The deposit stays off the table. Enter starts a new game.
 - A skip isn't a signing: an earlier signing and its mark are kept, and the local best is saved as usual (D16).
-- Esc in the first 0.6 s of game over does nothing (slice 01's guard, D11).
+- Esc in the first 0.6 s of game over does nothing (slice 01's guard, D11). Presses after the Esc in the same frame are dropped (D15, DESIGN DDD-T2).
+- After a skip, `/`, `'` and Backspace still never start a browser feature (US-02 UAT 6's after-skip row, D19).
 - The wording grows: the prompt ends with "Esc skips.", the canvas help line adds "Esc skip", and the hint becomes "Type 3 letters to sign, or press Esc to skip."
 
 ## OUT of scope
@@ -17,7 +18,7 @@ A player whose deposit makes the table can pass on signing with one key. Nothing
 - Esc on any other screen (it still pauses during play).
 
 ## Learning hypothesis
-- **Disproves** "one key, Esc, shown on the help line, is enough for a player to pass on signing, and it is safe" if playtesters asked to move on don't find it within 10 s, or if anyone skips by accident.
+- **Disproves** "one key, Esc, shown on the help line, is enough for a player to pass on signing, and it is safe" if playtesters asked to move on don't find it within 10 s, or if anyone skips by accident. An accidental skip is an Esc in game 1, when the player was asked to sign, or any skip the player calls unintended; it is counted out of every entry opened (n = 10 with 5 playtesters).
 - **Confirms** that a skip removes the "AAA" rows left by players who only wanted to get past the entry (K18, K19).
 
 ## Acceptance criteria

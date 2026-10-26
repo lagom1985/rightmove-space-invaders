@@ -1,6 +1,7 @@
 import { expect } from '@playwright/test';
 import { createBdd } from 'playwright-bdd';
 import { test } from './fixtures.js';
+import { enterInitials } from './initials-entry.js';
 
 const { Given, When, Then } = createBdd(test);
 
@@ -26,18 +27,8 @@ Then('I am asked for my initials for a deposit saved of {string}', async ({ page
   await expect(status(page)).toContainText('Enter your initials');
 });
 
-// Arcade controls: every letter starts at A, Up moves it on through the alphabet, Enter takes it.
-// Each key gets a frame of its own: presses within one frame count once.
-When('I enter the initials {string}', async ({ page }, initials) => {
-  for (const letter of initials) {
-    for (let i = 0; i < letter.charCodeAt(0) - 'A'.charCodeAt(0); i++) {
-      await page.keyboard.press('ArrowUp');
-      await page.clock.runFor(50);
-    }
-    await page.keyboard.press('Enter');
-    await page.clock.runFor(50);
-  }
-});
+// On the letter wheel today, typed once DELIVER flips INITIALS_ENTRY (steps/initials-entry.js, domain-types.js).
+When('I enter the initials {string}', ({ page }, initials) => enterInitials(page, initials));
 
 // The table arrives over the network, and the page only redraws on frames, so keep the clock going until it shows.
 Then('the high-score table is topped by {string} with {string}', async ({ table }, initials, amount) => {

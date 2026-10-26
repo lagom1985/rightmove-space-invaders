@@ -10,13 +10,29 @@ export { GameEvent } from '../../../../../src/game/events.js';
 
 const spaced = letters => [...letters].join(' ');
 
+// How a player enters their initials. THE SWITCH for rightmove-invaders-typed-initials: the walking skeleton's
+// "I enter the initials" step, the page driver's signing (LeaderboardGame.enterLetters), the prompt below and the Tier B
+// model (tier-b/signing-rules.js) all read it. DELIVER's first action, in roadmap step 01-01 (the commit that ships the
+// typed entry), is to set it to EntryMethod.TYPED; the same commit deletes the letter-wheel scenarios, steps and helpers
+// that the typed-initials feature delta lists ("Wave: DISTILL / [REF] Retirement list for DELIVER"). Once the wheel is
+// gone, the switch and its LETTER_WHEEL branches are deleted too, leaving typing as the only way.
+export const EntryMethod = Object.freeze({ LETTER_WHEEL: 'letter wheel', TYPED: 'typed' });
+export const INITIALS_ENTRY = EntryMethod.LETTER_WHEEL;
+
+// The prompt on the letter wheel, and the typed one (slice 01's words, which slice 02's prompt starts with).
+const INITIALS_PROMPTS = Object.freeze({
+  [EntryMethod.LETTER_WHEEL]: 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.',
+  [EntryMethod.TYPED]: 'New high score! Enter your initials: type 3 letters, then press Enter to sign.',
+});
+
 // What the status mirror's live region says, where a driver has to recognise it.
 export const Message = Object.freeze({
-  INITIALS_PROMPT: 'New high score! Enter your initials: Up and Down change the letter, Enter takes it.',
+  INITIALS_PROMPT: INITIALS_PROMPTS[INITIALS_ENTRY],
   TABLE_UNAVAILABLE: 'High-score table unavailable.',
   GAME_STARTED: 'Game started',
   GAME_OVER: 'Game over',
-  // The data-hud="initials" field while the initials are entered, and its live-region update on each change.
+  // The data-hud="initials" field while the initials are chosen on the letter wheel, and its live-region update on each
+  // change. Retired with the wheel (typed-initials: its own field wording is in that feature's .feature files).
   initialsField: (letters, letter) => `${spaced(letters)}, letter ${letter} of 3`,
 });
 export const INITIALS_FIELD_PATTERN = /[A-Z] [A-Z] [A-Z], letter [1-3] of 3/;

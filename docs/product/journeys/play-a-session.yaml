@@ -3,6 +3,13 @@
 # sign, see-the-table) and their error paths. The table itself shipped with rightmove-invaders-leaderboard, which had no
 # DISCUSS. The type-initials step describes typed initials; until that feature ships, Up and Down choose each letter
 # and Enter takes it.
+# The qualify step's help line and prompt, the sign step's skip branch and the too-few hint in error_paths show the end
+# state after slice 02 (Esc skips). With slice 01 alone: the help line is "Type 3 letters   Enter sign   Backspace
+# delete", the prompt ends "type 3 letters, then press Enter to sign." with no "Esc skips.", the hint is "Type 3 letters
+# to sign.", and Esc does nothing at the entry.
+# Revised 2026-10-26, after the Final Wave Review Gate: the skip as its own branch of the sign step, feels on every error
+# path, losing focus mid-entry, and the wording artifact's three owners. Revised again 2026-10-26, after the second
+# review cycle: the losing-focus error path states that letters already typed stay (D20, locked by the user).
 id: play-a-session
 persona: casual-arcade-player
 jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE, J-TABLE-SIGN, J-TABLE-SKIP]
@@ -61,11 +68,19 @@ steps:
       so on, up to "A L X, press Enter to sign".
     feels: in control
   - id: sign
-    action: Press Enter (or Esc to pass; see error_paths).
+    action: Press Enter to sign, or Esc to pass (the skip branch below).
     sees: >
-      "Signing ALX…", then "Signed ALX, #3." with the row marked (green on the canvas, aria-current in the page), or
+      "Signing ALX…", then "Signed ALX, #3." with the row marked (green on the canvas, marked as yours in the page), or
       "The table filled up before ALX arrived." or "Couldn't confirm ALX's signing."
     feels: proud, recognised
+    branches:
+      - id: skip
+        action: Press Esc instead of Enter, at any point in the entry (empty, partly typed or full).
+        sees: >
+          "Signing skipped" where the signing line goes, then the High scores list, unchanged. Screen readers hear
+          "Signing skipped. Press Enter to house-hunt again." Nothing is sent, the deposit stays off the table, and an
+          earlier signing keeps its mark.
+        feels: relieved, unbothered, free to play on
   - id: see-the-table
     action: Press Enter to house-hunt again; open the game later, or on another computer.
     sees: >
@@ -80,33 +95,46 @@ shared_artifacts:
   game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/game/events.js", drives: effects and jingles}
   high_score_table: {source: "the Score API /api/scores (netlify/functions/scores.mjs over Netlify Blobs), held by the rules as g.table", consumers: [game-over list, title attract list, status mirror High scores list]}
   initials_entry: {source: "g.initials (rules)", consumers: [canvas slots, "data-hud=initials field", live region]}
-  signing: {source: "g.signing and g.settled (rules)", consumers: [canvas signing line, live region, "the marked row (aria-current)"]}
-  wording: {source: "src/view/messages.js", consumers: [canvas, status mirror]}
+  signing: {source: "g.signing and g.settled (rules)", consumers: [canvas signing line, live region, "the row marked as yours"]}
+  wording: {source: "src/view/messages.js (the phrases both views say), src/view/status.js (status mirror only, such as the prompt and the initials field) and src/view/render.js (canvas only, such as the slots and the help line)", consumers: [canvas, status mirror]}
 
 error_paths:
   - when: No key pressed yet (autoplay policy).
     then: The game is silent; the first key press unlocks audio. No console errors.
+    feels: unaware, nothing seems wrong
   - when: The browser has no Web Audio support or it fails to start.
     then: The game plays silently; nothing else changes.
+    feels: unbothered, the game still plays
   - when: Many sounds at once (40 bolts hitting shields).
     then: Overlapping voices are capped; the oldest is dropped; no clipping.
+    feels: immersed, never deafened
   - when: The window loses focus, the tab is hidden or the game is paused.
     then: All sound stops at once, without waiting for the next frame; it resumes when play resumes.
+    feels: in control
   - when: localStorage is blocked.
     then: Sound and music default to on for every visit.
+    feels: mildly put out, if they had muted last visit
   - when: The initials typed are on the word filter (for example ASS).
     then: '"Those initials aren''t allowed. Type different ones."; the slots empty; nothing is sent.'
+    feels: caught out, then amused, and tries again
   - when: Enter is pressed with fewer than 3 letters.
     then: '"Type 3 letters to sign, or press Esc to skip."; the letters stay; nothing is sent.'
-  - when: The player doesn't want to sign.
-    then: 'Esc: "Signing skipped. Press Enter to house-hunt again."; nothing is sent; the deposit stays off the table; an earlier signing keeps its mark.'
+    feels: briefly unsure, then guided
   - when: A game key is tapped just as the game ends.
     then: For the first 0.6 s of game over no key acts on the entry, and a key held down from play never types.
+    feels: safe, no stray letter on a public table
+  - when: The window loses focus or the tab is hidden while the initials are being typed.
+    then: The entry stays open; letters already typed stay; nothing is typed while the window lacks focus.
+    feels: reassured, nothing lost
   - when: The table has never loaded by game over (unreachable at page load).
     then: No initials are asked; game over says "High-score table unavailable." and the game plays on.
+    feels: a little let down, still playing
   - when: A refresh fails after a table has loaded.
     then: The last good table stays, and a deposit that makes it is still asked for initials.
+    feels: unaware, nothing changes for them
   - when: The signing doesn't get through (connection lost, turned away, or no answer within 5 s).
     then: '"Couldn''t confirm ALX''s signing." It is never retried; if it was saved, the next refresh shows the row, unmarked.'
+    feels: let down, but told plainly
   - when: The table filled up before the signing arrived.
     then: '"The table filled up before ALX arrived."'
+    feels: unlucky, keen to try again

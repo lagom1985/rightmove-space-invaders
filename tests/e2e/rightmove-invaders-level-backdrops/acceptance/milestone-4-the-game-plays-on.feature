@@ -125,14 +125,14 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     Then Terraced streets in the morning was prepared once more, at triple size, and shows its backdrop
 
   # "On screen" is a second with the first neighbourhood underneath and the second fading in over it.
-  @in-memory @pending @edge @contract-shape:bounded-change @DDD-B3
+  @in-memory @edge @contract-shape:bounded-change @DDD-B3
   Scenario: Resizing the window without changing the game's size keeps the backdrops it has
     Given the game is shown at double size
     And City centre at dawn and Terraced streets in the morning have been shown in turn
     When the window is resized but keeps the game at double size, with City centre at dawn and Terraced streets in the morning on screen
     Then City centre at dawn and Terraced streets in the morning were not prepared again, and still show their backdrops
 
-  @in-memory @pending @edge @contract-shape:bounded-change @DDD-B3
+  @in-memory @edge @contract-shape:bounded-change @DDD-B3
   Scenario: Resizing the window to a new size prepares the neighbourhoods on screen again, once each
     Given the game is shown at double size
     And City centre at dawn and Terraced streets in the morning have been shown in turn
@@ -165,7 +165,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     When I play again
     Then City centre at dawn was prepared once more, at double size, as the new game starts
 
-  @in-memory @pending @edge @contract-shape:bounded-change @DDD-B3
+  @in-memory @edge @contract-shape:bounded-change @DDD-B3
   Scenario: Resizing the window mid-fade prepares both neighbourhoods again, once each
     Given the game is shown at double size
     And I am playing the first wave

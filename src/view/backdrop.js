@@ -231,7 +231,7 @@ export function createBackdropCache(createCanvas) {
     return canvas;
   };
   return {
-    rescale(scale) { k = scale; built.clear(); },
+    rescale(scale) { if (scale === k) return; k = scale; built.clear(); },
     canvasFor(place) {
       const canvas = built.get(place) ?? build(place);
       built.delete(place); built.set(place, canvas);

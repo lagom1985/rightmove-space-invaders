@@ -87,7 +87,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
 
   # A backdrop that couldn't be prepared is remembered apart from the two kept (DDD-B4): it never takes the place of one,
   # and showing others never makes the screen forget it and try it again.
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
   Scenario: A backdrop that couldn't be prepared takes no room from the two kept, however many others are shown
     Given the game is shown at double size
     And the screen has no room for another backdrop
@@ -97,7 +97,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     Then the neighbourhoods prepared were City centre at dawn, Suburbs at midday and Leafy avenue in the afternoon
 
   # Room again, so that a backdrop tried again would come out whole: it isn't tried until the game's size changes.
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B4
   Scenario: A backdrop that couldn't be prepared isn't tried again until the game's size changes
     Given the game is shown at double size
     And the screen has no room for another backdrop
@@ -106,7 +106,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     When Terraced streets in the morning is shown for 10 seconds
     Then Terraced streets in the morning was not prepared again, and still shows its plain background
 
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
   Scenario: Resizing the window without changing the game's size doesn't try a backdrop that couldn't be prepared again
     Given the game is shown at double size
     And the screen has no room for another backdrop
@@ -115,7 +115,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     When the window is resized but keeps the game at double size, with Terraced streets in the morning on screen
     Then Terraced streets in the morning was not prepared again, and still shows its plain background
 
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B3 @DDD-B4
   Scenario: Resizing the window to a new size tries a backdrop that couldn't be prepared again
     Given the game is shown at double size
     And the screen has no room for another backdrop

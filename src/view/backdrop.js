@@ -216,12 +216,14 @@ export function paintBackdrop(context, neighbourhood) {
 // The store of built backdrops (DDD-B3, DDD-B4): { rescale(k), canvasFor(neighbourhood) }. createCanvas() makes an
 // offscreen canvas. canvasFor returns the neighbourhood's own canvas, built the first time it is asked for at k device
 // pixels to a unit (sized round(W * k) by round(H * k), the transform set, then paintBackdrop), keeping at most two, the
-// least recently asked-for going first; or null when its build fails (a null 2D context, or a call that threw while it
-// was sized, scaled or painted). A failed build is never kept among the two. rescale(k) with a new scale drops every
-// canvas; with the same scale it returns at once. Nothing is thrown or logged: only the build is guarded, as a built
-// canvas is assumed not to throw when drawn (Catalogued lies).
+// least recently asked-for going first; or null once its build has failed (a null 2D context, or a call that threw
+// while it was sized, scaled or painted). A failed build leaves a failed mark, kept apart from the two and never
+// evicted: a marked neighbourhood gets null at once, and no new canvas is asked for it. rescale(k) with a new scale
+// drops every canvas and every failed mark; with the same scale it returns at once, keeping both. Nothing is thrown or
+// logged: only the build is guarded, as a built canvas is assumed not to throw when drawn (Catalogued lies).
 export function createBackdropCache(createCanvas) {
   const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first
+  const failed = new Set();  // neighbourhoods whose build failed at this scale
   let k = 1;
   const build = place => {
     const canvas = createCanvas();
@@ -235,10 +237,11 @@ export function createBackdropCache(createCanvas) {
     } catch { return null; }
   };
   return {
-    rescale(scale) { if (scale === k) return; k = scale; built.clear(); },
+    rescale(scale) { if (scale === k) return; k = scale; built.clear(); failed.clear(); },
     canvasFor(place) {
+      if (failed.has(place)) return null;
       const canvas = built.get(place) ?? build(place);
-      if (!canvas) return null;
+      if (!canvas) { failed.add(place); return null; }
       built.delete(place); built.set(place, canvas);
       if (built.size > KEPT) built.delete(built.keys().next().value);
       return canvas;

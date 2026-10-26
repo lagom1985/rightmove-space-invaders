@@ -97,12 +97,13 @@ The 9 steps ran from 03:35 to 09:19 UTC, and the whole of DELIVER, review includ
 
 - **Pull request**: [PR #2](https://github.com/lagom1985/rightmove-space-invaders/pull/2), its deploy preview's checks green (Netlify's build, which runs the unit and in-memory projects). Merged as `346d635`; nothing under `netlify/` changed, and no new dependency or setting.
 - **The PO's check (DoD 9)**: the PO played the deploy preview, typed on a real AZERTY or QWERTZ keyboard (DoD 5, in part), said it works, and chose to merge without the remaining checks and the playtest.
+- **The canvas (DoD 5, in part)**, checked after the merge on PR #2's deploy preview in the desktop app's built-in browser (Chromium): the slots, the blinking next slot, letters in capitals, the help line with "Esc skip", the too-few hint, the refusal (entry emptied, nothing sent), "Signing skipped" and the blinking play-again line, with nothing overlapping. "Signing skipped" is small and close above "High scores", as the leaderboard's signing line is in the same place.
 - **K19's baseline**: `GET /api/scores` on production on release day: 3 rows (ALF, CAR, FAB), 0 `AAA`. Weekly for 30 days from here.
 - **Session state**: finalize Phase C removed `deliver/.develop-progress.json` and the deliver markers under `.nwave/des/`, with the user's approval.
 
 ## Still open
 
-- **The rest of the manual checks (DoD 5)**: Firefox's quick find on `/` and `'`, and typeahead find; Backspace in real Firefox and Safari; the canvas lines, "Esc skip" and "Signing skipped" included, against DESIGN's Rendering universe. The game's side of quick find and Backspace (the key press comes back `defaultPrevented`) is checked automatically in 3 engines; no test reads the canvas.
+- **The rest of the manual checks (DoD 5)**: Firefox's quick find on `/` and `'`, and typeahead find; Backspace in real Firefox and Safari. The game's side of quick find and Backspace (the key press comes back `defaultPrevented`) is checked automatically in 3 engines.
 - **VoiceOver (DoD 6)**: the prompt, each letter, the hint, the refusal and the skip, and which keys Quick Nav takes first. The words the live region gets are checked automatically; what VoiceOver speaks is not.
 - **The K16–K18 playtest**, not run. The protocol assumed the deploy preview's empty table; on production it would write real rows.
 - **Candidate follow-ups**, not in this feature: a browser-globals check in the layering scan; a read-only view of `g` for the views; layout-aware game keys outside the entry (on AZERTY, the M toggle answers the key printed `,`). An editable element added to the page later would need the default policy, and ADR-009, revised.

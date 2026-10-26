@@ -74,6 +74,8 @@ export const ExcusedColour = Object.freeze({
     + 'against its own brick (0.285); no colour satisfies both, and the brick carries the outline of the house',
   danger: 'the game-over red (the reason, the refusal, "Couldn\'t confirm..."): drawn only on the game-over overlay, '
     + 'never straight on a backdrop',
+  outline: 'the outline round the names in the title\'s legend (COLORS.outline): it is there to set the names off, so '
+    + 'what is checked is the names against it, not it against a backdrop',
   veils: 'the paused and game-over veils, a translucent near-black (render.js: rgba(20,20,32,0.6) and 0.78) laid over '
     + 'the whole screen: they only darken, so anything lighter than the backdrop drawn over them only gains contrast',
 });
@@ -81,9 +83,7 @@ export const ExcusedColour = Object.freeze({
 // drawn colours is closed (they are not theme colours, so they have no value to measure).
 export const VEILS = 'veils';
 
-// The title's hurdle legend: each hurdle's name, 16 px text in its own colour, on the title's one backdrop (DDD-B9).
-// Gazumper's name is held to what the hurdle itself needs, for now: 3.84 to 1 on the old backdrop and 3.48 to 1 here, so
-// this feature deepens a shortfall it didn't start. A separate fix outlines the legend names and merges right after
-// DISTILL; the exemption is dropped then (DDD-B7, H-2).
-export const TITLE_NEIGHBOURHOOD = NEIGHBOURHOODS[0];
-export const HeldLegendName = Object.freeze({ Gazumper: ContrastNeed.OBJECT });
+// The title's legend: the five hurdles' names and "Dream home", 16 px text, each drawn on a 2 px dark outline
+// (COLORS.outline, render.js's outlinedText), so it is measured against the outline, whatever the backdrop behind it
+// (DDD-B7; the outlining fix, merged 2026-10-26). The outline is one solid colour, so it gets no "shade brighter".
+export const LEGEND_NAMES = Object.freeze(Object.fromEntries([...HURDLES.map(({ name, color }) => [name, color]), ['Dream home', COLORS.dream]]));

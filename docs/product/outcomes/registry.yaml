@@ -361,17 +361,19 @@ outcomes:
   inputs:
   - shape: 'the six NEIGHBOURHOODS palettes (nine colours each) and the foreground
       uses of DESIGN''s Legibility needs table: COLORS.dim, text, green and dream
-      (text), the five HURDLES colours, brick and window (objects), the hurdle names
-      in the title legend'
+      (text), the five HURDLES colours, brick and window (objects), the names in
+      the title legend (the five hurdles'' and Dream home) on COLORS.outline'
   output:
     shape: every palette colour has WCAG relative luminance <= 0.05; every use meets
       its need (4.5:1 for dim, text, green and dream; 3:1 for the hurdle colours,
       brick and window) against every palette colour with its luminance raised by
-      0.001, checked over every pair in plain loops; the title legend's hurdle names
-      meet 4.5:1 against City centre at dawn's palette, Gazumper's held to 3:1; COLORS.door
-      and COLORS.danger are excused by name with their reasons; every colour drawn
-      over a backdrop (COLORS and the hurdles') is measured against its strictest
-      need and meets it, or is excused by name, never both or neither
+      0.001, checked over every pair in plain loops; the title legend's names meet
+      4.5:1 against the dark outline they are drawn on (COLORS.outline), with no exemption
+      (the outlining follow-up, merged after DISTILL); COLORS.door, COLORS.danger,
+      COLORS.outline and the paused and game-over veils are excused by name with
+      their reasons; every colour drawn over a backdrop (COLORS, the hurdles' and
+      the veils) is measured against its strictest need and meets it, or is excused
+      by name, never both or neither
   keywords:
   - backdrop-legibility
   - palette-luminance-cap

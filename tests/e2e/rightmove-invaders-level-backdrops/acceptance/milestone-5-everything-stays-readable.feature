@@ -37,12 +37,12 @@ Feature: Everything I need to see stays readable on every neighbourhood
       | use                                    | need |
       | the Dream home text and the Dream Home | text |
 
-  # Gazumper's name is held, for now, to what its hurdle needs (DDD-B7): a separate fix outlines the legend's names and
-  # merges right after DISTILL, and the exemption is dropped then.
+  # Each name in the title's legend is drawn on a dark outline, so it is measured against the outline, whatever
+  # neighbourhood is behind it: no name is excused, Gazumper's included (DDD-B7).
   @in-memory @property @edge @contract-shape:pure-function @DDD-B6 @DDD-B7 @DDD-B9
-  Scenario: The hurdles' names on the title stay readable on the city centre at dawn
-    When the hurdles' names in the title's legend are measured against every colour of City centre at dawn, a shade brighter
-    Then every name stands out as much as text needs to, except Gazumper's, which is held for now to what its hurdle needs
+  Scenario: The names in the title's legend stay readable on their outline
+    When the names in the title's legend are measured against the outline they are drawn on
+    Then every name stands out as much as text needs to
 
   # Every colour the game draws over a backdrop is measured against every colour of every neighbourhood, by the
   # strictest need of its uses, or excused by name, never both and never neither. It waits with the Dream home row: the
@@ -50,4 +50,4 @@ Feature: Everything I need to see stays readable on every neighbourhood
   @in-memory @pending @error @contract-shape:pure-function @DDD-B6 @DDD-B7
   Scenario: Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name
     When every colour the game draws over a backdrop is measured against every colour of every neighbourhood, a shade brighter
-    Then each stands out as much as its use needs, except the houses' door, which no colour can fix, the game-over red, which is drawn only on the game-over screen, and the veils of the paused and game-over screens, which only darken
+    Then each stands out as much as its use needs, except the houses' door, which no colour can fix, the game-over red, which is drawn only on the game-over screen, the outline round the title's names, which is there to set them off, and the veils of the paused and game-over screens, which only darken

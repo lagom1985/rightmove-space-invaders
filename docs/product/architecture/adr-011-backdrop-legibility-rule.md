@@ -3,8 +3,9 @@
 **Status**: Accepted (DESIGN, 2026-10-26; approved by the user) · Revised 2026-10-26 after the Final Wave Review Gate:
 - the promise is stated as every use meeting its WCAG minimum, with the drops the user accepted;
 - the check lives in the `in-memory` project as milestone 5;
-- the pair count and the tightest pairs are corrected;
-- Gazumper's legend exemption is marked temporary.
+- the pair count and the tightest pairs are corrected.
+
+Amended by a follow-up (the user, 2026-10-26, merged after DISTILL): the title legend's names are drawn on a dark outline and checked against it, so Gazumper's label is no longer exempt.
 
 **Feature**: rightmove-invaders-level-backdrops
 
@@ -19,7 +20,7 @@ The SPIKE ([findings](../../feature/rightmove-invaders-level-backdrops/spike/fin
 
 DESIGN found that the spike's list of needs missed some text:
 - The Dream-home bonus text, "Dream home saved +£…", is 8 px in `COLORS.dream` (`game.js:428`). Its luminance is 0.396, so it needs a backdrop at about 0.049 or below. **The cap alone doesn't guarantee it**: against 0.05 it gets 4.46:1.
-- The title's hurdle legend draws the hurdles' names as 16 px text in their own colours. Gazumper gets 3.51:1 on Studio flat. It was 3.84:1 on the old backdrop, so the shortfall predates the feature, but this feature deepens it.
+- The title's hurdle legend draws the hurdles' names as 16 px text in their own colours. Gazumper gets 3.51:1 on Studio flat. It was 3.84:1 on the old backdrop, so the shortfall predates the feature, but this feature deepens it (fixed by the amendment below).
 - The door (`COLORS.door`) is 1.6–1.8:1. For 3:1 against the backdrop it would need a luminance of 0.25 or more, which drops it to 1.1:1 against its own brick (0.285). No colour satisfies both.
 
 No test reads the canvas (waiver D10). Fast-check is unseeded in the unit project, which has already made one property flaky (the spike's findings).
@@ -33,12 +34,12 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
 - **The needs table** (the feature delta's "Legibility needs"):
   - 4.5:1 for `COLORS.dim`, `text`, `green` and `dream`;
   - 3:1 for the five hurdle colours, `brick` and `window`;
-  - 4.5:1 for the hurdle names in the title legend, against Studio flat only, the title's one backdrop.
+  - 4.5:1 for the names in the title legend (the five hurdles' and "Dream home"), against `COLORS.outline`, the dark outline they are drawn on, whatever the backdrop, with no allowance: it is one solid colour (the amendment).
 - **Exemptions, by name and with their reasons, written in the check**:
   - the door: no colour fixes it;
-  - Gazumper's name in the title legend, held to 3:1 like the hurdle itself. This exemption is **temporary**: a separate fix that outlines the legend names is already committed, will be merged right after DISTILL, and the exemption is dropped then;
   - `COLORS.danger`, which is drawn only on the game-over overlay;
-  - the paused and game-over veils, translucent near-black over the whole screen: they only darken, so anything lighter than the backdrop drawn over them only gains contrast.
+  - the paused and game-over veils, translucent near-black over the whole screen: they only darken, so anything lighter than the backdrop drawn over them only gains contrast;
+  - `COLORS.outline`, which is there to set the legend's names off: what is checked is the names against it.
 - **A failing check is fixed in the palette**: darken the palette colour. Lightening a foreground colour changes the whole game's look, and is a product decision.
 - **Today's fix**: dream's 8 px text falls short on two road colours, Terrace's `#2f3f57` (4.479:1) and Leafy avenue's `#403f33` (4.463:1). DELIVER darkens each by a step. DISTILL's scratch build passed with `#2e3e56` and `#3f3e32`.
 
@@ -60,4 +61,12 @@ No test reads the canvas (waiver D10). Fast-check is unseeded in the unit projec
   - The needs table restates which colour `render.js` and `game.js` draw as small text. A new use in a new colour must be added to it by hand, and the Rendering universe's manual check is the backstop.
   - Dream's 8 px text is the binding use. After the two roads are darkened, the tightest pairs have about 1% of headroom.
   - Contrast doesn't measure clutter: whether Terrace's busy streets hide the 3 px bolts is left to play-testing.
-  - Two shortfalls stay, named: the door for good, and Gazumper's legend label until the outlining fix is merged.
+  - One pre-existing shortfall stays, named: the door. The other, Gazumper's legend label, is fixed by the amendment.
+
+## Amendment (follow-up, the user, 2026-10-26): Gazumper's legend label
+- **The shortfall**: the title legend draws Gazumper's name as 16 px text in `#ff5a5f`, its hurdle colour. That is 3.51:1 against Studio flat's brightest palette colour, and 4.5:1 is needed. DESIGN exempted it by name, because it predates the feature.
+- **The fix**: every name in the legend, the five hurdles' and "Dream home", is drawn on a 2 px outline in `COLORS.outline` (`#141420`, luminance 0.0075) by `outlinedText` in `src/view/render.js`. No colour changes. The legend's values stay plain `COLORS.text`, which passes against every palette.
+- **The check**: milestone 5's legend scenario checks each name's colour against `COLORS.outline` for 4.5:1, with no exemption; Gazumper's 6.0:1 is the lowest. The outline is one solid colour, so it gets no 0.001 allowance, and because the names are checked against it, they pass on any backdrop. The follow-up first checked this in its own unit spec; when it merged, that check moved into milestone 5 beside the other legibility checks, and the WCAG maths kept one helper, `tests/unit/support/contrast.js` (`relativeLuminance`, `contrastRatio`), whose results are checked against WCAG's published ratios in `tests/unit/contrast.spec.js`.
+- **Rejected, with the user**:
+  - a dark plate behind the legend rows: 5.2:1 at 70% opacity, but it hides part of the neighbourhood on the title;
+  - a lighter red for Gazumper's name alone (`#ff888c`, 4.6:1): the name would no longer match its sprite, with about 3% headroom.

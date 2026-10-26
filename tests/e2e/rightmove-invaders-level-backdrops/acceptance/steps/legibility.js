@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import { relativeLuminance, contrastRatio } from '../../../../unit/support/contrast.js';
 import {
-  COLORS, HURDLES, NEIGHBOURHOODS, ForegroundUse, ExcusedColour, TITLE_NEIGHBOURHOOD, HeldLegendName, SOFTENED_EDGE,
+  COLORS, HURDLES, NEIGHBOURHOODS, ForegroundUse, ExcusedColour, LEGEND_NAMES, SOFTENED_EDGE,
   BACKDROP_BRIGHTNESS_LIMIT, CONTRAST_RATIO, VEILS,
 } from './domain-types.js';
 
@@ -44,10 +44,11 @@ export class LegibilityCheck {
     this.measured = Object.entries(use.colours).flatMap(([what, colour]) => measuredAgainstEvery(what, colour));
   }
 
-  // The hurdles' names in the title's legend against every colour of the title's one backdrop, a shade brighter.
+  // The names in the title's legend against the outline they are drawn on: one solid colour, so no shade brighter.
   measureLegend() {
-    this.measured = HURDLES.flatMap(({ name, color }) => Object.entries(TITLE_NEIGHBOURHOOD.palette)
-      .map(([part, against]) => ({ what: name, against: `${TITLE_NEIGHBOURHOOD.name} ${part}`, ratio: ratio(color, against) })));
+    this.measured = Object.entries(LEGEND_NAMES).map(([what, colour]) => ({
+      what, against: 'the outline', ratio: contrastRatio(relativeLuminance(colour), relativeLuminance(COLORS.outline)),
+    }));
   }
 
   // Every colour the game draws over a backdrop, the theme's own, the hurdles' and the two veils, each measured against
@@ -79,16 +80,15 @@ export class LegibilityCheck {
     expect(shortOf(this.measured, () => CONTRAST_RATIO[need]), `pairs below ${CONTRAST_RATIO[need]} to 1`).toEqual([]);
   }
 
-  // Gazumper's name is held to what its hurdle needs (HeldLegendName, with its reason); every other name needs `need`.
+  // Every name in the legend, with no exemption.
   expectLegendStandsOutAsMuchAs(need) {
-    expect(this.measured.length, 'every hurdle name against every colour of the title backdrop').toBe(HURDLES.length * PALETTE_SIZE);
-    const needOf = what => CONTRAST_RATIO[HeldLegendName[what] ?? need];
-    expect(shortOf(this.measured, needOf), 'legend names below their need').toEqual([]);
+    expect(this.measured.map(({ what }) => what), 'every name in the legend').toEqual(Object.keys(LEGEND_NAMES));
+    expect(shortOf(this.measured, () => CONTRAST_RATIO[need]), 'legend names below their need').toEqual([]);
   }
 
   // Over the colours actually measured: each drawn colour was measured against all 54 neighbourhood colours and meets
   // its need, or is excused by name, never both and never neither; and the excused are exactly the door, the game-over
-  // red and the veils.
+  // red, the legend's outline and the veils.
   expectEachMeetsItsNeedOrIsExcused() {
     const { drawn, needs, pairs } = this.measured;
     const excused = Object.keys(ExcusedColour);
@@ -106,7 +106,7 @@ export class LegibilityCheck {
       excusedButNotDrawn: [],
       pairsPerColour: Object.fromEntries(measuredColours.map(what => [what, NEIGHBOURHOODS.length * PALETTE_SIZE])),
       short: [],
-      excused: ['danger', 'door', VEILS],
+      excused: ['danger', 'door', 'outline', VEILS],
     });
   }
 }

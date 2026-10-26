@@ -1,9 +1,10 @@
 // Everything that makes this "Rightmove" rather than "Space Invaders" lives here as plain data.
 // Brand colours are approximations: replace them with values from the official brand kit.
 
+// `outline` is drawn round the names in the title's hurdle legend, so they keep their contrast whatever the backdrop.
 export const COLORS = {
   green: '#00deb6', text: '#ffffff', dim: '#a9a9c8', danger: '#ff5a5f',
-  brick: '#d9774b', window: '#ffe9a8', door: '#8a4a33', dream: '#ff7eb6',
+  brick: '#d9774b', window: '#ffe9a8', door: '#8a4a33', dream: '#ff7eb6', outline: '#141420',
 };
 
 // One per formation row, top to bottom. Two animation frames each, 12 x 8 pixels.

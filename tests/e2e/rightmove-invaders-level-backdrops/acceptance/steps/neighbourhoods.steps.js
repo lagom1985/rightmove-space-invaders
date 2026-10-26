@@ -84,9 +84,9 @@ Then('each neighbourhood has its streets, in its road colour, and its skyline, i
 // ---- legibility ----
 When('every colour of every neighbourhood is measured', ({ legibility }) => legibility.measureNeighbourhoods());
 When('{foregroundUse} is measured against every colour of every neighbourhood, a shade brighter', ({ legibility }, use) => legibility.measureUse(use));
-When("the hurdles' names in the title's legend are measured against every colour of City centre at dawn, a shade brighter", ({ legibility }) => legibility.measureLegend());
+When("the names in the title's legend are measured against the outline they are drawn on", ({ legibility }) => legibility.measureLegend());
 When('every colour the game draws over a backdrop is measured against every colour of every neighbourhood, a shade brighter', ({ legibility }) => legibility.measureEveryDrawnColour());
 Then('no colour is brighter than a backdrop may be', ({ legibility }) => legibility.expectNoneBrighterThanABackdropMayBe());
 Then('each stands out as much as {contrastNeed} needs to, against every one', ({ legibility }, need) => legibility.expectStandsOutAsMuchAs(need));
-Then("every name stands out as much as {contrastNeed} needs to, except Gazumper's, which is held for now to what its hurdle needs", ({ legibility }, need) => legibility.expectLegendStandsOutAsMuchAs(need));
-Then("each stands out as much as its use needs, except the houses' door, which no colour can fix, the game-over red, which is drawn only on the game-over screen, and the veils of the paused and game-over screens, which only darken", ({ legibility }) => legibility.expectEachMeetsItsNeedOrIsExcused());
+Then('every name stands out as much as {contrastNeed} needs to', ({ legibility }, need) => legibility.expectLegendStandsOutAsMuchAs(need));
+Then("each stands out as much as its use needs, except the houses' door, which no colour can fix, the game-over red, which is drawn only on the game-over screen, the outline round the title's names, which is there to set them off, and the veils of the paused and game-over screens, which only darken", ({ legibility }) => legibility.expectEachMeetsItsNeedOrIsExcused());

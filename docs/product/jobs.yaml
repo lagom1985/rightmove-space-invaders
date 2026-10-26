@@ -136,3 +136,25 @@ jobs:
     opportunity: 9
     evidence: assumption (the product owner's own preference, 2026-10-25; no playtest or player feedback yet)
     introduced_by: rightmove-invaders-typed-initials
+
+  # rightmove-invaders-replay-verified-scores (DISCUSS, 2026-10-26): the table's trust, after forged deposits reached
+  # the production table on 2026-10-26 (docs/analysis/root-cause-analysis-forged-high-scores.md). Validated by K20-K24 in
+  # docs/feature/rightmove-invaders-replay-verified-scores/feature-delta.md.
+  - id: J-TABLE-TRUST
+    job_story: >
+      When I look at the shared high-score table, I want every deposit on it to come from a game somebody really played,
+      so that climbing it means something.
+    dimensions:
+      functional: Every row is a deposit a real game produced, at most one row per game, and nothing typed in by hand.
+      emotional: Pride in a place earned among others that were earned too; no deflation at a row nobody could have played.
+      social: Friends and colleagues who open the table compare real games, and nobody wins by knowing the browser console.
+    forces:
+      push: On 2026-10-26 the table showed deposits of about £9,999,950, posted with curl and set from the browser console, until the owner deleted them; a forged £249,950 still gets through the ceiling.
+      pull: An arcade table where the score is the game's, checked by the machine that keeps the table.
+      anxiety: A check that refuses an honest game, or makes the game wait at the start or at the signing.
+      habit: The owner deletes forged rows by hand, after someone notices them.
+    importance: 8
+    satisfaction: 2
+    opportunity: 14
+    evidence: one incident (2026-10-26, the RCA's Vectors A and B); no player interviews
+    introduced_by: rightmove-invaders-replay-verified-scores

@@ -317,15 +317,25 @@ const ENTRY_WITNESSES = ['a letter', 'letters within one frame', 'a letter taken
   'no change', 'signed', 'not entering', 'a hint', 'a hint and other letters', 'a hint again', 'two hints within one frame',
   'a hint cleared', 'a hint left on show', 'a hint shown and cleared within one frame'];
 
+// fast-check's usual number of generated runs. The rarest moments can be missed by all of them (a hint left on show is
+// reached by about 1 run in 30, a hint again by 1 in 16), so the property tries an entry that reaches them first, on top
+// of these.
+const GENERATED_RUNS = 100;
+// On the empty entry: Backspace, Enter (a hint), a key the entry ignores (the hint left on show), Enter twice (the hint
+// again, then two within one frame), then four letters in one frame (the fourth ignored).
+const AN_ENTRY_THROUGH_THE_RARE_MOMENTS = [['Backspace'], ['Enter'], ['ArrowUp'], ['Enter', 'Enter'], ['x', 'm', 'F', 'a']]
+  .map(keys => typeKeys(keys, 2));
+
 test('the initials field reads the typed entry and is empty otherwise, each frame that changes the letters (a letter, or Backspace taking one back) is announced once as the field it leaves, a frame or a sync that changes nothing (Backspace on an empty entry, a fourth letter, a key the entry ignores with the hint on show) says nothing, each too-few hint is announced once, by its number, before the field, in the same game and the next, and the Enter that signs is heard as the signing', async () => {
   const seen = new Set();
+  const examples = [[2, AN_ENTRY_THROUGH_THE_RARE_MOMENTS]];
   await fc.assert(fc.asyncProperty(syncs, fc.commands(ENTRY_COMMANDS, { maxCommands: 30 }), async (times, commands) => {
     const mirrored = await MirroredGame.fresh();
     const model = { entry: null, hint: false, seen };
     mirrored.frame(() => {}, times, { heard: nothingAboutTheInitials, field: '' });   // the title
     openEntry(model, mirrored, times);
     fc.modelRun(() => ({ model, real: mirrored }), commands);
-  }));
+  }), { examples, numRuns: GENERATED_RUNS + examples.length });
   expect(ENTRY_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 

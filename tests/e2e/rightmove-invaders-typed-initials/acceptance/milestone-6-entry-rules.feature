@@ -39,7 +39,6 @@ Feature: My initials follow the rules, whatever I type
     Then my initials are "<initials>", with <notice>
     And nothing else in the game changed
 
-    @pending
     Examples:
       | keys  | gap          | outcome         | initials | notice           |
       | a     | 0.6 seconds  | is dropped      |          | no notice        |

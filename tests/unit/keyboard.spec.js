@@ -20,8 +20,8 @@ const keydown = fc.record({
   repeat: sometimes, metaKey: sometimes, ctrlKey: sometimes, altKey: sometimes, shiftKey: sometimes,
 });
 
-function dispatchKeydown(target, fields) {
-  const event = new Event('keydown', { cancelable: true });
+function dispatchKey(target, type, fields) {
+  const event = new Event(type, { cancelable: true });
   Object.assign(event, fields);
   target.dispatchEvent(event);
 }
@@ -58,7 +58,7 @@ test('takeTyped() reports every keydown since the last call, in order, as { key 
     let held = [];
     for (const batch of batches) {
       const before = observe(keyboard);
-      batch.forEach(press => dispatchKeydown(target, press));
+      batch.forEach(press => dispatchKey(target, 'keydown', press));
       held = [...new Set([...held, ...codesOf(batch.filter(isPositional))])].sort();
       assertStateDelta(before, observe(keyboard), {
         universe: ['typed', 'pressed', 'held'],
@@ -72,4 +72,48 @@ test('takeTyped() reports every keydown since the last call, in order, as { key 
     }
   }));
   expect(WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
+});
+
+// releaseAll(), which main.js calls on blur and on a hidden tab (DDD-T1, D20): keyups never arrive while the window lacks
+// focus, so every key held is forgotten, and a press not yet taken is dropped, never typed once the player comes back.
+// The positions pressed are left as they were (the positional channel keeps its meaning). Two keyboards hear the same
+// keydowns, keyups and fixed steps and only one is released, so the other shows what it would have reported.
+const keyEvent = fc.oneof(
+  { arbitrary: keydown.map(fields => ({ type: 'keydown', fields })), weight: 4 },
+  { arbitrary: fc.record({ code: fc.constantFrom(...CODES) }).map(fields => ({ type: 'keyup', fields })), weight: 2 },
+  { arbitrary: fc.constant({ type: 'endStep' }), weight: 1 },
+);
+
+function hear({ target, keyboard }, { type, fields }) {
+  if (type === 'endStep') keyboard.endStep();
+  else dispatchKey(target, type, fields);
+}
+
+const listening = () => {
+  const target = new EventTarget();
+  return { target, keyboard: createKeyboard(target) };
+};
+
+// The last thing that happened to a code: a held code whose last event is a keyup is a tap no fixed step has seen yet.
+const lastEventOf = (events, code) => events.findLast(({ fields }) => fields?.code === code)?.type;
+
+const RELEASE_WITNESSES = ['a key held', 'a press not yet taken', 'a tap no step has seen', 'a position pressed'];
+
+test('releaseAll() forgets every key held and drops every press not yet taken, and leaves the positions pressed as they were', () => {
+  const seen = new Set();
+  fc.assert(fc.property(fc.array(keyEvent, { minLength: 1, maxLength: 12 }), events => {
+    const released = listening(), kept = listening();
+    events.forEach(event => { hear(released, event); hear(kept, event); });
+    released.keyboard.releaseAll();
+    const before = observe(kept.keyboard);
+    assertStateDelta(before, observe(released.keyboard), {
+      universe: ['typed', 'pressed', 'held'],
+      expected: { typed: setTo([]), held: setTo([]) },
+    });
+    if (before.held.length) seen.add('a key held');
+    if (before.typed.length) seen.add('a press not yet taken');
+    if (before.held.some(code => lastEventOf(events, code) === 'keyup')) seen.add('a tap no step has seen');
+    if (before.pressed.length) seen.add('a position pressed');
+  }));
+  expect(RELEASE_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });

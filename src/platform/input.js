@@ -35,7 +35,8 @@ export function createKeyboard(target = window) {
       for (const code of releaseAfterStep) held.delete(code);
       releaseAfterStep.clear();
     },
-    // Keyups never arrive while the window is unfocused, so forget everything on blur.
-    releaseAll() { held.clear(); unseen.clear(); releaseAfterStep.clear(); },
+    // Keyups never arrive while the window is unfocused, so forget everything on blur, and drop the presses not yet taken:
+    // one typed as the window was left never turns up when the player comes back (DDD-T1).
+    releaseAll() { held.clear(); unseen.clear(); releaseAfterStep.clear(); typed.length = 0; },
   };
 }

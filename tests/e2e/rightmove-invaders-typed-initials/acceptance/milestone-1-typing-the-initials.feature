@@ -118,7 +118,7 @@ Feature: Typing my initials (US-01)
 
   # D20, DDD-T1: the entry stays open with its letters, and nothing is typed while the game lacks focus. A key pressed in
   # the very instant the game is left is still waiting for the next frame, and is dropped with the keys held down.
-  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T1 @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T1
   Scenario Outline: My letters stay when I <leaving> mid-entry, and a key caught by it doesn't count
     Given my deposit of £50 makes the high-score table
     And I have typed "a"

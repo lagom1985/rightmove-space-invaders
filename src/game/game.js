@@ -149,14 +149,23 @@ const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
 
 const NO_PRESSES = Object.freeze([]);
 
+// The stray-key guard (D11): for 0.6 s after the game ends, a key is a stray from play. Enter starts no new game, and
+// the entry drops the frame's presses, typed and positional alike, rather than queue them: a queue would type the very
+// tap the guard exists to stop (DDD-T5). 0.6 s itself is still inside it.
+const STRAY_KEY_GUARD_S = 0.6;
+const pastTheGuard = () => g.overT > STRAY_KEY_GUARD_S;
+
 // A frame's presses, handed over once a frame as plain data (DDD-T2): the positions pressed, a Set of codes, and the
 // keys typed, in order, [{ key }]. A frame that starts with the initials entry open belongs to the entry: it takes the
-// typed presses and ignores the positions, so M, N and P are letters there, and the Enter that signs can't also start a
-// game. Any other frame reads the positions only.
+// typed presses, once past the guard, and ignores the positions, so M, N and P are letters there, and the Enter that
+// signs can't also start a game. Any other frame reads the positions only.
 export function handlePresses(pressed, typed = NO_PRESSES) {
-  if (g.initials) return enterTyped(typed);
+  if (g.initials) {
+    if (pastTheGuard()) enterTyped(typed);
+    return;
+  }
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
-  else if (g.state === 'over' && g.overT > 0.6 && pressed.has('Enter')) startGame();
+  else if (g.state === 'over' && pastTheGuard() && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
   // M and N work on every screen but the initials entry, and never touch the game itself.
   if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);

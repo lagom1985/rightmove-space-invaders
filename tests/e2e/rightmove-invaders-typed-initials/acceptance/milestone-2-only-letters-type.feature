@@ -41,7 +41,7 @@ Feature: Only letters type while I sign (US-02)
     Then the HUD shows Sound Off
     And the game tells me "Sound off. Press M to turn it on."
 
-  @US-02 @slice-01 @real-io @error @edge @contract-shape:bounded-change @DDD-T5 @pending
+  @US-02 @slice-01 @real-io @error @edge @contract-shape:bounded-change @DDD-T5
   Scenario Outline: A letter typed <gap> after the game ends <outcome>
     Given the game ended <gap> ago with a deposit of £50 that makes the high-score table
     When I type "d"
@@ -52,7 +52,7 @@ Feature: Only letters type while I sign (US-02)
       | 0.3 seconds | doesn't type   | No letters yet, letter 1 of 3 |
       | 0.7 seconds | types as usual | D, letter 2 of 3              |
 
-  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T4 @DDD-T5 @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @DDD-T4 @DDD-T5
   Scenario: A key held down from play never types
     Given I am holding the D key down as the game ends with a deposit of £50 that makes the high-score table
     When the held key is still repeating 1 second after the game ended

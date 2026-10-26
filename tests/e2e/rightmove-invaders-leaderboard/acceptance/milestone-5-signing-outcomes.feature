@@ -62,27 +62,6 @@ Feature: Every signing has an outcome
     And the initials field still shows those initials, with letter 1 of 3 to change
     And the high-score table is still empty
 
-  # Parked: the letter wheel's field. Deleted in typed-initials roadmap step 01-02, with "Letters show, and are heard…".
-  @OUT-11 @OUT-14 @DDD-14 @real-io @pending
-  Scenario: The initials field tells me the letters and which one I am choosing
-    Given my deposit of £50 makes the high-score table
-    When I choose the letter F and move on to the next letter
-    Then the initials field shows "F A A, letter 2 of 3"
-    And the game tells me "F A A, letter 2 of 3"
-
-  # Parked: the letter wheel's cadence. Deleted in typed-initials roadmap step 01-02, with "Letters show, and are heard…".
-  @OUT-11 @OUT-14 @DDD-14 @real-io @edge @pending
-  Scenario Outline: Up pressed 3 times <spacing> is announced <count> times, once per change of letter
-    Given my deposit of £50 makes the high-score table
-    When I press Up 3 times <spacing>
-    Then the initials field shows "<field>"
-    And the letters I chose were announced <count> times
-
-    Examples:
-      | spacing          | field                | count |
-      | a frame apart    | D A A, letter 1 of 3 | 3     |
-      | within one frame | B A A, letter 1 of 3 | 1     |
-
   # Not @pending: the skeleton already sends a signing once, and DELIVER must keep it so (regression guard, ADR-008).
   @OUT-11 @DDD-8 @DDD-16 @real-io @error
   Scenario: A signing that was dropped is sent exactly once, never retried

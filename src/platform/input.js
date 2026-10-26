@@ -16,6 +16,7 @@ export function createKeyboard(target = window) {
     if (!e.repeat && !isChord(e)) typed.push({ key: e.key });
     if (e.metaKey || e.ctrlKey) return;               // leave browser shortcuts alone
     if (GAME_KEYS.has(e.code)) e.preventDefault();    // Space and arrows would scroll the page
+    if (e.key === 'Backspace' && !e.altKey) e.preventDefault();   // it would leave the page (WebKit); with Option it's the OS's
     if (!e.repeat) { pressed.add(e.code); unseen.add(e.code); }
     held.add(e.code);
   });

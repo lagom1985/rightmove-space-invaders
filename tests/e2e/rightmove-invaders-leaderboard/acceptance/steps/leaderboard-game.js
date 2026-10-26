@@ -1,7 +1,6 @@
 import { expect } from '@playwright/test';
 import {
-  ALPHABET, BLOCKED_INITIALS, Message, INITIALS_FIELD_PATTERN, SigningStatus, SigningTrouble, PressSpacing,
-  START, OTHER_HOUSE_HUNTERS,
+  BLOCKED_INITIALS, Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS,
 } from './domain-types.js';
 
 // Drives the real game page with real key presses, against the real high-score table: scripts/serve.mjs answers
@@ -227,25 +226,6 @@ export class LeaderboardGame {
     await this.press('Enter');
   }
 
-  async chooseLetter(letter) {
-    for (let i = 0; i < ALPHABET.indexOf(letter); i++) await this.press('ArrowUp');
-    await this.press('Enter');
-  }
-
-  async chooseLetterAndMoveOn(letter) {
-    await this.mark();
-    await this.chooseLetter(letter);
-  }
-
-  async pressUp(times, spacing) {
-    await this.mark();
-    for (let i = 0; i < times; i++) {
-      await this.page.keyboard.press('ArrowUp');
-      if (spacing === PressSpacing.A_FRAME_APART) await this.frame();
-    }
-    if (spacing === PressSpacing.WITHIN_ONE_FRAME) await this.frame();
-  }
-
   async pressEnter() {
     await this.mark();
     await this.press('Enter');
@@ -389,11 +369,6 @@ export class LeaderboardGame {
   }
 
   async expectBlockedInitialsKept(letter) { await this.expectInitialsField(Message.initialsField(this.blocked, letter)); }
-
-  async expectInitialsAnnouncedTimes(count) {
-    const updates = (await this.heardSinceMark()).filter(text => INITIALS_FIELD_PATTERN.test(text));
-    expect(updates, 'live-region updates about the initials since the presses').toHaveLength(count);
-  }
 
   async expectMarkedAsMine(initials) {
     await this.until(async () => (await this.markedRows().count()) === 1 && (await this.markedRows().textContent()).includes(initials));

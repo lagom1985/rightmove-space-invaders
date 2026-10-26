@@ -17,11 +17,10 @@ export const Message = Object.freeze({
   TABLE_UNAVAILABLE: 'High-score table unavailable.',
   GAME_STARTED: 'Game started',
   GAME_OVER: 'Game over',
-  // The data-hud="initials" field while the initials are chosen on the letter wheel, and its live-region update on each
-  // change. Retired with the wheel (typed-initials: its own field wording is in that feature's .feature files).
+  // The data-hud="initials" field while the initials are chosen on the letter wheel, as the parked refusal scenario reads
+  // it. Retired with that scenario (typed-initials: its own field wording is in that feature's .feature files).
   initialsField: (letters, letter) => `${spaced(letters)}, letter ${letter} of 3`,
 });
-export const INITIALS_FIELD_PATTERN = /[A-Z] [A-Z] [A-Z], letter [1-3] of 3/;
 
 // A signing as the player arranges it in a Given (browser scenarios).
 export const SigningStatus = Object.freeze({ ON_ITS_WAY: 'on its way', CONFIRMED: 'confirmed', OFF_THE_TABLE: 'off the table', UNCONFIRMED: 'unconfirmed' });

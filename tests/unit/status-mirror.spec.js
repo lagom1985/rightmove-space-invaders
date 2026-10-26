@@ -202,22 +202,33 @@ test('each settled signing is announced exactly once, however often the mirror s
 
 // ---- the initials field and its announcements (DDD-T10) ----
 // The typed entry as DESIGN's rules operations describe it: the entry opens empty, a letter fills the next slot in
-// capitals (a fourth is ignored), every other key does nothing, and Enter with three allowed letters signs and drops the
-// rest of the frame. A frame's typed presses reach the rules together, in order, so the mirror hears the field the frame
-// leaves, once. Enter too early (roadmap 01-03) and the word filter's refusal (01-08, parked below) are not drawn here:
+// capitals (a fourth is ignored), Backspace takes back the last letter (and does nothing on an empty entry), every other
+// key does nothing, and Enter with three allowed letters signs and drops the rest of the frame. A frame's typed presses
+// reach the rules together, in order, so the mirror hears the field the frame leaves, once: two letters within one frame
+// are one write. Enter too early (roadmap 01-03) and the word filter's refusal (01-08, parked below) are not drawn here:
 // a frame with Enter in it is played only when that Enter signs.
-const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'ArrowUp', '1', 'é', 'Enter'];
-const QUIET_KEYS = ['a', 'l', 'x', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
+const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'Backspace', 'ArrowUp', '1', 'é', 'Enter'];
+const QUIET_KEYS = ['a', 'l', 'x', 'Backspace', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
 
-// One frame's typed presses on the entry -> { letters (null once signed), signed (the initials signed) }, or null when an
-// Enter in it wouldn't sign.
+// What one key does to the letters, and which moment that was; Enter is the frame's own (keysDo).
+function keyDoes(letters, key) {
+  if (key === 'Backspace') return letters ? { letters: letters.slice(0, -1), moment: 'a letter taken back' } : { letters, moment: 'Backspace on an empty entry' };
+  if (!isLetter(key)) return { letters, moment: null };
+  return letters.length < INITIALS_LENGTH ? { letters: letters + key.toUpperCase(), moment: null } : { letters, moment: 'a fourth letter' };
+}
+
+// One frame's typed presses on the entry -> { letters (null once signed), signed (the initials signed), moments (what
+// its keys did) }, or null when an Enter in it wouldn't sign.
 function keysDo(letters, keys) {
   let typed = letters;
+  const moments = [];
   for (const key of keys) {
-    if (key === 'Enter') return typed.length === INITIALS_LENGTH && isAllowedInitials(typed) ? { letters: null, signed: typed } : null;
-    if (isLetter(key) && typed.length < INITIALS_LENGTH) typed += key.toUpperCase();
+    if (key === 'Enter') return typed.length === INITIALS_LENGTH && isAllowedInitials(typed) ? { letters: null, signed: typed, moments } : null;
+    const { letters: after, moment } = keyDoes(typed, key);
+    typed = after;
+    if (moment) moments.push(moment);
   }
-  return { letters: typed, signed: null };
+  return { letters: typed, signed: null, moments };
 }
 
 const nothingAboutTheInitials = satisfying('nothing said about the initials', (was, now) =>
@@ -229,7 +240,8 @@ function heardAfter(was, { letters, signed }) {
   if (signed) return { heard: appendedWith(`Signing ${signed}… Press Enter to house-hunt again.`), field: '', moment: 'signed' };
   const field = FIELD(letters);
   if (letters === was) return { heard: unchanged(), field, moment: 'no change' };
-  return { heard: appendedWith(field), field, moment: letters.length - was.length > 1 ? 'letters within one frame' : 'a letter' };
+  const added = letters.length - was.length;
+  return { heard: appendedWith(field), field, moment: added > 1 ? 'letters within one frame' : added === 1 ? 'a letter' : 'other letters' };
 }
 
 // A game, then a game over with £50 on an empty table: the entry opens empty, announced by the prompt rather than spelled,
@@ -249,7 +261,7 @@ const typeKeys = (keys, times) => command(`type(${keys.join(' ') || 'nothing'}, 
   m => m.entry !== null && keysDo(m.entry, keys) !== null, (m, r) => {
     const after = keysDo(m.entry, keys);
     const { heard, field, moment } = heardAfter(m.entry, after);
-    m.seen.add(moment);
+    [moment, ...after.moments].forEach(seen => m.seen.add(seen));
     r.frame(() => r.type(...keys), times, { heard, field });
     m.entry = after.letters;
   });
@@ -276,9 +288,10 @@ const ENTRY_COMMANDS = [
 ];
 
 // Moments every run together must reach.
-const ENTRY_WITNESSES = ['a letter', 'letters within one frame', 'no change', 'signed', 'not entering'];
+const ENTRY_WITNESSES = ['a letter', 'letters within one frame', 'a letter taken back', 'Backspace on an empty entry', 'a fourth letter',
+  'no change', 'signed', 'not entering'];
 
-test('the initials field reads the typed entry and is empty otherwise, each frame that changes the letters is announced once as the field it leaves, a frame or a sync that changes nothing says nothing, and the Enter that signs is heard as the signing', async () => {
+test('the initials field reads the typed entry and is empty otherwise, each frame that changes the letters (a letter, or Backspace taking one back) is announced once as the field it leaves, a frame or a sync that changes nothing (Backspace on an empty entry, a fourth letter) says nothing, and the Enter that signs is heard as the signing', async () => {
   const seen = new Set();
   await fc.assert(fc.asyncProperty(syncs, fc.commands(ENTRY_COMMANDS, { maxCommands: 30 }), async (times, commands) => {
     const mirrored = await MirroredGame.fresh();

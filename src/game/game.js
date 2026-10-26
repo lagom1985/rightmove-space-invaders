@@ -193,9 +193,11 @@ const isLetter = key => /^[A-Za-z]$/.test(key);
 // apply. Pure: it reads only its arguments and publishes nothing. The plan is { letters: the letters after the press,
 // or null once it closes the entry; notice: the entry's own notice when the press leaves it be, a fresh one without a
 // number for Enter's answer, else null; skip: false (Esc skips in slice 02); signing: the initials to sign, or null }.
-// Every key it doesn't name leaves the entry as it is, its notice included.
+// A fourth letter, Backspace on an empty entry and every key it doesn't name leave the entry as it is, its notice
+// included (D14).
 export function entryStep(entry, { key }) {
   if (isLetter(key)) return entry.letters.length < INITIALS_LENGTH ? plan(entry.letters + key.toUpperCase()) : asItIs(entry);
+  if (key === 'Backspace') return entry.letters ? plan(entry.letters.slice(0, -1)) : asItIs(entry);
   if (key === 'Enter') return enter(entry.letters);
   return asItIs(entry);
 }

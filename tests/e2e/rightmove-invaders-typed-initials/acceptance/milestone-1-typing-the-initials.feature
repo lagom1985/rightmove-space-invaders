@@ -28,7 +28,7 @@ Feature: Typing my initials (US-01)
 
   # "At once" is one frame of the fake clock (17 ms at 60 Hz). Letters typed within one frame are heard together, as the
   # field they leave, so "A, letter 2 of 3" is never heard when "a" and "l" come together.
-  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T10 @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T10
   Scenario Outline: Letters show, and are heard, as they are typed: "<letters>" <spacing>
     Given my deposit of £50 makes the high-score table
     When I type "<letters>" <spacing>
@@ -42,14 +42,14 @@ Feature: Typing my initials (US-01)
       | al      | within one frame | A L, letter 3 of 3 | 1 time        |
       | al      | a frame apart    | A L, letter 3 of 3 | 2 times       |
 
-  @US-01 @slice-01 @real-io @contract-shape:bounded-change @pending
+  @US-01 @slice-01 @real-io @contract-shape:bounded-change
   Scenario: Backspace takes back the last letter
     Given my deposit of £50 makes the high-score table
     And I have typed "alc"
     When I press Backspace
     Then the initials field shows "A L, letter 3 of 3"
 
-  @US-01 @slice-01 @real-io @edge @contract-shape:unbounded-preservation @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:unbounded-preservation
   Scenario: Backspace on an empty entry does nothing
     Given my deposit of £50 makes the high-score table
     When I press Backspace
@@ -85,7 +85,7 @@ Feature: Typing my initials (US-01)
     When I press Enter
     Then the game has told me "Type 3 letters to sign" twice
 
-  @US-01 @slice-01 @real-io @edge @contract-shape:unbounded-preservation @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:unbounded-preservation
   Scenario: A fourth letter changes nothing
     Given my deposit of £50 makes the high-score table
     And I have typed "alx"
@@ -95,7 +95,7 @@ Feature: Typing my initials (US-01)
 
   # UAT 7's second example, and the same for a letter in the middle and for Backspace. A key held down repeats; only its
   # first press acts, so a repeat that typed would sign "AAA", "AXX" or too few letters instead.
-  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T4 @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T4
   Scenario Outline: Holding <key> down for a second acts on the initials once: "<before>", then "<after>"
     Given my deposit of £50 makes the high-score table
     And I have typed "<before>"
@@ -110,7 +110,7 @@ Feature: Typing my initials (US-01)
       | a      | X         | q     | Signing AXQ… |
       | alx    | Backspace | c     | Signing ALC… |
 
-  @US-01 @slice-01 @kpi @kpi-K17 @real-io @edge @contract-shape:bounded-change @DDD-T1 @pending
+  @US-01 @slice-01 @kpi @kpi-K17 @real-io @edge @contract-shape:bounded-change @DDD-T1
   Scenario: Fast typing keeps every letter, in order
     Given my deposit of £50 makes the high-score table
     When I type "aax" and press Enter, all within one frame

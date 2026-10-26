@@ -312,7 +312,7 @@ outcomes:
   - aria-current
   - signing-announcement
   artifact: src/view/status.js
-  related: [OUT-11, OUT-12, OUT-15, OUT-16]
+  related: [OUT-11, OUT-12, OUT-15, OUT-16, OUT-18]
   superseded_by: null
 - id: OUT-15
   kind: specification
@@ -360,4 +360,98 @@ outcomes:
   - no-signing
   artifact: src/game/game.js
   related: [OUT-11, OUT-15]
+  superseded_by: null
+- id: OUT-17
+  kind: invariant
+  summary: 'Backdrop legibility: a luminance cap on the neighbourhood palettes and
+    a contrast need per foreground use'
+  feature: rightmove-invaders-level-backdrops
+  inputs:
+  - shape: 'the six NEIGHBOURHOODS palettes (nine colours each) and the foreground
+      uses of DESIGN''s Legibility needs table: COLORS.dim, text, green and dream
+      (text), the five HURDLES colours, brick and window (objects), the names in
+      the title legend (the five hurdles'' and Dream home) on COLORS.outline'
+  output:
+    shape: every palette colour has WCAG relative luminance <= 0.05; every use meets
+      its need (4.5:1 for dim, text, green and dream; 3:1 for the hurdle colours,
+      brick and window) against every palette colour with its luminance raised by
+      0.001, checked over every pair in plain loops; the title legend's names meet
+      4.5:1 against the dark outline they are drawn on (COLORS.outline), with no exemption
+      (the outlining follow-up, merged after DISTILL); COLORS.door, COLORS.danger,
+      COLORS.outline and the paused and game-over veils are excused by name with
+      their reasons; every colour drawn over a backdrop (COLORS, the hurdles' and
+      the veils) is measured against its strictest need and meets it, or is excused
+      by name, never both or neither
+  keywords:
+  - backdrop-legibility
+  - palette-luminance-cap
+  - contrast-need
+  - wcag-contrast
+  artifact: src/theme/theme.js
+  related: [OUT-19]
+  superseded_by: null
+- id: OUT-18
+  kind: specification
+  summary: A neighbourhood for every rung of the property ladder, faded in during
+    Wave cleared!
+  feature: rightmove-invaders-level-backdrops
+  inputs:
+  - shape: each frame's { level, state, banner } (the pause is handed over too and
+      ignored); the status mirror synced each frame from g
+  output:
+    shape: 'backdropPlan(frame) -> { here, next, mix }: here = neighbourhood(level),
+      clamped at Forever home; while state is clear and level < 5, next = neighbourhood(level
+      + 1) and mix = 1 - banner / BANNER_TIME clamped to [0, 1]; otherwise next null
+      and mix 0 (title, play, dead, over, clear at Forever home or past it, paused
+      as the state underneath, a new game at once on City centre at dawn). data-hud=neighbourhood
+      reads neighbourhood(level).name; the live region says ''Wave cleared! Moving
+      up the ladder to {rung}.'' on a clear, then, once, ''Now on the property ladder
+      at {rung}. {name}.'' at the start of every wave after a clear, the repeats from
+      Forever home onwards included (revised in DISTILL revision 1, F4); never on
+      resuming or respawning, and never on a new game, which says only ''Game started.
+      Defend your dream home from the hurdles.''; LADDER and NEIGHBOURHOODS pair
+      one to one, six different names on each side'
+  keywords:
+  - neighbourhood
+  - backdrop-crossfade
+  - ladder-rung-place
+  - arrival-sentence
+  artifact: src/view/backdrop.js
+  related: [OUT-14, OUT-19]
+  superseded_by: null
+- id: OUT-19
+  kind: invariant
+  summary: Backdrops are seeded, palette-only, never rebuilt while held at their scale,
+    and fail safe
+  feature: rightmove-invaders-level-backdrops
+  inputs:
+  - shape: paintBackdrop(context, neighbourhood) on any 2D context; createBackdropCache(createCanvas)
+      with rescale(k) and canvasFor(neighbourhood), over a canvas factory whose getContext
+      may return null or whose draws may throw; showBackdrop(context, plan, canvasFor)
+      on the screen's context, handed the store's canvasFor alone
+  output:
+    shape: painting never calls Math.random, makes the same calls every time, sets
+      only its palette's colours and COLORS.green, and draws streets (road colour)
+      and a skyline (sky colour); the cache never rebuilds a backdrop it holds at its scale
+      (a neighbourhood dropped from the two is built again when next asked for), builds
+      at round(W*k) by round(H*k) with the scale set (setTransform(k, 0, 0, k, 0, 0))
+      before anything is drawn, keeps the two most recently asked for (the least recently
+      asked for goes first), and returns that neighbourhood's own canvas; a build with a null context or a throwing draw makes canvasFor return
+      null, throws nothing, logs nothing, and is not retried until the next change
+      of scale (rescale with a new k; the same k changes nothing, built or failed;
+      revised in DISTILL revision 1, M-2); failed marks don't count towards the two
+      and are never evicted; a failed rung doesn't stop the next one; showBackdrop
+      asks for here, then for next whenever the plan names one, draws here at full
+      strength and next at globalAlpha = mix, a null canvas as a fillRect in that
+      palette's bg at the same strength (never drawImage(null)), each over 0, 0,
+      W, H, and puts globalAlpha back; over a game, builds happen only on the title's
+      first frame, the first frame of each Wave cleared! below Forever home, the
+      first frame of a new game, and the first frame after a change of scale
+  keywords:
+  - backdrop-determinism
+  - seeded-backdrop
+  - no-math-random
+  - backdrop-fail-safe
+  artifact: src/view/backdrop.js
+  related: [OUT-17, OUT-18]
   superseded_by: null

@@ -20,7 +20,8 @@ const tableLine = g => (g.state === 'over' && g.table.status === 'unavailable' ?
 function initialsField({ letters }) {
   if (!letters) return `No letters yet, letter 1 of ${INITIALS_LENGTH}`;
   const spelled = [...letters].join(' ');
-  return letters.length < INITIALS_LENGTH ? `${spelled}, letter ${letters.length + 1} of ${INITIALS_LENGTH}` : `${spelled}, press Enter to sign`;
+  if (letters.length < INITIALS_LENGTH) return `${spelled}, letter ${letters.length + 1} of ${INITIALS_LENGTH}`;
+  return `${spelled}, press Enter to sign`;
 }
 
 // While the initials are being entered, Enter signs them and Esc skips; once they're signed or skipped it starts a new

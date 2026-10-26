@@ -1,7 +1,7 @@
 import { W, H, PX, GROUND } from '../game/config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
-import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
+import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
 
@@ -217,7 +217,7 @@ function drawGameOver(ctx) {
   if (hasHighScores()) drawHighScores(ctx, top + 200);
   // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
   if (g.table.status === 'unavailable') text(ctx, TABLE_UNAVAILABLE, W / 2, top + 200, 8, COLORS.dim, 'center');
-  if (g.overT > 0.6 && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
+  if (canPlayAgain() && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
 }
 
 function drawPaused(ctx) {

@@ -34,8 +34,8 @@ const ANY_OUTCOME = /Signed [A-Z]{3}, #\d+\.|The table filled up before [A-Z]{3}
 // What the initials field reads (typed-initials, Player-facing wording): the letters typed, spaced, and the next one to
 // type, or Enter once all three are in; empty when not entering.
 const FIELD = letters => {
-  const spaced = [...letters].join(' ');
   if (!letters) return `No letters yet, letter 1 of ${INITIALS_LENGTH}`;
+  const spaced = [...letters].join(' ');
   return letters.length < INITIALS_LENGTH ? `${spaced}, letter ${letters.length + 1} of ${INITIALS_LENGTH}` : `${spaced}, press Enter to sign`;
 };
 const REFUSAL = 'Those initials aren\'t allowed. Type different ones.';
@@ -208,8 +208,8 @@ test('each settled signing is announced exactly once, however often the mirror s
 // the mirror hears the frame once: the hint it leaves on show if that hint is new, then the field if it changed. Each
 // hint is a new notice with a new number (DDD-T6), so it is heard even when one is on show already, and in a later game
 // even after an earlier game's; a hint left on show by a key the entry ignores is not heard again, and one shown and
-// cleared within a frame is never heard (DDD-T10's accepted edge). The word filter's refusal (01-08, parked below) is
-// not drawn here: a frame is played only when its Enter with three letters signs.
+// cleared within a frame is never heard (DDD-T10's accepted edge). The word filter's refusal (01-08, its own property
+// below) is not drawn here: a frame is played only when its Enter with three letters signs.
 const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'Backspace', 'ArrowUp', '1', 'é', 'Enter'];
 const QUIET_KEYS = ['a', 'l', 'x', 'Backspace', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
 const HINT = 'Type 3 letters to sign, or press Esc to skip.';

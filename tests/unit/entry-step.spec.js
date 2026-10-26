@@ -161,8 +161,9 @@ for (const { operation, keys, plan } of ENTRY_STEP_TABLE) {
   });
 }
 
-// Every other key, generated: anything but one ASCII letter, Backspace, Enter or Esc, whatever the entry. One ASCII letter is checked by membership of the 52, not by a pattern, and the generators lean on the traps:
-// DDD-T3's characters, a letter with something before or after it, key names, and arbitrary strings.
+// Every other key, generated: anything but one ASCII letter, Backspace, Enter or Esc, whatever the entry. One ASCII
+// letter is checked by membership of the 52, not by a pattern, and the generators lean on the traps: DDD-T3's
+// characters, a letter with something before or after it, key names, and arbitrary strings.
 const ONE_ASCII_LETTER = [...ALPHABET, ...ALPHABET.toLowerCase()];
 const isActedOn = key => ONE_ASCII_LETTER.includes(key) || ['Backspace', 'Enter', 'Escape'].includes(key);
 const besideALetter = fc.tuple(

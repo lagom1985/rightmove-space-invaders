@@ -148,13 +148,16 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 const isPausable = () => ['play', 'dead', 'clear'].includes(g.state);
 
-const NO_PRESSES = Object.freeze([]);
-
 // The stray-key guard (D11): for 0.6 s after the game ends, a key is a stray from play. Enter starts no new game, and
 // the entry drops the frame's presses, typed and positional alike, rather than queue them: a queue would type the very
 // tap the guard exists to stop (DDD-T5). 0.6 s itself is still inside it.
 const STRAY_KEY_GUARD_S = 0.6;
 const pastTheGuard = () => g.overT > STRAY_KEY_GUARD_S;
+
+// Enter plays again on a game-over screen with no entry open, once past the guard. The canvas asks for it only then.
+export const canPlayAgain = () => g.state === 'over' && !g.initials && pastTheGuard();
+
+const NO_PRESSES = Object.freeze([]);
 
 // A frame's presses, handed over once a frame as plain data (DDD-T2): the positions pressed, a Set of codes, and the
 // keys typed, in order, [{ key }]. A frame that starts with the initials entry open belongs to the entry: it takes the
@@ -166,7 +169,7 @@ export function handlePresses(pressed, typed = NO_PRESSES) {
     return;
   }
   if (g.state === 'title' && (pressed.has('Enter') || pressed.has('Space'))) startGame();
-  else if (g.state === 'over' && pastTheGuard() && pressed.has('Enter')) startGame();
+  else if (canPlayAgain() && pressed.has('Enter')) startGame();
   else if (isPausable() && (pressed.has('KeyP') || pressed.has('Escape'))) setPaused(!g.paused);
   // M and N work on every screen but the initials entry, and never touch the game itself.
   if (pressed.has('KeyM')) toggleSetting('sound', GameEvent.SOUND_TOGGLED);
@@ -208,8 +211,8 @@ const isLetter = key => /^[A-Za-z]$/.test(key);
 // or null }. Esc skips from any entry, whatever its letters and notice (DDD-T7). A fourth letter, Backspace on an empty
 // entry and every key it doesn't name leave the entry as it is, its notice included (D14).
 export function entryStep(entry, { key }) {
-  if (isLetter(key)) return entry.letters.length < INITIALS_LENGTH ? plan(entry.letters + key.toUpperCase()) : asItIs(entry);
-  if (key === 'Backspace') return entry.letters ? plan(entry.letters.slice(0, -1)) : asItIs(entry);
+  if (isLetter(key)) return typeLetter(entry, key);
+  if (key === 'Backspace') return takeBackLetter(entry);
   if (key === 'Enter') return enter(entry.letters);
   if (key === 'Escape') return skipSigning();
   return asItIs(entry);
@@ -218,6 +221,12 @@ export function entryStep(entry, { key }) {
 const plan = (letters, notice = null, signing = null) => ({ letters, notice, skip: false, signing });
 const asItIs = ({ letters, notice }) => plan(letters, notice);
 const skipSigning = () => ({ letters: null, notice: null, skip: true, signing: null });
+
+// A letter fills the next slot, in capitals; once all three are in, it leaves the entry as it is.
+const typeLetter = (entry, key) => (entry.letters.length < INITIALS_LENGTH ? plan(entry.letters + key.toUpperCase()) : asItIs(entry));
+
+// Backspace takes back the last letter; on an empty entry, it leaves the entry as it is.
+const takeBackLetter = entry => (entry.letters ? plan(entry.letters.slice(0, -1)) : asItIs(entry));
 
 // Enter signs three allowed letters. Initials on the word filter are refused here, before anything is sent (ADR-007):
 // no signing and no event, and the entry is emptied for different ones. With fewer than three, a hint, and the letters

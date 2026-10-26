@@ -1,19 +1,20 @@
 <!-- markdownlint-disable MD024 -->
 # Feature delta: rightmove-invaders-replay-verified-scores
 
-The shared high-score table stops trusting the deposit a browser claims. Each game asks the Score API for a **session** as it starts (S2 in the [forged-scores RCA](../../analysis/root-cause-analysis-forged-high-scores.md)), records the keys the player held at each simulation step, and sends that **record** with its signing. The function **replays** the game and saves the deposit the replay produces (S3). A deposit typed into a `curl` or changed in the browser console never reaches the table.
+The shared high-score table stops trusting the deposit a browser claims. Each game asks the table's server for a **session** as it starts (S2 in the [forged-scores RCA](../../analysis/root-cause-analysis-forged-high-scores.md)), records the keys the player held at each simulation step, and sends that **record** with its signing. The function **replays** the game and saves the deposit the replay produces (S3). A deposit typed into a `curl` or changed in the browser console never reaches the table.
 
 - **Type**: cross-cutting (the rules, the browser's table client and the Score API), a change to live functionality, brownfield. `rightmove-invaders-leaderboard` is in production since `144e23a`, with the plausible ceiling of PR #4 (`4d17123`). Branch `rightmove-invaders-replay-verified-scores`, cut from `main` at `4d17123`.
 - **Density**: lean (Tier-1 only). **Research depth**: lightweight; the technical unknowns were probed instead ([probe findings](probe/findings.md)). **JTBD**: yes.
 - **No DISCOVER or DIVERGE.** The trigger is an incident: forged deposits on 2026-10-26, analysed by the RCA (5 Whys), which recommends this feature. ADR-007's revisit trigger has fired.
-- **SSOT**: [jobs.yaml](../../product/jobs.yaml) (J-TABLE-TRUST, new) · [persona](../../product/personas/casual-arcade-player.yaml) · [journey](../../product/journeys/play-a-session.yaml) (the start step, two error paths, two shared artifacts) · [leaderboard feature delta](../rightmove-invaders-leaderboard/feature-delta.md) · ADR-004, ADR-006, ADR-007, ADR-008
+- **SSOT**: [jobs.yaml](../../product/jobs.yaml) (J-TABLE-TRUST, new) · [persona](../../product/personas/casual-arcade-player.yaml) · [journey](../../product/journeys/play-a-session.yaml) (the start step, four error paths, two shared artifacts) · [leaderboard feature delta](../rightmove-invaders-leaderboard/feature-delta.md) · ADR-004 to ADR-008
 - **Slices**: [slice 01, a session for every game](slices/slice-01-a-session-for-every-game.md) (walking skeleton) · [slice 02, the table replays the game](slices/slice-02-the-table-replays-the-game.md) · [slice 03, no faster than the clock](slices/slice-03-no-faster-than-the-clock.md)
+- **Review**: the first review cycle (2026-10-26) rejected DISCUSS (the product-owner reviewer: 2 blockers, 10 majors) and asked for a revision of DESIGN (the architect reviewer: 1 blocker, 9 majors). This revision answers every finding; the user decided the three questions they raised (D2 confirmed, D14, D18).
 
 ---
 
 ## Wave: DISCUSS / [REF] Persona ID
 
-`casual-arcade-player`: Alex Morgan (they/them). Plays for fun in 5–10 minute sessions on a MacBook Air, and checks the shared table after each game. The examples also use other players of the same segment: Priya Shah (long runs) and Sam Taylor (quick games).
+`casual-arcade-player`: Alex Morgan (they/them). Plays for fun in 5–10 minute sessions on a MacBook Air, and checks the shared table after each game. The examples also use other players of the same segment: Priya Shah (long runs) and Sam Taylor (quick games, a tab left open all day).
 
 Two roles appear in the examples, neither a persona of its own:
 - **The owner** runs the site, reads the function's log and deletes rows by hand (the leaderboard's DEVOPS moderation guide).
@@ -34,37 +35,56 @@ When I look at the shared high-score table, I want every deposit on it to come f
 
 | ID | Decision | Verdict |
 |---|---|---|
-| D1 | **The table saves the deposit the server replays.** The signing carries the game's record, and the Score API replays it. The deposit the browser claims is checked against the replay: if they differ, the signing is refused (`replay-mismatch`), logged, and nothing is saved. | Locked (user, 2026-10-26) |
-| D2 | **The game picks its own seed, and asks for a session as it starts.** The game starts at once, with a seed of its own. In the background it asks the Score API for a session that binds that seed and the time the session was issued. This request takes over from today's table refresh at every game start (ADR-008), and its answer carries the refreshed table, so a game still costs one request. Choosing the seed gives a forger nothing that a program playing the game doesn't already have (D16). | Locked (user, 2026-10-26) |
+| D1 | **The table saves the deposit the server replays.** The signing carries the game's record, and the table's server replays it. The deposit the browser claims is checked against the replay: if they differ, the signing is refused (`replay-mismatch`), logged, and nothing is saved. | Locked (user, 2026-10-26) |
+| D2 | **The game picks its own seed, and asks for a session as it starts.** The game starts at once, with a seed of its own. In the background it asks the table's server for a session that binds that seed and the time the session was issued. This request takes over from today's table refresh at every game start (ADR-008), and its answer carries the refreshed table. **Choosing the seed helps a program**: the probe's bot scores a median of £46,100 over 100 seeds, and the best of 10 seeds averages £67,300 (+46 %), the best of 100 £75,100 (+63 %). A seed chosen by the server would not stop this: a forger can ask for 10 sessions a minute and keep only the best seed, which gets most of the gain. D16 names it. | Locked (user, 2026-10-26; confirmed the same day with the measured gain) |
 | D3 | **A session is a token signed with a secret** (an HMAC), kept in the Netlify environment. The function writes nothing per game, and the restricted table port (ADR-004) stays as it is. Without the secret, the function issues no session and saves no signing, and its log says why. | Locked (user, 2026-10-26) |
 | D4 | **The rows already on the production table stay.** The owner checked them after the cleanup (S0), and the key format doesn't change. The owner can still delete any row by hand. | Locked (user, 2026-10-26) |
-| D5 | **No new wording or outcome in the game.** Every refused signing ends as today's "Couldn't confirm ALX's signing.", for a forger and for an honest player alike. The game still tells only OK from not OK (ADR-008), and the reason is in the function's log. An honest player should see it only in the rare cases of D11, D12 and US-06. | PO default; awaiting the user's approval |
+| D5 | **No new wording or outcome in the game.** Every refused signing ends as today's "Couldn't confirm ALX's signing.", for a forger and for an honest player alike. The game still tells only OK from not OK (ADR-008), and the reason is in the function's log. An honest player should see it only in rare cases: D11, D12, D18, D19 and US-06, and any `too-fast` or `replay-mismatch` that K23 traces to a bug. **Recovery is by reloading the page**, which the release note says. | PO default; awaiting the user's approval |
 | D6 | **No signing without a session.** A signing with no session, or with a session whose signature doesn't check, is refused and saves nothing. | PO default; awaiting the user's approval |
-| D7 | **One game, one row.** A session signs the table once. A second signing with the same session is refused, and the table never shows two rows from one session, however many arrive at once. | PO default; awaiting the user's approval |
-| D8 | **No game faster than the clock.** The game time in a record can't exceed the time since its session was issued, plus a few seconds for the session's own trip (at least its 5 s timeout; DESIGN sets the allowance). A longer record is refused (`too-fast`). A forger can compute a 20-minute game offline in seconds, but has to wait 20 minutes to sign it. | PO default; awaiting the user's approval |
-| D9 | **Games of up to 60 minutes of game time are verified.** An honest record of that length always fits the request. A longer record is refused before it is replayed (`game-too-long`), so no request can keep the function replaying for long. 60 minutes is far past any game seen so far (the probe's bot: 17 minutes, £62,800) and past the plausible ceiling: £250,000 is about 28 perfect waves. | PO default; awaiting the user's approval |
-| D10 | **A game is verified with the rules it was played with.** A record names its rules version. A record from other rules is refused without replay (`rules-changed`), for example when a deploy changed how the game plays while the page was open; a reload fixes it. A change to how the game plays is always deliberate: a check on recorded games fails the build until the version is raised. | PO default; awaiting the user's approval |
+| D7 | **One game, one row.** A game, named by its seed, has at most one row on the table. A signing for a game whose row is on the table is refused (`already-signed`), whatever session it carries, and however many arrive at once. A game *signs* when its row is saved: a refused attempt doesn't use up its session. | PO default; awaiting the user's approval |
+| D8 | **No game faster than the clock.** The game time in a record can't exceed the time since its session was issued, plus a few seconds for the session's own trip (at least its 5 s timeout; DESIGN sets the allowance). A longer record is refused (`too-fast`). A forger can compute a 20-minute game offline in seconds, but can sign it no sooner than 20 minutes after its session was issued. **This costs each forged game its length, not each forged row**: sessions can be asked for ahead of time and in parallel, so one wait can unlock several rows, as many as the rate limit lets through (D16). | PO default; awaiting the user's approval |
+| D9 | **Games of up to 60 minutes of game time are verified.** An honest record of that length always fits the request, at human pace (D20). A longer record is refused before it is replayed (`game-too-long`), so no request can keep the function replaying for long. The probe's bot scores £2,800–£4,700 a minute, so £170,000–£280,000 in 60 minutes; an expert may score more, which is why D14 raises the ceiling. | PO default; awaiting the user's approval |
+| D10 | **A game is verified with the rules it was played with.** A record names its rules version. A record from other rules is refused without replay (`rules-changed`), for example when a deploy changed how the game plays while the page was open; a reload fixes it. A change to how the game plays is deliberate: a check on recorded games fails the build when a recorded game replays differently and the version wasn't raised. | PO default; awaiting the user's approval |
 | D11 | **A game whose session never arrived** (a failure, or no answer within the 5 s timeout) plays as usual, and still asks for initials when its deposit makes the table. Its signing ends "Couldn't confirm". | PO default; awaiting the user's approval |
-| D12 | **A page loaded before the release** signs in the old shape, is refused, and shows "Couldn't confirm"; a reload fixes it. Accepted for release day. | PO default; awaiting the user's approval |
-| D13 | **The game plays exactly as before.** The gameplay draws come from the game's seed instead of `Math.random`, and the house erosion compares squared distances instead of calling `Math.hypot`. The probe played the same games either way. The particles stay random, because they never touch the gameplay. Pause, M, N, the initials, the table lines and the sound are unchanged. | PO default; awaiting the user's approval |
-| D14 | **The table's existing checks stay**: JSON only, the word filter, the £50 step, and the plausible ceiling of £250,000 (PR #4), which now applies to the replayed deposit. The game still asks for initials only when its deposit makes the table (`makesTheTable`). | PO default; awaiting the user's approval |
+| D12 | **A page loaded before the release** signs in the old shape, is refused, and shows "Couldn't confirm"; a reload fixes it (D5). Accepted for release day. | PO default; awaiting the user's approval |
+| D13 | **Same rules, same look.** Speeds, timings, scores, art and sound are unchanged. The gameplay draws come from the game's seed instead of `Math.random`, so each game's random sequence is new, and the house erosion compares squared distances instead of calling `Math.hypot`, which decides every cell the same way (checked exhaustively in DESIGN). The particles stay random, because they never touch the gameplay. Pause, M, N, the initials and the table lines are unchanged. | PO default; awaiting the user's approval |
+| D14 | **The plausible ceiling rises to £500,000**, and applies to the replayed deposit. It moves only once the replay is in place (slice 02): before that, £250,000 (PR #4) is the only check on a deposit. The table's other checks stay: JSON only, the word filter and the £50 step. The game asks for initials only when its deposit makes the table (`makesTheTable`), now up to £500,000. | Locked (user, 2026-10-26) |
 | D15 | **Every refusal is logged with a fixed reason** (the RCA's RC4), in the one log line per request the function already writes. The line never carries the record, the seed, the session or its token, initials or an IP (DDD-17). | PO default; awaiting the user's approval |
-| D16 | **Accepted residual risk, stated in the new ADR: a program that plays well.** The seed is known when the game starts, so a program can play in real time, or search offline for the inputs that do best with that seed, and sign the result. It is still held to the rules of the game, to real time per game (D8), to one row per session (D7), to the rate limit and to the £250,000 ceiling. The owner still deletes rows by hand. Ruling it out would take anti-bot measures far beyond this project. | PO default; awaiting the user's approval |
+| D16 | **Accepted residual risk, stated in ADR-010: a program that plays well.** The seed is the game's own and the rules are public, so a program can play in real time, or search offline for the inputs that do best with a seed, and try many seeds to keep the best (D2: +46 % for the best of 10). It is still held to the rules of the game, to the game's length in real time (D8), to one row per game (D7), to the session's lifetime (D18), to the rate limit and to the £500,000 ceiling. The rate limit is what bounds how fast: 10 requests a minute per IP, a session and a signing per row. The owner still deletes rows by hand. Within its session's 2 hours, the same request can put a deleted row back; after that, only a new session and a new wait can. Ruling the risk out would take anti-bot measures far beyond this project. | PO default; awaiting the user's approval |
+| D17 | **Slice 02 is over the 1-day carpaccio target** (about 3 days with its enabling tasks), and stays one slice (Scope assessment). | PO default; awaiting the user's approval |
+| D18 | **A session expires 2 hours after it was issued.** A signing with an older session is refused (`session-expired`). That covers 60 minutes of game time and long pauses; a game left paused for more than about an hour can't be signed. | Locked (user, 2026-10-26) |
+| D19 | **Quick restarts can run into the rate limit.** The function allows 10 requests a minute per IP, and every game start now makes one. A game started after 10 requests within a minute, from one player or from an office sharing one IP, gets no session, and its signing ends "Couldn't confirm" (D11). That needs a qualifying game started straight after about ten quick ones, so it is accepted; the preview measures it (K14), and if it bites, `/api/sessions` gets a function and a rate limit of its own (ADR-007's existing plan for splitting). | PO default; awaiting the user's approval |
+| D20 | **Human pace**, for the record's size: up to 15 changes of held keys a second, sustained. The probe's bot that decides every 100 ms makes 6.5–7, one that decides every 50 ms 12–13, and a program that changes keys at every step 26–33. | PO default; awaiting the user's approval |
 
 ## Wave: DISCUSS / [REF] Scope assessment
 
-**PASS (right-sized), with one recorded exception: slice 02 is over the 1-day carpaccio target.** The feature has 6 stories in 3 slices. It touches three modules that already talk to each other: the rules (`src/game/`), the browser's table client (`src/platform/leaderboard.js`, wired in `main.js`) and the Score API (`netlify/functions/scores.mjs`). The walking skeleton adds one integration point, the session request, and one piece of configuration, the secret.
+**PASS (right-sized), with one recorded exception: slice 02 is over the 1-day carpaccio target (D17).** The feature has 6 stories in 3 slices. It touches three modules that already talk to each other: the rules (`src/game/`), the browser's table client (`src/platform/leaderboard.js`, wired in `main.js`) and the Score API (`netlify/functions/scores.mjs`). The walking skeleton adds one integration point, the session request, and one piece of configuration, the secret.
 
-**Estimate: about 3.5–4 days of DELIVER.**
-- **Slice 01**: about 1 day. The session request and its token, the signing that must carry it, one row per session, and the local server's secret.
-- **Slice 02**: about 2 days. It needs three precursor commits, which ship no value on their own and so land before the slice, not as a slice: the seeded gameplay draws and the squared distances (about 2 h); a game the function can create afresh for each check, with the test harnesses moved to it (about 1 day, mostly mechanical); and the record (about 2 h). Then the replay, the mismatch check, the body cap and the 60-minute limit (about ½ day).
-- **Slice 03**: about ½ day. The clock check, the rules version and the recorded-games check.
+**Estimate: about 5 days of DELIVER.** The stories and their **enabling tasks** (E1–E6): work that ships no value on its own, so it is no story or slice. Each enabling task lands as a precursor commit before its story's value commits (the carpaccio hard gate's option b), is traced to the story it enables and its job, and has one acceptance line (below, under its story).
 
-**Why slice 02 stays one slice**: replay is worthless without the precursors, and the precursors are worthless without replay. The precursors are @infrastructure work, so they land as precursor commits inside the slice (the carpaccio hard gate's option b), and the slice ships them with the value they enable.
+| Slice | Story or enabling task | Estimate |
+|---|---|---|
+| 01 | US-01 | ½ day |
+| 01 | US-02 | ½ day |
+| 01 | E1: the local secret, and the test seeding route (enables US-01) | 2 h |
+| **01** | | **about 1¼ days** |
+| 02 | E2: seeded gameplay draws and squared distances (enables US-03) | 2 h |
+| 02 | E3: a game the function can create afresh, with the test harnesses moved to it (enables US-03) | ½–1 day |
+| 02 | E4: the record, and the layering rules (enables US-03) | 2 h |
+| 02 | E5: the recorded-games corpus (enables US-03, US-06) | ½ day |
+| 02 | US-03 | 1 day |
+| 02 | US-04 (with the ceiling, D14) | ½ day |
+| **02** | | **about 3 days** |
+| 03 | E6: the lenient clock for the local test boards (enables US-05) | 1 h |
+| 03 | US-05 | ½ day |
+| 03 | US-06 | ½ day |
+| **03** | | **about 1 day** |
+
+**Why slice 02 stays one slice**: replay is worthless without E2–E5, and they are worthless without replay. The slice ships them with the value they enable.
 
 ## Wave: DISCUSS / [REF] Player-facing wording
 
-**None new** (D5). Every refused signing uses today's unconfirmed message, `Couldn't confirm ALX's signing.`, on the canvas and in the status mirror. A forger using `curl` sees the function's JSON error, `{ "error": "<reason>" }`. The reasons are DESIGN's.
+**None new** (D5). Every refused signing uses today's unconfirmed message, `Couldn't confirm ALX's signing.`, on the canvas and in the status mirror. A forger using `curl` gets an error message naming the reason (its shape is in DESIGN). The release note tells players to reload a page left open since before the release.
 
 ## Wave: DISCUSS / [REF] Story map and slice order
 
@@ -72,8 +92,8 @@ Backbone, the journey's steps in [play-a-session](../../product/journeys/play-a-
 
 | Start | Play | Game over and sign | The table answers |
 |---|---|---|---|
-| The game asks for its session without waiting (US-02) | The keys held at each step are recorded (US-03) | The signing carries its session (US-02) and its record (US-03) | No session, or an altered one: refused (US-01) |
-| The session's answer refreshes the table (US-02) | *Unchanged*: the game plays as before (D13) | A signing waits for a late session, never the frame (US-02) | The same session twice: refused (US-01) |
+| The game asks for its session without waiting (US-02) | The keys held at each step are recorded (US-03) | The signing carries its session (US-02) and its record (US-03) | No session, an altered one or an expired one: refused (US-01) |
+| The session's answer refreshes the table (US-02) | *Unchanged*: same rules, same look (D13) | A signing waits for a late session, never the frame (US-02) | The same game twice: refused (US-01) |
 | A game without a session still plays (US-02) | | | The claimed deposit isn't the replayed one: refused (US-03) |
 | | | | A long game fits and is verified in time (US-04); over 60 minutes, refused |
 | | | | Faster than the clock: refused (US-05) |
@@ -83,15 +103,15 @@ Backbone, the journey's steps in [play-a-session](../../product/journeys/play-a-
 
 | Order | Slice | Stories | Why this position |
 |---|---|---|---|
-| 1 | [01 A session for every game](slices/slice-01-a-session-for-every-game.md) (walking skeleton) | US-01, US-02 | The thinnest end-to-end path, and the RCA's recommended skeleton. The probe already retired the riskiest technical assumption (determinism), so the highest remaining risk is on Netlify: the secret in each deploy context, and one session per game within the rate limit. Turns away the laziest forgery, a `curl` with no game |
-| 2 | [02 The table replays the game](slices/slice-02-the-table-replays-the-game.md) | US-03, US-04 | The core value: a forged deposit, by `curl` or console, is refused. The largest slice, because of its three precursors |
-| 3 | [03 No faster than the clock](slices/slice-03-no-faster-than-the-clock.md) | US-05, US-06 | Closes the forger's last cheap shortcut (a game computed offline in seconds), and keeps the next gameplay change from refusing honest players without saying why. Both checks need slice 02's record |
+| 1 | [01 A session for every game](slices/slice-01-a-session-for-every-game.md) (walking skeleton) | US-01, US-02 | The thinnest end-to-end path, and the RCA's recommended skeleton. It carries the Netlify unknowns: the secret in each deploy context, two paths on one function and its rate limit, and one row per game under simultaneous signings on real Blobs. The probe is evidence on a patched copy of the rules; K21 retires determinism for the shipped code, in slice 02. Turns away the laziest forgery, a `curl` with no game |
+| 2 | [02 The table replays the game](slices/slice-02-the-table-replays-the-game.md) | US-03, US-04 | The core value: a forged deposit, by `curl` or console, is refused. The largest slice, because of its enabling tasks |
+| 3 | [03 No faster than the clock](slices/slice-03-no-faster-than-the-clock.md) | US-05, US-06 | Closes the forger's last cheap shortcut (a game computed offline, signed at once), and keeps the next gameplay change from refusing honest players without saying why. Both checks need slice 02's record |
 
-**Priority rationale**: the walking skeleton comes first, as the RCA recommends, and it carries the highest remaining risk. Slice 02 then delivers most of the value: value × urgency / effort is 5 × 5 / 4 ≈ 6.3, against slice 01's 2 × 5 / 2 = 5 and slice 03's 3 × 3 / 1 = 9. Slice 03 scores highest but depends on slice 02's record.
+**Priority rationale**: value × urgency / effort (days) scores the three slices alike: slice 01, 2 × 5 / 1¼ = 8; slice 02, 5 × 5 / 3 ≈ 8.3; slice 03, 3 × 3 / 1 = 9. So the order follows dependency (slice 02 needs slice 01's session, slice 03 needs slice 02's record) and risk (slice 01 carries the Netlify unknowns).
 
 **Carpaccio taste tests**:
-- **Thin**: slice 01 and slice 03 each extend existing components. Slice 02 adds one new concept, the record, and changes the rules into something the function can create afresh. That is the recorded exception (Scope assessment).
-- **A new abstraction first**: the record and a game the function can create afresh are needed by slices 02 and 03. They land as precursor commits inside slice 02, not as a slice of their own (hard gate, option b).
+- **Thin**: slices 01 and 03 extend existing components. Slice 02 adds one new concept, the record, and turns the rules into something the function can create afresh: the recorded exception (D17).
+- **A new abstraction first**: the record and a game the function can create afresh are enabling tasks E3 and E4, landing before US-03's value commits (hard gate, option b), traced to US-03.
 - **Each slice can disprove something**: see each brief's learning hypothesis.
 - **Production data**: every slice runs on the real page, in real browsers, against the deploy preview's real function and Blobs, with the preview's own secret.
 - **No two slices are the same thing at different scales.** **PASS**, with the slice 02 exception.
@@ -100,7 +120,7 @@ Backbone, the journey's steps in [play-a-session](../../product/journeys/play-a-
 
 ### US-01: The owner's table turns away a signing that no game asked for
 
-`job_id: J-TABLE-TRUST` · slice 01 · about ½ day
+`job_id: J-TABLE-TRUST` · slice 01 · about ½ day, plus E1
 
 On 2026-10-26 a forger signed £9,999,950 as HAX with one `curl` and no game. Since PR #4 the table refuses anything above £250,000, but the same `curl` with £249,950 still lands at #1 for everyone, until the owner deletes it by hand.
 
@@ -114,109 +134,121 @@ Decision enabled: the owner stops deleting rows that came from no game, and read
 
 1. *No session*: the table holds KIM £2,000. HAX posts `{ "initials": "HAX", "score": 249950 }` with no session. It is refused, and the table still holds only KIM.
 2. *An altered session*: HAX asks for a session, then moves its issue time an hour earlier, to look like a long game. The signature no longer checks, so it is refused, and nothing is saved.
-3. *The same session twice*: Alex signs ALX £1,250 with their game's session. HAX copies that request and sends it again with the initials XAH. It is refused, and the table shows ALX £1,250 once.
+3. *The same game twice*: Alex signs ALX £1,250. HAX copies that request and sends it again with the initials XAH, then asks for a second session for the same seed and sends it once more. Both are refused, and the table shows ALX £1,250 once.
+4. *An old session*: the owner deletes a row HAX signed at 10:00. At 12:30, HAX re-sends the same request. Its session is more than 2 hours old, so it is refused.
 
 **UAT scenarios**
 
 1. *A signing without a session is refused.* Given the high-score table holds KIM £2,000, When a signature of HAX £249,950 arrives with no session, Then it is refused as `session-required`, and the table still holds only KIM £2,000.
-2. *A session the table didn't issue is refused* (outline: the issue time changed; the seed changed; the token changed; a session made up from nothing). Given the table holds KIM £2,000, When a signature arrives with `<a session altered this way>`, Then it is refused as `invalid-session`, and the table still holds only KIM £2,000.
-3. *A session signs once.* Given Alex's game has signed ALX £1,250 with its session, When another signing arrives with the same session and the initials XAH, Then it is refused as `session-used`, and the table shows ALX £1,250 once.
-4. *One session, many signings at once, one row at most.* Given an empty table, When 5 signings with the same session arrive at the same moment, Then the table shows at most one row for that session.
-5. *No secret, no session.* Given the function has no secret configured, When a game asks for a session, Then no session is issued, every signing is refused, nothing is saved, and the log names the missing secret as the reason.
-6. *A refusal is logged by reason only.* Given any refusal above, Then the function writes one log line with its fixed reason, and the line holds no session, token, seed, initials or IP.
+2. *A session the table didn't issue is refused* (outline: the issue time changed; the seed changed; the token changed; the token cut short; a session made up from nothing; a session that isn't an object). Given the table holds KIM £2,000, When a signature arrives with `<a session altered this way>`, Then it is refused as `invalid-session`, and the table still holds only KIM £2,000.
+3. *A game signs once* (outline: the same session; another session for the same seed). Given Alex's game has signed ALX £1,250, When another signing for that game arrives with `<this session>` and the initials XAH, Then it is refused as `already-signed`, and the table shows ALX £1,250 once.
+4. *One game, many signings at once, one row at most.* Given an empty table, When 5 signings for the same game arrive at the same moment, Then the table shows at most one row for that game.
+5. *A refused attempt doesn't use up the session.* Given a signing for Alex's game was refused before it was saved (the table couldn't be listed), When Alex's game is signed again with the same session, Then ALX is saved.
+6. *A session expires after 2 hours* (outline: 1 h 59 min → saved; 2 h 1 min → refused as `session-expired`). Given a session issued `<this long>` ago for a game that hasn't signed, When its signing arrives, Then the outcome is `<as listed>`.
+7. *No secret, no session.* Given the function has no secret configured, When a game asks for a session, or a signing arrives, Then no session is issued, nothing is saved, and the log names the missing secret as the reason.
+8. *A refusal is logged by reason only.* Given any refusal above, Then the function writes one log line with its fixed reason, and the line holds no session, token, seed, initials or IP.
 
 **Acceptance criteria**
 
-- [ ] A signing with no session, or with a session whose signature doesn't check after any field was changed, is refused and saves nothing. (UAT 1, 2)
-- [ ] A session signs the table at most once: a second signing with it is refused, and however many arrive at once, the table never shows two rows from one session. (UAT 3, 4)
-- [ ] With no secret configured, the function issues no session and saves no signing, and its log names the cause. (UAT 5)
-- [ ] Every refusal writes one log line with its fixed reason, and never the session, its token, the seed, the record, initials or an IP. (UAT 6)
-- [ ] A refused signing writes nothing to Blobs. (UAT 1–3)
+- [ ] A signing with no session, with a session whose signature doesn't check after any field was changed, or with a session older than 2 hours, is refused and saves nothing. (UAT 1, 2, 6)
+- [ ] A game has at most one row on the table: a signing for a game whose row is on the table is refused, whatever session it carries, and however many arrive at once the table never shows two rows for one game. (UAT 3, 4)
+- [ ] A refused attempt doesn't use up its session. (UAT 5)
+- [ ] With no secret configured, the function issues no session and saves no signing, and its log names the cause. (UAT 7)
+- [ ] Every refusal writes one log line with its fixed reason, and never the session, its token, the seed, the record, initials or an IP. (UAT 8)
+- [ ] A refused signing leaves no row on the table. Only an `already-signed` refusal writes a key, and it removes that key before it answers. (UAT 1–4, 6)
+
+**Enabling task E1** (J-TABLE-TRUST): the local server makes its own secret at each start, and gives the tests a way to put other house-hunters' rows on a test board without a game. *Acceptance*: the existing scenarios that arrange rows pass through it, and it exists only in the local server, never in the function.
 
 **Outcome KPI**: K20 (forgeries are refused).
-**Technical notes**: today the body must be exactly `{ initials, score }` (`isValidSignature`, ADR-006), read with a 1 KB cap (DDD-5); it grows here. The session's shape, the reason codes and the status codes are DESIGN's; the codes above are proposals. One row per session can't use a second key family in the store, because D3 keeps the table port as it is: DESIGN decides how. The secret must reach the function in every deploy context that has a table: production, deploy previews and branch deploys. Locally, `scripts/serve.mjs` makes its own, so tests and `npm start` need no setup. In slice 01 the deposit itself is still unchecked beyond its shape and the ceiling: a forger who first asks for a session can still claim £249,950. Slice 02 closes that.
+**Technical notes**: today the body must be exactly `{ initials, score }` (`isValidSignature`, ADR-006), read with a 1 KB cap (DDD-5); it grows here. The session's shape, the reason codes and the status codes are DESIGN's. One row per game can't use a second key family in the store, because D3 keeps the table port as it is (DESIGN DDD-R4). The secret must reach the function in every deploy context that has a table: production, deploy previews and branch deploys. In slice 01 the deposit itself is still unchecked beyond its shape and the £250,000 ceiling: a forger who first asks for a session can still claim £249,950. Slice 02 closes that.
 **Dependencies**: none beyond PR #4 (merged).
 
 ### US-02: Alex's game gets its session as it starts, without waiting
 
 `job_id: J-TABLE-SIGN` · slice 01 · about ½ day
 
-Alex starts a game a few seconds after the page loads, sometimes on the function's cold start. Today the start never waits on the network, and the table is refreshed in the background (ADR-008). Sessions must not change that, and must not cost Alex an extra request that runs into the rate limit of 10 a minute.
+Alex starts a game a few seconds after the page loads, sometimes just after the site was updated, when the table's server is slow to answer the first time. Today the start never waits on the network, and the table is refreshed in the background (ADR-008). Sessions must not change that.
 
 #### Elevator Pitch
 
 Before: press Enter on the title → the formation appears at once, and the game refreshes the table in the background (`GET /api/scores`).
 After: press Enter on the title → the formation appears at once, as today, while one request in the background, `POST /api/sessions`, brings this game's session and the refreshed table; at game over with £1,250, type `alx` and press Enter → "Signing ALX…", then "Signed ALX, #3.".
-Decision enabled: Alex plays and signs exactly as before, on a table that only games reach, and starts the next game straight away.
+Decision enabled: Alex decides to sign the moment the prompt appears, without waiting for anything, and starts the next game straight away.
 
 **Domain examples**
 
 1. *Happy path*: the table holds KIM £2,000, LEO £1,500 and TED £1,000. Alex's game asks for its session as it starts, and the answer arrives within a second. Alex loses with £1,250, types `alx`, presses Enter and reads "Signed ALX, #3.".
-2. *A cold start*: the first request after a deploy takes about 1 s. Alex has already pressed Enter, and the formation is marching. The session arrives a second later, and nothing on screen changes.
+2. *A slow first answer*: just after a deploy, the first request takes about 1 s. Alex has already pressed Enter, and the formation is marching. The session arrives a second later, and nothing on screen changes.
 3. *A quick game*: Sam loses after 4 seconds with £50, which makes the deploy preview's empty table, and types `sam` and Enter before the session's answer is back. "Signing SAM…" shows at once. The signing goes out as soon as the session arrives, and Sam reads "Signed SAM, #1.".
-4. *No session*: Alex is on a train, and the session request fails. The game plays on. At game over with £1,250, Alex is asked for initials (the table loaded at page load), signs, and reads "Couldn't confirm ALX's signing.".
+4. *No session*: Alex is on a train, and the session request fails. The game plays on. At game over with £1,250, Alex is asked for initials (the table loaded at page load), signs, and reads "Couldn't confirm ALX's signing." at once.
 
 **UAT scenarios**
 
 1. *Typed initials sign the table through the game's session.* Given the high-score table holds KIM £2,000, LEO £1,500 and TED £1,000, When Alex finishes a game with £1,250, types "alx" and presses Enter, Then the game tells them "Signing ALX…" and then "Signed ALX, #3.", and the ALX row is marked as theirs.
 2. *The game starts at once, whatever the session request does* (outline: it answers at once; it answers after 3 s; it fails; it never answers). Given the title screen, When Alex presses Enter while the session request `<does this>`, Then the formation appears and starts marching straight away.
-3. *One request per game start.* Given the page has loaded, When Alex starts a game, Then the game makes exactly one request to the Score API for it, and the table rows in its answer replace the ones shown, under the listing-time rule (ADR-008).
+3. *One request per game start.* Given the page has loaded, When Alex starts a game, Then the game makes exactly one request to the table's server for it, and the table rows in its answer replace the ones shown, under the listing-time rule (ADR-008).
 4. *A signing waits for a late session.* Given Sam's game is over with £50 on an empty table, and its session request hasn't answered yet, When Sam types "sam" and presses Enter, Then the game tells them "Signing SAM…" at once, and "Signed SAM, #1." once the session has arrived and the signing has been answered.
-5. *A game without a session.* Given Alex's session request failed, When Alex finishes with £1,250 and signs ALX, Then the game tells them "Couldn't confirm ALX's signing.", and the table has no ALX row.
+5. *A game without a session* (outline: the session request failed before the signing → "Couldn't confirm" at once; it fails after the signing was pressed → as soon as it fails; it never answers → when its 5 s timeout ends). Given Alex's game is over with £1,250 and its session request `<did this>`, When Alex signs ALX, Then the game tells them "Couldn't confirm ALX's signing." `<then>`, and the table has no ALX row.
 
 **Acceptance criteria**
 
 - [ ] Starting a game never waits on the session: the formation appears and marches at once, whatever the request does. (UAT 2)
-- [ ] Each game start makes exactly one request to the Score API. Its answer refreshes the table as today's refresh did, under the listing-time rule. (UAT 3)
+- [ ] Each game start makes exactly one request to the table's server. Its answer refreshes the table as today's refresh did, under the listing-time rule. (UAT 3)
 - [ ] A signing carries the session of the game it signs. When that session hasn't arrived yet, the signing waits for it (pending shows at once), and no frame waits. (UAT 1, 4)
-- [ ] A game whose session failed or timed out plays as usual, and its signing ends unconfirmed. (UAT 5)
-- [ ] Otherwise the signing lifecycle, the wording and the table's behaviour are unchanged. (UAT 1)
+- [ ] A game whose session failed or timed out plays as usual, and its signing ends unconfirmed as soon as both have happened: the signing pressed, and the session request failed or timed out (5 s after the game started, at the latest). (UAT 5)
+- [ ] The signing lifecycle, the wording and the table's behaviour are otherwise unchanged: the leaderboard's walking skeleton and scenarios, and the typed-initials scenarios, stay green (guardrails). (UAT 1)
 
-**Outcome KPI**: K21 (honest games replay to their own deposit), with K10 and K15 as guardrails.
-**Technical notes**: today `main.js` reads the table on `gameStarted` (`loadTable`) and signs on `initialsEntered` (`signTable`). The seed must be known before the first gameplay draw, which happens as the first wave is set up, so it comes from the game and not from the answer (D2). The session request has the same 5000 ms timeout as every table request (DDD-13). The function's rate limit is 10 requests per 60 s per IP, across all its requests (ADR-007): a session replaces the game-start refresh, so the count per game doesn't grow. Unlike that refresh, though, it is never answered from the CDN cache.
+**Outcome KPI**: K25 (a game's session comes back quickly); K10 and K15 as guardrails.
+**Technical notes**: today `main.js` reads the table on `gameStarted` (`loadTable`) and signs on `initialsEntered` (`signTable`). The seed must be known before the first gameplay draw, which happens as the first wave is set up, so it comes from the game and not from the answer (D2). The session request has the same 5000 ms timeout as every table request (DDD-13), and the signing's own 5000 ms start when it is sent. The function's rate limit is 10 requests per 60 s per IP, across all its requests, cache hits included (ADR-007; K14's baseline): the session replaces the game-start refresh, so the count per game is unchanged, but it always runs the function (D19, K15).
 **Dependencies**: US-01 (the session's issuer and its check).
 
 ### US-03: A deposit changed in the browser never reaches the table
 
-`job_id: J-TABLE-TRUST` · slice 02 · about 1 day, plus the precursors (about 1 day)
+`job_id: J-TABLE-TRUST` · slice 02 · about 1 day, plus E2–E5
 
 The RCA's second forgery: during a game, `(await import('/src/game/game.js')).g.score = 4242400` changed the HUD, and the game's own client then signed that deposit. After slice 01, a forger can also ask for a session with `curl` and claim any deposit under £250,000.
 
 #### Elevator Pitch
 
 Before: in the browser console during a game, `(await import('/src/game/game.js')).g.score = 249950` → the HUD shows £249,950, and at game over "Signed HAX, #1.".
-After: the same line, or any other change made to the game in the browser → at game over "Couldn't confirm HAX's signing.", the function's log reads `replay-mismatch`, and the table is unchanged.
-Decision enabled: the owner trusts that every deposit on the table is the one its game produced, and Alex knows that the rows above them were played.
+After: Alex's honest game, at game over type `alx` and Enter → "Signed ALX, #3." with the deposit the game showed; the same console line, or any other change made to the game in the browser → at game over "Couldn't confirm HAX's signing.", the function's log reads `replay-mismatch`, and the table is unchanged.
+Decision enabled: the owner decides, for each `replay-mismatch` in the log, whether it is a forgery to ignore or a determinism bug to fix (K23 investigates each one), knowing that no deposit reached the table without its game.
 
 **Domain examples**
 
 1. *The console*: HAX sets the deposit to £249,950 mid-game, loses with "Offer rejected" and signs. The replay ends at £350, so the signing is refused and nothing is saved.
 2. *A record made up by hand*: HAX asks for a session, then posts a record of 30 seconds of standing still, claiming £249,950. The replay ends with £0, so it is refused.
 3. *Honest*: Alex's game ends at £1,250. The function replays the record to £1,250, ending at the same step, and Alex reads "Signed ALX, #3.".
-4. *Extra homes*: HAX gives the pin 99 homes from the console and plays on for 20 minutes, to £180,000. The replay loses its third home after 3 minutes with £9,350, while the record goes on, so it is refused.
+4. *Extra homes*: HAX gives the pin 99 homes from the console and plays on for 20 minutes, to £80,000. The replay loses its third home after 3 minutes with £9,350, while the record goes on, so it is refused.
 
 **UAT scenarios**
 
 1. *An honest game's deposit is the deposit the table saves.* Given the table holds KIM £2,000, LEO £1,500 and TED £1,000, When Alex finishes a game with £1,250 and signs ALX, Then the table saves ALX £1,250 at #3, and the game tells them "Signed ALX, #3.".
 2. *A deposit the game didn't produce is refused* (outline: changed in the console; claimed by `curl` with a made-up record; a deposit claimed above what the record plays to). Given the table holds KIM £2,000, When a signing claims HAX `<deposit>` with a record that plays to `<replayed deposit>`, Then it is refused as `replay-mismatch`, and the table still holds only KIM £2,000.
 3. *A record must end where its game ended* (outline: it stops before game over; it goes on after the replay's game over). Given the table holds KIM £2,000, When a signing's record `<ends this way>`, Then it is refused, and the table still holds only KIM £2,000.
-4. *A record that isn't a record is refused before any replay* (outline: not text; unknown key letters; steps out of order; no rules version). Given any table, When a signing carries `<such a record>`, Then it is refused, and nothing is saved.
-5. *The replayed deposit meets the old rules.* Given a session, When a record that plays to more than £250,000 is signed, Then it is refused as `implausible-score`.
-6. *The same game in every browser.* Given games played in Chromium, Firefox and WebKit, When the function replays their records, Then each ends at the deposit and the step the browser saw.
+4. *A record that isn't a record is refused before any replay* (outline: not text; unknown key letters; steps out of order; no rules version). Given any table, When a signing carries `<such a record>`, Then it is refused, nothing is saved, and the log shows it was never replayed.
+5. *The ceiling, before any replay* (outline: £500,000 claimed → not refused as `implausible-score`, so it goes on to the replay; £500,050 claimed → refused as `implausible-score`, and the log shows it was never replayed). Given a valid session and a record, When a signing claims `<deposit>`, Then the outcome is `<as listed>`.
+6. *The same game in every browser.* Given games played in Chromium, Firefox and WebKit (the recorded-games corpus), When the function replays their records, Then each ends at the deposit and the step the browser saw.
 
 **Acceptance criteria**
 
 - [ ] The table saves the deposit the replay produces, and only when it equals the deposit claimed. Otherwise the signing is refused as `replay-mismatch`, and nothing is saved. (UAT 1, 2)
 - [ ] A record whose replay doesn't reach game over exactly at its last step is refused. (UAT 3)
 - [ ] A malformed record is refused before it is replayed. (UAT 4)
-- [ ] The replayed deposit must meet the existing rules: a positive multiple of £50, at most £250,000. (UAT 5)
+- [ ] The deposit must meet the existing rules, a positive multiple of £50, and the new ceiling of £500,000 (D14), which is checked on the claim before any replay. (UAT 5)
 - [ ] A game played in Chromium, Firefox or WebKit replays on the function to the deposit and the game-over step the browser saw (K21). (UAT 6)
-- [ ] The game plays exactly as before (D13). (UAT 1, 6)
+- [ ] Same rules, same look (D13): the existing rules scenarios and unit properties stay green (guardrails), and squared distances decide every erosion cell as `Math.hypot` did (DESIGN's exhaustive check). (UAT 1, 6)
+
+**Enabling tasks** (J-TABLE-TRUST), each a precursor commit before US-03's value commits, each leaving the suite green:
+- **E2**: every gameplay draw from the game's seed; particles on a source of their own; squared distances in erosion. *Acceptance*: the determinism scan passes on `src/game/` and `src/theme/`, and the erosion check passes.
+- **E3**: a game the function can create afresh for each check, with the views and the test harnesses moved to it. *Acceptance*: the suite is green, and the page's modules expose no live game.
+- **E4**: the record, kept from the game's start to its game over; the layering rules that let the function import the replay. *Acceptance*: every game recorded in Node replays to game over exactly at its last step, with its deposit; the layering test covers the amended rules.
+- **E5**: the recorded-games corpus, games played in the three browsers. *Acceptance*: it replays in Node in the build gate (K21).
 
 **Outcome KPI**: K20 (forgeries are refused), K21 (honest games replay to their own deposit).
 **Technical notes**:
-- **What the record must hold.** At each fixed step, the rules read three controls through `keys.isDown`, in `movePlayer` (`game.js`): left (ArrowLeft or A), right (ArrowRight or D) and fire (Space). Nothing else reaches the gameplay. A paused game runs no steps, and M, N, P and the initials never touch it. So the record is the three held controls by step index, from the game's start to its game over: no presses, pauses or initials. The probe measured 0.8–1.6 KB a minute at human pace ([findings](probe/findings.md)).
-- **What has to change.** Every gameplay draw is `Math.random` today: enemy fire and the Dream Home in `game.js`, erosion in `shields.js`. `Math.hypot` is used at `shields.js:43`. The rules live in a module-level `g`, which the views read and the tests reach through `snapshot()` and `tests/unit/support/fresh-game.js`. ADR-006 rule 5 lets `netlify/**` import only `high-scores.js` from `src/`.
+- **What the record must hold.** At each fixed step, the rules read three controls through `keys.isDown`, in `movePlayer` (`game.js`): left (ArrowLeft or A), right (ArrowRight or D) and fire (Space). Nothing else reaches the gameplay. A paused game runs no steps, and M, N, P and the initials never touch it. So the record is the three held controls by step index, from the game's start to its game over: no presses, pauses, initials or seed. The seed comes from the session alone. The probe measured 0.8–1.6 KB a minute at human pace ([findings](probe/findings.md)).
+- **What has to change.** Every gameplay draw is `Math.random` today: 8 sites in `game.js` (enemy fire, the Dream Home) and erosion in `shields.js`. `Math.hypot` is used at `shields.js:43`. The rules live in a module-level `g`, which the views read and the tests reach through `snapshot()` and `tests/unit/support/fresh-game.js`. ADR-006 rule 5 lets `netlify/**` import only `high-scores.js` from `src/`.
 - **Whether the console line still runs** (Example 1) is DESIGN's. The story asks only that what it changes never reaches the table.
 
 **Dependencies**: US-01 and US-02 (the session that binds the seed).
@@ -230,45 +262,45 @@ Priya Shah is the best player in the office, and a good run lasts 25 minutes. It
 #### Elevator Pitch
 
 Before: a signing is two fields, well under the table's 1 KB cap.
-After: after a 25-minute game worth £180,000, type `pri` and press Enter → "Signing PRI…", then "Signed PRI, #1." within the usual wait, well inside the game's 5 s timeout.
-Decision enabled: Priya keeps a long run going, knowing it can still be signed.
+After: after a 25-minute game worth £120,000, type `pri` and press Enter → "Signing PRI…", then "Signed PRI, #1." within the usual wait, well inside the game's 5 s timeout.
+Decision enabled: Priya decides to keep a long run going rather than bank a shorter one, knowing it can still be signed.
 
 **Domain examples**
 
-1. *A long run*: Priya plays 25 minutes for £180,000, with a record of about 40 KB, and reads "Signed PRI, #1.".
-2. *The longest verified game*: a 60-minute game signs, and the function's replay takes well under a second on Netlify.
+1. *A long run*: Priya plays 25 minutes for £120,000, about £4,800 a minute (above the probe bot's best), with a record of about 40 KB, and reads "Signed PRI, #1.".
+2. *The longest verified game*: a game of 60 minutes of game time would sign. No bot has played one yet (the probe's longest lasted 17 minutes before the formation reached the pin), so K22 measures the longest recorded game and scales it to 60 minutes: under 1 s is expected.
 3. *Too long*: a 61-minute record is refused without being replayed (`game-too-long`), and so is a program's record claiming 100 hours.
 4. *Too big*: a body over the new cap is refused as `payload-too-large`, and the function stops reading it at the cap.
 
 **UAT scenarios**
 
-1. *A long game signs.* Given an empty table and Priya's 25-minute game worth £180,000, When Priya signs PRI, Then the game tells them "Signed PRI, #1.".
-2. *The longest game verified.* Given a record of exactly 60 minutes of game time, at human pace, When it is signed, Then it is saved, with the deposit its replay produced.
-3. *A longer game is refused before any replay.* Given a record of 60 minutes and one step, When it is signed, Then it is refused as `game-too-long`, nothing is saved, and the log shows it was never replayed.
-4. *A body over the cap is refused.* Given a body one byte over the new cap, When it is posted, Then it is refused as `payload-too-large`, and no more than the cap is read.
+1. *A long game signs.* Given an empty table and the longest game of the recorded-games corpus (at least 15 minutes, played in a browser), When it is signed, Then it is saved with its deposit, and the player is told "Signed …, #1.".
+2. *The 60-minute limit* (outline: a record of exactly 432,000 steps, 60 minutes → it is read and replayed; 432,001 steps → refused as `game-too-long`, and the log shows it was never replayed). Given a valid session, When a signing carries a record of `<this length>`, Then the outcome is `<as listed>`.
+3. *The longest record at human pace fits.* Given a record of 60 minutes at 15 key changes a second (D20), When it is posted, Then its body is under the cap and it is not refused as `payload-too-large`.
+4. *The body cap* (outline: a body exactly at the cap → read and checked; one byte over → refused as `payload-too-large`, and no more than the cap is read). Given a body of `<this size>`, When it is posted, Then the outcome is `<as listed>`.
 
 **Acceptance criteria**
 
-- [ ] An honest record of up to 60 minutes of game time, at any human pace, fits the request and is verified. (UAT 1, 2)
-- [ ] A record of more than 60 minutes is refused without being replayed. (UAT 3)
+- [ ] An honest record of up to 60 minutes of game time at human pace (D20) fits the request and is verified, and its deposit is saved when it is at most £500,000. (UAT 1, 3)
+- [ ] A record of more than 60 minutes is refused without being replayed. (UAT 2)
 - [ ] A body over the new cap is refused, and is never read past the cap. (UAT 4)
-- [ ] On a deploy preview, a 60-minute record is verified within the game's 5 s signing timeout, and its replay takes under 1 s (K22). (UAT 2)
+- [ ] On a deploy preview, the longest recorded game is verified within the game's 5 s signing timeout, and its replay time, scaled to 60 minutes, is under 1 s (K22, measured on slice 02's preview). (UAT 1)
 
 **Outcome KPI**: K22 (a long game is verified in time on Netlify).
-**Technical notes**: the probe replayed 72,000 steps (10 minutes) in about 50 ms in Node 22, so about 0.3 s for 432,000 steps (60 minutes) on an M4 Pro; Netlify's CPU is unmeasured. Legacy Free bills invocations, not CPU time. A program that changes keys at every step writes about 4 KB a minute: the cap doesn't have to cover it for an hour. The encoding and the cap are DESIGN's.
+**Technical notes**: the probe replayed 72,000 steps (10 minutes) in about 50 ms in Node 22, so about 0.3 s for 432,000 steps (60 minutes) on an M4 Pro; Netlify's CPU is unmeasured. Legacy Free bills invocations, not CPU time. A program that changes keys at every step writes about 4 KB a minute, and the cap doesn't have to hold it for an hour. The encoding and the cap are DESIGN's. The ceiling's move from £250,000 to £500,000 ships here, with the replay (D14), in `high-scores.js`, so the game and the function move together.
 **Dependencies**: US-03.
 
 ### US-05: A game computed offline can't beat the clock
 
-`job_id: J-TABLE-TRUST` · slice 03 · about ½ day
+`job_id: J-TABLE-TRUST` · slice 03 · about ½ day, plus E6
 
-After slice 02, HAX can't claim a deposit: the record has to produce it. But HAX's game uses a seed HAX knows, and the rules are public, so a program can search for a high-scoring record offline, in seconds. The session knows when the game began.
+After slice 02, HAX can't claim a deposit: the record has to produce it. But HAX's game uses a seed HAX chose, and the rules are public, so a program can search for a high-scoring record offline, in seconds. The session knows when the game began.
 
 #### Elevator Pitch
 
-Before (after slice 02): HAX asks for a session, computes a 20-minute record worth £120,000 in a few seconds, and signs it a minute later → "Signed HAX, #1.".
-After: the same signing → `400 {"error":"too-fast"}`, and the table is unchanged; HAX would have to wait the full 20 minutes for each game.
-Decision enabled: the owner knows that a forged row costs its forger the game's time, one game per session, and can judge whether what is left (D16) needs more.
+Before (after slice 02): HAX asks for a session, computes a 20-minute record worth £80,000 in a few seconds, and posts it a minute later with `curl -X POST …/api/scores` → 200, and HAX is #1.
+After: the same `POST /api/scores` → `400 {"error":"too-fast"}`, and the table is unchanged; HAX would have to wait 20 minutes from the session's issue.
+Decision enabled: the owner sees that each forged game now costs its forger the game's length in real time, and decides from the log whether the rate the rate limit still allows (D16) needs more.
 
 **Domain examples**
 
@@ -280,51 +312,54 @@ Decision enabled: the owner knows that a forged row costs its forger the game's 
 **UAT scenarios**
 
 1. *A record longer than the time since its session is refused.* Given a session issued 60 s ago, When a record of 20 minutes of game time is signed with it, Then it is refused as `too-fast`, and nothing is saved.
-2. *An honest game is never too fast* (outline: signed at once after a short game; the session issued 4 s after the start; a 10-minute pause). Given Alex's game `<played this way>`, When Alex signs ALX, Then the signing is saved.
-3. *The browser's clock plays no part.* Given a signing that claims a start an hour ago, When it is checked, Then only the session's issue time and the function's clock count.
+2. *The allowance, exactly* (outline: game time = time since the session + the allowance → saved; one second more → refused as `too-fast`). Given a session issued `<so long>` ago, When a record of `<this game time>` is signed, Then the outcome is `<as listed>`.
+3. *An honest game is never too fast* (outline: signed at once after a short game; the session issued 4 s after the start; a 10-minute pause). Given Alex's game `<played this way>`, When Alex signs ALX, Then the signing is saved.
+4. *The browser's clock plays no part.* Given the same game and signing, When they are sent from a browser whose clock is an hour off, Then the outcome is the same as with a correct clock.
 
 **Acceptance criteria**
 
-- [ ] A record whose game time exceeds the time since its session was issued, beyond the allowance, is refused as `too-fast`, and nothing is saved. (UAT 1)
-- [ ] An honest game is never refused as too fast, whatever its pauses, and whatever the session's delay up to its 5 s timeout. (UAT 2)
-- [ ] The check uses only the session's issue time and the function's clock. (UAT 3)
+- [ ] A record whose game time exceeds the time since its session was issued, beyond the allowance, is refused as `too-fast`, and nothing is saved. (UAT 1, 2)
+- [ ] An honest game is never refused as too fast, whatever its pauses, and whatever the session's delay up to its 5 s timeout. (UAT 3)
+- [ ] The outcome doesn't depend on the browser's clock. (UAT 4)
+
+**Enabling task E6** (J-TABLE-TRUST): the local server lets the browser scenarios, which play on a fake clock much faster than real time, through the clock check, without weakening production. *Acceptance*: the browser scenarios that sign pass with it, US-05's own scenarios pass without it, and the function has no such switch.
 
 **Outcome KPI**: K20, K23 (honest players are never refused).
-**Technical notes**: the browser acceptance tests play on Playwright's fake clock, so their games run much faster than real time; the local server must let them through without weakening production (DESIGN and DISTILL). Function instances can disagree by a few ms (ADR-008's accepted edge), well inside the allowance.
+**Technical notes**: the check compares the record's game time (steps × 1/120 s) with the function's clock minus the session's issue time, both the server's; the signing carries no time of the browser's. Function instances can disagree by a few ms (ADR-008's accepted edge), well inside the allowance.
 **Dependencies**: US-03 (the record's game time is trusted only once it is replayed).
 
 ### US-06: A game played on yesterday's rules is turned away cleanly
 
 `job_id: J-TABLE-SIGN` · slice 03 · about ½ day
 
-The game keeps changing: level backdrops are in progress on another branch. If a deploy changes how the game plays while Sam's page is open, the new function replays Sam's record under new rules, and gets another game. That must be a clean refusal, logged as what it is, not a mismatch that looks like a forgery.
+Sam keeps the game open in a tab all day. If a deploy changes how the game plays while Sam's tab is open, the new function replays Sam's record under new rules, and gets another game. Sam's signing must end with a reload putting things right, and the owner must see a version change in the log, not something that looks like a forgery.
 
 #### Elevator Pitch
 
-Before (after slice 02): a deploy that changes how the game plays while Sam's page is open → Sam's next signing is refused as `replay-mismatch`, which reads like a forgery in the log.
+Before (after slice 02): a deploy that changes how the game plays while Sam's tab is open → Sam's next signing is refused as `replay-mismatch`, which reads like a forgery in the log.
 After: Sam's signing → "Couldn't confirm SAM's signing.", with the log reason `rules-changed`; after a reload, Sam's next game signs as usual.
 Decision enabled: the owner tells forgeries from version changes in the log, and picks a quiet moment for a deploy that changes how the game plays.
 
 **Domain examples**
 
-1. *A gameplay deploy*: Sam's page loaded at 10:00 with rules version 1. Version 2, with faster bolts, is published at 10:05, and Sam signs at 10:10. The signing is refused as `rules-changed`.
-2. *A look-only deploy*: new backdrop colours, with no change to the gameplay, keep version 1, and Sam's signing is saved.
-3. *A forgotten version*: a developer changes the enemy fire timing without raising the version. The build fails on the recorded games, before anything is deployed.
+1. *A gameplay deploy*: Sam's tab loaded at 10:00 with rules version 1. Version 2, with faster bolts, is published at 10:05, and Sam signs at 10:10. The signing is refused as `rules-changed`.
+2. *A look-only deploy*: new backdrop colours keep version 1, and Sam's signing is saved.
+3. *A forgotten version*: a developer changes the enemy fire timing without raising the version. A recorded game now replays to another deposit, and the build fails before anything is deployed.
 
 **UAT scenarios**
 
 1. *A record from other rules is refused without replay.* Given the function runs rules version 2, When a record from version 1 is signed, Then it is refused as `rules-changed`, nothing is saved, and the log shows it was never replayed.
-2. *A change to the look keeps the version.* Given the recorded games, When only colours or art change, Then they replay to their recorded deposits, and the build passes.
-3. *A change to the gameplay needs a new version.* Given the recorded games, When the gameplay changes and the version doesn't, Then the build fails on the recorded games.
+2. *A change to the look keeps the version.* Given the recorded games, When only colours change, Then they replay to their recorded deposits and steps, and the build passes.
+3. *A change to the gameplay needs a new version.* Given the recorded games, When a change makes a recorded game replay to another deposit or step and the version wasn't raised, Then the build fails on the recorded games.
 
 **Acceptance criteria**
 
 - [ ] A record names the rules version it was played with, and a record from another version is refused as `rules-changed`, without being replayed. (UAT 1)
-- [ ] The recorded-games check fails when the gameplay changes and the version doesn't, and passes when only the look changes. (UAT 2, 3)
+- [ ] The recorded-games check fails when a recorded game replays to another deposit or step without a version change, and passes when they all replay as recorded. A gameplay change that no recorded game reaches is not caught: the author adds a recorded game that reaches it (DESIGN; ADR-011). (UAT 2, 3)
 
-**Outcome KPI**: K23 (honest players are never refused, or are told why in the log).
-**Technical notes**: the static files are revalidated on every page load (`max-age=0, must-revalidate`), but an open page keeps the modules it loaded. The recorded-games check is K21's corpus, run in the build gate.
-**Dependencies**: US-03.
+**Outcome KPI**: K23 (honest players are never refused, or the log says why).
+**Technical notes**: the static files are revalidated on every page load (`max-age=0, must-revalidate`), but an open page keeps the modules it loaded. A change to the art's size changes collisions, so it is a gameplay change. The recorded-games check is K21's corpus, run in the build gate.
+**Dependencies**: US-03, E5.
 
 ## Wave: DISCUSS / [REF] Outcome KPIs
 
@@ -332,33 +367,34 @@ Decision enabled: the owner tells forgeries from version changes in the log, and
 
 | ID | Who | Does what | Target | Baseline | Measured by | Gate | A miss triggers |
 |---|---|---|---|---|---|---|---|
-| K20 | Forgers | have every forgery in the catalogue refused | 10 of 10 forgeries refused with their reason; 0 rows saved | Today, 2 of 10: only the over-cap body and the deposit above £250,000 | Acceptance scenarios on the real function and Blobs emulator (`@server`, in the build gate), plus the console forgery in the three browsers | hard | No merge |
-| K21 | Honest games | replay to the deposit and the game-over step the player saw | 0 mismatches: over a corpus of recorded games played in Chromium, Firefox and WebKit, replayed in Node, and over every signing in the acceptance suite | Probe, 2026-10-26: 7 of 7 games identical in Node, Chromium, Firefox and WebKit | The corpus in the build gate; the browser scenarios | hard | No merge |
-| K22 | A 60-minute game | is verified in time on Netlify | On a deploy preview: answered 200 within 5 s on the client, with the replay under 1 s by the function's log | Probe: about 0.3 s extrapolated, Node 22 on an M4 Pro; not measured on Netlify | DEVOPS smoke test on the preview | hard | No merge (DEVOPS go/no-go) |
-| K23 | Honest players in production | are never refused, or the log says why | Every `replay-mismatch`, `too-fast` and `rules-changed` in the 30 days after release is investigated; 0 traced to a determinism bug or a clock problem | n/a | The function's log, weekly | soft | A fix via `/nw-bugfix` |
-| K24 | Forgers in production | leave no row | 0 rows on the production table that the owner judges forged, in the 30 days after release | 2026-10-26: rows of about £9,999,950, deleted by the owner (S0) | `GET /api/scores` weekly, and the log's refusals by reason | soft (observational) | Investigate, then decide whether D16's residual risk needs more |
+| K20 | Forgers | have every forgery in the catalogue refused | 11 of 11 refused with their reason; 0 rows saved | Today, 2 of 11: a body over the cap, and a deposit above the ceiling | Acceptance scenarios on the real function and Blobs emulator (`@server`, in the build gate), plus the console forgery in the three browsers | hard | No merge |
+| K21 | Honest games | replay to the deposit and the game-over step the player saw | 0 mismatches: over the recorded-games corpus (at least 3 games per browser, 1 to 15 minutes each, played in Chromium, Firefox and WebKit, replayed in Node), and over every signing in the acceptance suite | Probe, 2026-10-26: 7 of 7 games identical in Node, Chromium, Firefox and WebKit, on a patched copy of the rules | The corpus in the build gate; the browser scenarios | hard | No merge |
+| K22 | Honest players whose game lasts up to 60 minutes | have it verified in time on Netlify | On a deploy preview, the longest recorded game (at least 15 minutes): answered 200 within 5 s on the client, and its `replayMs` in the function's log, scaled to 60 minutes of game time, under 1 s | Probe: about 0.3 s for 60 minutes, extrapolated, Node 22 on an M4 Pro; not measured on Netlify | DEVOPS smoke test, on slice 02's preview, before D8 lands (a re-run after slice 03 waits the game's length per session) | hard | No merge (DEVOPS go/no-go) |
+| K23 | Honest players in production | are never refused, or the log says why | Every `replay-mismatch`, `too-fast` and `rules-changed` in the 30 days after release is investigated; 0 traced to a determinism bug or a clock problem | 0: none of these reasons exists before release | The function's log, weekly | soft | A fix via `/nw-bugfix` |
+| K24 | Forgers in production | leave no row | 0 rows on the production table that the owner judges forged, in the 30 days after release | 2026-10-26: the forged rows of about £9,999,950 the owner deleted at S0 (the owner records the count) | `GET /api/scores` weekly, and the log's refusals by reason | soft (observational) | Investigate, then decide whether D16's residual risk needs more |
+| K25 | Players starting a game | get its session back quickly | p95 of the session request under 1000 ms over 30 paced requests (one every 13 s) on a deploy preview; the first request of a fresh deploy recorded apart | Not measured. K10's POST + GET pairs: p95 924 ms (2026-10-25) | DEVOPS smoke test on slice 01's preview | hard | No merge (DEVOPS go/no-go) |
 
-**The forgery catalogue (K20)**: (1) no session; (2) an altered session; (3) a session used twice; (4) a claimed deposit that isn't the replayed one; (5) a record that doesn't end at game over; (6) a malformed record; (7) a record over 60 minutes; (8) a record faster than the clock; (9) a body over the cap; (10) a replayed deposit above £250,000.
+**The forgery catalogue (K20)**: (1) no session; (2) an altered session; (3) a game signed twice, with the same or another session; (4) an expired session; (5) a claimed deposit that isn't the replayed one; (6) a record that doesn't end at game over; (7) a malformed record; (8) a record over 60 minutes; (9) a record faster than the clock; (10) a body over the cap; (11) a deposit above £500,000.
 
 **Guardrails** (hard, automated or on the preview):
 - The leaderboard's walking skeleton and scenarios, and the typed-initials scenarios, stay green in Chromium, Firefox and WebKit, with every signing now verified by replay.
-- K10 (signing p95 under 1000 ms on a preview), K11 and K14 are re-run, as the release-check trigger requires for a change to `scores.mjs`.
-- K15 holds: a game start still costs one request.
+- K10 (the p95 of a POST and a GET, timed together, under 1000 ms on a preview) is re-run, its POST signing with a 10-minute record; K11 and K14 are re-run too, as the release-check trigger requires for a change to `scores.mjs`. K14's re-run also counts session refusals (429) at quick-game pace (D19).
+- K15 (function invocations under 62,500 a month) holds. Today a game start's `GET` is often answered by the CDN cache, which runs no function; the session request always runs it and lists the table. So a game costs at most one more invocation and one more Blobs listing than today: about 2–3 invocations a game (page load, session, sometimes a signing), so about 10,000–15,000 a month at 5,000 games, under K15's target. The rate-limit count per game is unchanged, because cache hits count toward it too (K14's baseline).
 
-Proposed IDs: DISTILL registers K20–K24 in [kpi-contracts.yaml](../../product/kpi-contracts.yaml).
+Proposed IDs: DISTILL registers K20–K25 in [kpi-contracts.yaml](../../product/kpi-contracts.yaml).
 
-**Hypothesis**: we believe that replaying each game on the server, from a session issued as the game starts, will keep forged deposits off the shared table at no cost to honest players. We will know this is true when every forgery in the catalogue is refused (K20), every honest game replays to its own deposit (K21, K23), and no forged row appears in the 30 days after release (K24).
+**Hypothesis**: we believe that replaying each game on the server, from a session issued as the game starts, will keep forged deposits off the shared table at no cost to honest players. We will know this is true when every forgery in the catalogue is refused (K20), every honest game replays to its own deposit (K21, K23), sessions come back quickly (K25), and no forged row appears in the 30 days after release (K24).
 
 ## Wave: DISCUSS / [REF] Definition of Done
 
 1. Every acceptance criterion is verified as DISTILL's traceability says. The automated ones are green in the unit and in-memory projects, and in Chromium, Firefox and WebKit.
 2. The leaderboard's walking skeleton is green with its signing verified by replay. `npm test` and `npm run build` are green, with no `@pending` left.
 3. The forgery catalogue (K20) and the recorded-games corpus (K21) run in the build gate.
-4. The secret is set in Netlify's environment for production and for deploy previews (the owner sets it). The DEVOPS smoke test signs a real recorded game on the preview, and measures K22 and the re-runs of K10, K11 and K14.
-5. ADR-007's accepted risk is superseded by the new ADR, which states D16's residual risk. ADR-004, ADR-006 and ADR-008, the brief and OUT-8 are amended where DESIGN changes them.
-6. The README and the moderation guide say how to set and rotate the secret, and what still gets through (D16).
+4. The secret is set in Netlify's environment for production and for deploy previews (the owner sets it). The DEVOPS smoke test measures K25 on slice 01's preview, and K22 on slice 02's preview, before the clock check lands (a K22 re-run after slice 03 waits the game's length per session). It re-runs K10, K11 and K14.
+5. ADR-007's accepted risk is superseded by ADR-010, which states D16's residual risk. ADR-004 to ADR-008, the brief, OUT-8, OUT-9 and OUT-10, and the leaderboard's `environments.yaml` are amended where DESIGN changes them.
+6. The README and the moderation guide say how to set and rotate the secret, and what still gets through (D16). The release note tells players to reload a page left open since before the release (D5, D12).
 7. No new runtime dependency in the browser, and the function's only dependency is still `@netlify/blobs`.
-8. Manual check by the deliverer on the deploy preview: a few games in Chrome, Firefox and Safari play as before, and sign.
+8. Manual check by the deliverer on the deploy preview: a few games in Chrome, Firefox and Safari look and play as before (the particles included), and sign.
 9. The PO's check on the deploy preview is done, K23's and K24's baselines are recorded on release day, and the work is merged to `main`.
 
 ## Wave: DISCUSS / [REF] Out of scope
@@ -370,19 +406,19 @@ Proposed IDs: DISTILL registers K20–K24 in [kpi-contracts.yaml](../../product/
 - **New player-facing wording or signing outcomes** (D5).
 - **Accounts, identity or anything personal** beyond today's three initials.
 - **Minifying or obfuscating the JavaScript**, which the RCA rejects, and a bundler.
-- **Splitting the rate limit** between reading and signing (ADR-007 keeps it for when it bites).
+- **Splitting the rate limit** now (D19 measures first).
 
 ## Wave: DISCUSS / [REF] WS strategy
 
 **Strategy C (real local), extending the leaderboard's walking skeleton instead of adding a parallel one.** The skeleton "A house-hunter signs the high-score table and another house-hunter sees it" (`@walking_skeleton @driving_port`) already runs the real page, keyboard, function and Blobs client on the emulator behind `scripts/serve.mjs`. After slice 01, its game asks for a session as it starts and its signing carries it; after slice 02, its signing is replayed. Its steps can stay as they are, because the session and the record are invisible to the player.
 
 - **One new walking-skeleton scenario at the server's driving port** (`@walking_skeleton @driving_port @server`): "A signing that no game asked for doesn't reach the table". It posts a signature with no session to the real function on the emulator, and reads the table back.
-- **The local server makes its own secret**, so the skeleton needs no setup, and never uses production's.
+- **The local server makes its own secret** (E1), so the skeleton needs no setup, and never uses production's.
 
 ## Wave: DISCUSS / [REF] Driving ports
 
 - **HTTP, the Score API**:
-  - `POST /api/sessions` (new; the path is DESIGN's): the game's seed in, its session and the refreshed table out.
+  - `POST /api/sessions` (new; DESIGN confirms the path): the game's seed in, its session and the refreshed table out.
   - `POST /api/scores` (changed): the signing now carries its session and its record, besides the initials and the claimed deposit.
   - `GET /api/scores` (unchanged): the page-load read, still cached for 15 s.
 - **The keyboard in the game page** (unchanged): what the rules see of it at each step (left, right, fire) is now recorded.
@@ -394,15 +430,16 @@ Proposed IDs: DISTILL registers K20–K24 in [kpi-contracts.yaml](../../product/
 - **For DESIGN**:
   - the session's shape, its endpoint, its secret and the reason codes;
   - the record's encoding, the new body cap and how the function keeps the 60-minute limit cheap;
-  - one row per session without a second key family (D3);
+  - one row per game without a second key family (D3), under simultaneous signings;
   - a game the function can create afresh for each check, and what that means for the views (`render.js` imports `g`) and for the test harnesses (`snapshot()`, `fresh-game.js`, `arrange`);
   - where the replay code lives, and the amended layering rule 5;
-  - the rules version and the recorded-games check (D10);
-  - the clock allowance (D8), and how the fake-clock browser tests get through the local server without weakening production.
-- **For DEVOPS**: the secret in Netlify's environment for production, deploy previews and branch deploys (the brief's "no secrets" changes); a smoke test that signs a real record (it can play a game in Node with the same rules) and measures K22.
+  - the rules version and the recorded-games corpus (D10, K21);
+  - the clock allowance (D8), and how the fake-clock browser tests get through the local server without weakening production (E6);
+  - how tests put other house-hunters' rows on a test board without a game (E1).
+- **For DEVOPS**: the secret in Netlify's environment for production, deploy previews and branch deploys (the brief's "no secrets" changes); a smoke test that signs real records and measures K22 and K25.
 - **For DISTILL**:
   - the forgery catalogue (K20) and the recorded-games corpus (K21);
-  - the existing tests that write the rules' state or seed `Math.random`, which move to the game's own seed: `tests/unit/support/fresh-game.js` (`withDeterministicChance`, `arrange`), `tier-b/signing-rules.js`, `tier-b/entry-rules.js`, the 11 unit specs that import `game.js`, and the browser drivers that seed `Math.random` (`leaderboard-game.js`, `game-driver.js`);
+  - the existing tests that write the rules' state, seed `Math.random` or post `{ initials, score }`: `tests/unit/support/fresh-game.js` (`withDeterministicChance`, `arrange`), `tier-b/signing-rules.js`, `tier-b/entry-rules.js`, the 11 unit specs that import `game.js`, the browser drivers that seed `Math.random` (`leaderboard-game.js`, `game-driver.js`), `leaderboard-game.js`'s `signTheTable`, and the handler and server specs (`scores-handler`, `scores-entry`, `scores-log-leak`, `serve-edges`);
   - the walking-skeleton scenario above.
 
 ## Wave: DISCUSS / [REF] Probe results
@@ -411,25 +448,26 @@ A probe on 2026-10-26 ([findings](probe/findings.md), scripts alongside) ran aga
 - **Determinism**: 7 bot games (3.6 to 16.7 minutes of game time, levels 1 to 6) replayed identically, fingerprint for fingerprint every 10 simulated seconds, in Node 22, Chromium 151, Firefox 153 and WebKit 26.5.
 - **`Math.hypot` → squared distances**: the same games, fingerprint for fingerprint.
 - **Cost**: about 1,500 steps a millisecond in Node. 72,000 steps (10 minutes) take about 50 ms; 60 minutes extrapolates to about 0.3 s on an M4 Pro.
-- **Size**: the record, as compact text, is 0.8–1.6 KB a minute at human pace, and up to 4 KB a minute for a program that changes keys at every step.
+- **Size**: the record, as compact text, is about 2 characters a change: 0.8–1.6 KB a minute at human pace, and up to 4 KB a minute for a program that changes keys at every step.
+- **Seed choice** (added after the first review cycle): over 100 seeds, the same bot scores a median of £46,100 (£8,150 to £75,100), at £2,800 to £4,700 a minute of game time. The best of 10 seeds averages £67,300 (+46 %), and the best of 100 is £75,100 (+63 %).
 
 ## Wave: DISCUSS / [REF] DoR validation
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
-| 1 | Problem statement clear, in domain language | PASS | Each story opens with the forger's move or the player's constraint: £249,950 by `curl`, the console line, a 25-minute record against a 1 KB cap, a 20-minute game computed in seconds, a deploy mid-session |
-| 2 | Persona with specific characteristics | PASS | Alex Morgan (`casual-arcade-player`), with Priya (long runs) and Sam (quick games) of the same segment. The owner and the forger HAX are roles, named and described |
+| 1 | Problem statement clear, in domain language | PASS | Each story opens with the forger's move or the player's situation: £249,950 by `curl`, the console line, a 25-minute record against a 1 KB cap, a 20-minute game computed in seconds, a tab left open across a deploy |
+| 2 | Persona with specific characteristics | PASS | Alex Morgan (`casual-arcade-player`), with Priya (long runs) and Sam (quick games, a tab open all day) of the same segment. The owner and the forger HAX are roles, named and described |
 | 3 | ≥ 3 domain examples with real data | PASS | 3–4 per story, with real deposits, tables, durations and the RCA's own forgeries |
-| 4 | UAT in Given/When/Then, 3–7 per story | PASS | 6, 5, 6, 4, 3 and 3 scenarios, each with one When, covering happy, edge and error paths; outlines with their examples inline |
-| 5 | AC derived from UAT | PASS | Every AC names the UATs it comes from; every UAT feeds at least one AC |
-| 6 | Right-sized | PASS | ½ to 1 day per story. Slice 02 is about 2 days with its precursors, the recorded exception (Scope assessment) |
-| 7 | Technical notes | PASS | On every story: the body's shape and cap, `loadTable` and `signTable`, the three controls the rules read, the `Math.random` and `Math.hypot` sites, the module-level `g` and the harnesses, layering rule 5, the fake clock, the rate limit, the probe's numbers |
-| 8 | Dependencies resolved or tracked | PASS | PR #4 merged. US-02 needs US-01; US-03 needs US-01 and US-02; US-04, US-05 and US-06 need US-03. DESIGN, DEVOPS and DISTILL items are listed under Pre-requisites |
-| 9 | Outcome KPIs with measurable targets | PASS | K20–K24, each with who, what, a numeric target, a baseline (or why there is none), a method, a gate and what a miss triggers |
-| — | Job traceability (hard check) | PASS | One `job_id` per story; J-TABLE-TRUST is added to `jobs.yaml`, and J-TABLE-SIGN is already there |
-| — | Elevator pitch (hard check) | PASS | Every story has Before, After (a real `curl`, console line or UI action → an exact observable output) and Decision enabled. No story is `@infrastructure`; slice 02's precursors are commits inside the slice, not stories |
+| 4 | UAT in Given/When/Then, 3–7 per story | PASS with one exception | 8, 5, 6, 4, 4 and 3 scenarios, each with one When, covering happy, edge, boundary and error paths; outlines with their examples inline. US-01 has 8, one over: its UATs 5–7 were added by the review (a refused attempt, the lifetime, the secret), and splitting US-01 would separate checks of one request |
+| 5 | AC derived from UAT | PASS | Every AC names the UATs it comes from; every UAT feeds at least one AC. The guardrail ACs (US-02 AC 5, US-03 AC 6) name the scenarios and checks that back them |
+| 6 | Right-sized | PASS | ½ to 1 day per story, with the enabling tasks listed apart (Scope assessment). Slice 02 is about 3 days, the recorded exception (D17) |
+| 7 | Technical notes | PASS | On every story: the body's shape and cap (US-01, US-04), `loadTable`, `signTable` and the timeouts (US-02), the three controls and the `Math.random` and `Math.hypot` sites (US-03), the probe's costs (US-04), the server's clock (US-05), the page's modules across a deploy (US-06) |
+| 8 | Dependencies resolved or tracked | PASS | PR #4 merged. US-02 needs US-01; US-03 needs US-01 and US-02; US-04, US-05 and US-06 need US-03; US-06 needs E5. DESIGN, DEVOPS and DISTILL items are listed under Pre-requisites |
+| 9 | Outcome KPIs with measurable targets | PASS | K20–K25, each with who, what, a numeric target, a baseline or the reason there is none, a method, a gate and what a miss triggers |
+| — | Job traceability (hard check) | PASS | One `job_id` per story and per enabling task; J-TABLE-TRUST is added to `jobs.yaml`, and J-TABLE-SIGN is already there |
+| — | Elevator pitch (hard check) | PASS | Every story has Before, After (a real `curl`, console line, endpoint or UI action → an exact observable output) and a Decision enabled that names a choice. No story is `@infrastructure`; the enabling tasks are traced to their stories |
 
-**DoR status: PASSED.** Expansion triggers: *cross-context complexity* fires (three modules, a new secret), and its suggested expansion, `alternatives-considered`, is covered by the alternatives behind D1–D4 and by the new ADR's "Alternatives considered". No other trigger fires: one persona segment, no regulatory terms, WS strategy C.
+**DoR status: PASSED, pending the re-review.** Expansion triggers: *cross-context complexity* fires (three modules, a new secret), and its suggested expansion, `alternatives-considered`, is covered by the alternatives behind D1–D4 and by ADR-010's and ADR-011's "Alternatives considered". No other trigger fires: one persona segment, no regulatory terms, WS strategy C.
 
 ## Wave: DISCUSS / [REF] Changed assumptions
 
@@ -437,111 +475,121 @@ The earlier documents are not edited here. Their originals are quoted, and DESIG
 
 - **ADR-007, Decision**: "Accepted risk: made-up scores from a script, up to the plausible ceiling" → superseded: a made-up deposit is refused (D1, D6–D10). What is still accepted is narrower: a program that plays well (D16).
 - **ADR-007, Alternatives considered**: "Server-side replay of the game from recorded inputs: the only real proof, but it means running the whole game on the server. Far beyond a fan game." → The rules already run without browser APIs, in fixed steps, and a seeded copy replays identically in Node and three engines, at about 50 ms for 10 minutes (probe).
-- **ADR-007 and DDD-5**: "The body is read with a 1 KB byte cap … The body must be JSON with exactly `{ initials, score }`" → the body carries a session and a record, under a cap DESIGN sets (US-04).
+- **ADR-007**: "The body is read with a 1 KB byte cap … The body must be JSON with exactly `{ initials, score }`" → the body carries a session and a record, under a cap DESIGN sets (US-04).
+- **ADR-006, ADR-007, the brief, OUT-8 and OUT-10 (PR #4, S1)**: "the plausible ceiling `MAX_PLAUSIBLE_SCORE` (£250,000)" → £500,000, once the replay is in place (D14).
 - **ADR-006, rule 5**: "`netlify/**` imports only `src/game/high-scores.js` from `src/`." → The function also imports the rules it replays (US-03).
 - **ADR-006, Context**: "`src/game/game.js` can't be imported server side: it holds the module-level game state `g`" → the function needs a game it can create afresh for each check (US-03).
 - **ADR-008, Decision**: "When the table is read: on page load, in the background whenever a game starts (`gameStarted`), and from every POST answer." → the game-start read becomes the session request's answer, which is never cached (D2, US-02).
 - **Brief, Platform and Delivery**: "Nothing else: no secrets, no environment variables beyond `NODE_VERSION`" → one secret (D3).
+- **RCA, S1**: "It must sit above any human run: £250,000 is about 28 perfect waves." → a 60-minute verified game can exceed it (D9), so it rises to £500,000 (D14).
 - **RCA, S2**: "When a game starts, the function issues a session: an id, `startedAt` and a seed" → the game picks its seed, and the session binds it with the issue time (D2). "The function refuses a score above `R × elapsed seconds`" → replaced by the replay and the clock check (D1, D8): there is no R to calibrate.
 - **RCA, S3 item 3**: "The client records input by step index: held-key changes, presses, typed initials and pauses. That is a few KB for a long game" → only the three held controls by step: presses, pauses and initials never reach the gameplay (US-03). 0.8–1.6 KB a minute at human pace, so 50–100 KB for an hour (probe).
-- **RCA, Residual risk**: "a bot that plays well in real time" → also a program that searches offline for the inputs that do best with a seed it knows; D8 holds it to real time per game (D16).
+- **RCA, Residual risk**: "a bot that plays well in real time" → also a program that searches offline for the inputs that do best with a seed, and tries many seeds; D8 holds each game to its own length in real time (D16).
 
 ## Wave: DISCUSS / [REF] Wave decisions summary
 
-- **Decisions**: D1–D4 (the user, 2026-10-26: replay with refusal on mismatch, the game's own seed with a session at the start, an HMAC token, keep the current rows). D5–D16 are PO defaults, awaiting the user's approval with this DISCUSS.
+- **Decisions**: D1–D4 (the user, 2026-10-26: replay with refusal on mismatch, the game's own seed with a session at the start, an HMAC token, keep the current rows). D2 was confirmed by the user after the review, with the measured gain from choosing seeds. D14 (the ceiling rises to £500,000) and D18 (a session expires after 2 hours) are the user's, from the review. D5–D13, D15–D17, D19 and D20 are PO defaults, awaiting the user's approval with this DISCUSS.
 - **Jobs**: J-TABLE-TRUST (new, opportunity 14, evidence: one incident) and J-TABLE-SIGN (11, no regression).
 - **Feature type**: cross-cutting, brownfield. **Walking skeleton**: slice 01, extending the leaderboard's.
 - **Constraints**:
   - The frame never waits on the network, and a game start costs one request.
-  - The game plays exactly as before.
+  - Same rules, same look.
   - The table port stays as it is (no second key family).
   - No new runtime dependency.
   - Logs carry fixed reasons only.
 - **Risks**:
   - The secret must be set in every Netlify deploy context, or nobody can sign (D3).
   - Netlify's CPU for a long replay is unmeasured (K22).
-  - Every future change to the gameplay needs a rules version bump (D10).
-  - The browser tests play on a fake clock and need the local server's help with D8.
-  - Slice 02 is about 2 days, over the 1-day target.
+  - Every future change to how the game plays needs a rules version bump (D10).
+  - The browser tests play on a fake clock and need the local server's help with D8 (E6).
+  - Quick restarts can meet the rate limit (D19).
+  - Slice 02 is about 3 days, over the 1-day target (D17).
   - A program that plays well still gets through (D16).
-- **Handoff**: DESIGN (nw-solution-architect), with the decisions, the stories, the probe and the Pre-requisites. DEVOPS gets K22, the secret and the smoke test; K23 and K24 read the log and the public table.
+- **Handoff**: DESIGN (nw-solution-architect), with the decisions, the stories, the probe and the Pre-requisites. DEVOPS gets K22, K25, the secret and the smoke test; K23 and K24 read the log and the public table.
 
 ---
 
 ## Wave: DESIGN / [REF] DDD list
 
-Scope: application, with the Score API (nw-solution-architect) · mode: propose (user, 2026-10-26) · paradigm: OOP (unchanged, `CLAUDE.md`) · density: lean · evidence: the DISCUSS probe ([findings](probe/findings.md)). The IDs are `DDD-R…`, so they don't clash with the leaderboard's DDD-1…19 or typed-initials' DDD-T1…T14, which stand unless a row here says otherwise. **Status: Proposed, awaiting the user's approval.** ADRs: [ADR-010](../../product/architecture/adr-010-the-table-replays-every-game.md) (proposed; supersedes ADR-007's accepted risk) and [ADR-011](../../product/architecture/adr-011-deterministic-rules-one-game-per-instance.md) (proposed; amends ADR-006).
+Scope: application, with the Score API (nw-solution-architect) · mode: propose (user, 2026-10-26) · paradigm: OOP (unchanged, `CLAUDE.md`) · density: lean · evidence: the DISCUSS probe ([findings](probe/findings.md)). The IDs are `DDD-R…`, so they don't clash with the leaderboard's DDD-1…19 or typed-initials' DDD-T1…T14, which stand unless a row here says otherwise. **Status: Proposed, awaiting the user's approval** (revised after the first review cycle, 2026-10-26). ADRs: [ADR-010](../../product/architecture/adr-010-the-table-replays-every-game.md) (proposed; supersedes ADR-007's accepted risk) and [ADR-011](../../product/architecture/adr-011-deterministic-rules-one-game-per-instance.md) (proposed; amends ADR-006).
 
 | ID | Decision | Rationale |
 |---|---|---|
-| DDD-R1 | **The session request**: `POST /api/sessions`, on the same function (`config.path: ['/api/scores', '/api/sessions']`), so the same rate-limit rule counts it. JSON `{ "seed": "<32 lowercase hex>" }`, read with a 1 KB cap. The answer is 200 `{ session: { id, seed, issuedAt, token }, scores, listedAt }`, `no-store`, with the rows and `listedAt` of its own listing (DDD-12). Refusals: 415 `json-required`, 413 `payload-too-large`, 400 `invalid-seed`; 500 `unexpected`, logged as `secret-missing` or `list-failed`. | D2: one request per game start, which also refreshes the table. All or nothing: a session without rows, or rows without a session, would add a client state for no player value |
-| DDD-R2 | **The session token**: HMAC-SHA256 over `v1.{id}.{seed}.{issuedAt}`, base64url (43 characters). `id` comes from `newId()` (32 lowercase hex, as a row id today), `issuedAt` from the root's clock. The roots build a **session signer**, `{ sign, verify }`, from the secret (`netlify/scores/sessions.mjs`); the handler never holds the secret. `verify` recomputes the token and compares with `timingSafeEqual`. The secret is `SCORES_SESSION_SECRET` in the Netlify environment, at least 32 characters, otherwise treated as missing (D3). Locally, `scripts/serve.mjs` draws 32 random bytes at each start. No expiry | D3. A session has no store footprint. Expiry adds nothing: D9 bounds the record, and DDD-R4 the reuse |
-| DDD-R3 | **The signing**: `POST /api/scores` with exactly `{ initials, score, session, record }`, read with a **128 KB cap** (131,072 bytes), where `record` is `{ rules, steps, keys }`. The checks run in the order of the Signing checks table below, cheapest first; the replay is last but one, and only the write follows it | A 60-minute record at human pace is 50–100 KB (probe). 128 KB holds an hour at up to about 2 KB a minute, so about 17 key changes a second sustained, far above human pace. A program that changes keys at every step fits about 32 minutes, which D9 doesn't owe it |
-| DDD-R4 | **One row per session, with the port unchanged.** A row's id is its session's id, so the key format (ADR-004) is unchanged and the rows already on the table stay valid (D4). Per id, the table keeps the key signed first (the earliest `at`, then arcade order); other keys with that id never show. After its write, a signing whose own key isn't its session's first removes it and answers 409 `session-used`. Pruning removes a session's other keys first, within the same bound of 5 per signing | D7 with no second key family (D3). The listing after the write already exists, so this costs no extra Blobs operation. Whichever instance sees two keys of one session agrees on which one stays |
-| DDD-R5 | **The record** lives in the new pure module `src/game/record.js`, which imports nothing. It holds `RULES_VERSION` (1), `MAX_GAME_STEPS` (432,000, i.e. 60 minutes × 7,200), the control bits (1 left, 2 right, 4 fire), the encoding, `createRecorder()` and `readRecord(record)`, which returns `{ rules, steps, changes }` or null. `keys` is one entry per change: the step delta in base 36, then a capital A–H for the three bits. The first entry is at step 0, every later delta is at least 1, and every change comes before `steps` | Compact text, as probed: 3–4 characters a change, and no separators, because the letters close each entry. One module for both sides of the wire, like `high-scores.js` (ADR-006) |
-| DDD-R6 | **Deterministic rules.** The new pure module `src/game/chance.js`, which imports nothing, has `createChance(seed)`: sfc32 over the seed's four 32-bit words, warmed up 12 draws. Every gameplay draw takes `chance.next()`: enemy fire (3 draws), the Dream Home's timers, direction and bonus, and erosion, through `erode(hit, r, chance)`. Erosion compares squared distances (`dx*dx + dy*dy` against `r*r` and `(r - 1.2)²`). The particles move to `src/game/particles.js`, which keeps `Math.random`, `Math.cos` and `Math.sin` and never touches gameplay; a game created with `particles: false` makes none | D13. The probe played the same games with squared distances, and identical games in four engines. Particles are the one place in `game/` that may use engine-dependent maths, behind a file boundary that a scan can check (DDD-R13) |
-| DDD-R7 | **One game per instance**: `createGame({ newSeed, particles = true })` returns `{ g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot, canPlayAgain, invaderX, invaderY }`. Today's module-level state (`g`, the outbox, the signings on their way, the notice counter, the best store) moves into the closure, along with the chance and the recorder, which stay out of `g`. The pure exports and constants stay module exports. `main.js` creates the one browser game and exports nothing, so `import()` from the console reaches no live game. `render.js` receives the instance instead of importing `g`. `newSeed` is required: `main.js` draws 128 bits from `Math.random` | The function needs a fresh game per check, and a request can't share module state with the next one. Merging the module's exports with the instance (`{ ...module, ...createGame(…) }`) keeps the test harnesses' `rules.g`, `rules.update` and `rules.IW` working. The seed needs no secrecy (D2), and the browser drivers already make `Math.random` reproducible |
-| DDD-R8 | **What is recorded.** From `startGame` up to and including the step that ends the game, `update` records the three controls as it reads them, through one function, `heldControls(keys)`, which `movePlayer` uses too. The step count is the number of `update` calls in that span. `gameStarted` carries `{ seed }`, and `initialsEntered` carries `{ initials, score, signing, record }`. The record stays inside the instance until the next game starts | DISCUSS US-03's analysis: only these three controls reach the gameplay. A paused game runs no steps. Reading the controls in one place means the record can't drift from what `movePlayer` saw |
-| DDD-R9 | **The replay**: `src/game/replay.js` exports `replay({ seed, record })` → `{ over, steps, deposit }`. It creates `createGame({ newSeed: () => seed, particles: false })`, presses Enter on the title, then runs one `update(STEP, …)` per step with that step's controls. It stops at game over or at `record.steps`, whichever comes first, and drains the events every step. Pure and synchronous, and never longer than `MAX_GAME_STEPS` steps | The probe's replayer, on the real rules. The handler checks its result against `record.steps` and the claimed deposit (Signing checks) |
-| DDD-R10 | **The browser's table client**: `platform/leaderboard.js` gains `startSession(seed)`, which rejects any answer without rows, a `listedAt` or a session for the seed it sent. `sign` now takes `{ initials, score, session, record }`. Each request keeps its 5000 ms timeout (DDD-13). In `main.js`, on `gameStarted` the session request starts; its rows go to `tableAnswered`, and a failure to `tableFailed`. On `initialsEntered`, the signing goes out once that game's session has arrived, or is settled as failed if the session request failed. The page-load `GET` stays | D2, D11 and US-02. The rules never see a session: it is the adapter's business. A signing is always for the game just over, because Enter can't start a new game while the entry is open |
-| DDD-R11 | **The clock check** (slice 03): `too-fast` when `steps × STEP × 1000 > now() − issuedAt + allowance`, with an allowance of **10,000 ms**. The roots pass the allowance. Production is always strict. The local root is strict too, except for a request that carries the cookie `test-clock=lenient` (test boards only, like `test-board`) | D8: the 5000 ms session timeout, plus margin for clock skew between instances (ADR-008's edge). The browser scenarios play on Playwright's fake clock, so they need the lenient cookie; slice 03's own scenarios don't send it |
-| DDD-R12 | **The rules version** (slice 03): a record from another `RULES_VERSION` is refused as `rules-changed`, without replay. A **recorded-games corpus** (K21: games played in Chromium, Firefox and WebKit, with the deposit and game-over step each saw) replays in the `unit` project, so it is in the build gate. It fails on any change to the gameplay, until `RULES_VERSION` is raised and the corpus re-recorded | D10. A change in sprite size changes collisions too, so "the look" includes the art's dimensions: the corpus decides, not the author |
-| DDD-R13 | **Layering**: rule 5 becomes "`netlify/**` imports from `src/` only `src/game/high-scores.js`, `src/game/record.js` and `src/game/replay.js`". New rule 7: `game/chance.js` and `game/record.js` import nothing. New rule 8, **the determinism scan**: no file in `src/game/` except `particles.js` mentions `Math.random`, `Math.hypot`, `Math.sin`, `Math.cos`, `Math.tan`, `Math.atan2`, `Math.exp`, `Math.log`, `Math.pow`, `**`, `Date` or `performance`. Same text scan as the import scan: it can over-report, never miss | The function reaches `game.js`, `shields.js`, `config.js`, `events.js`, `particles.js` and `theme.js` only through `replay.js`. ECMAScript defines `+ - * /`, `Math.floor/ceil/round/abs/min/max/sign/sqrt/imul` and the bit operations exactly; the scanned functions are implementation-approximated |
-| DDD-R14 | **Observability** (DDD-17 extended): `scores.rejected` gains the reasons `session-required`, `invalid-session`, `invalid-record`, `rules-changed`, `game-too-long`, `too-fast`, `replay-mismatch` and `session-used`. New events are `sessions.issued ok`, `sessions.rejected` (`json-required`, `payload-too-large`, `invalid-seed`) and `sessions.error` (`secret-missing`, `list-failed`, `unexpected`). Every line that replayed carries `steps` and `replayMs` (K22). A line never carries the session, its token, the seed, the record, initials or an IP | D15 and the RCA's RC4. `steps` is a game length, not personal data |
-| DDD-R15 | **Precursors keep the suite green**, in this order: seeded chance and squared distances (DDD-R6); `createGame` with the harness moved to it (DDD-R7); the recorder (DDD-R8). Each commit leaves `npm test` green. The browser drivers' games keep a seeded `Math.random`, but its draws now pick the game's seed, so the random sequence differs from today's. DISTILL re-checks each driver's choreography (Open questions 1) | Slice 02's precursors are not a slice (DISCUSS, Scope assessment) |
+| DDD-R1 | **The session request**: `POST /api/sessions`, on the same function (`config.path: ['/api/scores', '/api/sessions']`), so the same rate-limit rule counts it. JSON `{ "seed": "<32 lowercase hex>" }`, read with a 1 KB cap. The answer is 200 `{ session: { seed, issuedAt, token }, scores, listedAt }`, `no-store`, with the rows and `listedAt` of its own listing (DDD-12). Refusals: 405 `method-not-allowed` (with `Allow: POST`) for any other method; 415 `json-required`; 413 `payload-too-large`; 400 `invalid-seed`; 500 `unexpected`, logged as `secret-missing`, `store-unavailable` or `list-failed`. **Dispatch**: the handler module exports `handleScores` and `handleSessions`, and the default export (and `scripts/serve.mjs`) routes by path. Both take the options they take today, plus `sessions` (the session signer, or null when there is no secret) and `clockAllowanceMs` | D2: one request per game start, which also refreshes the table. All or nothing: a session without rows, or rows without a session, would add a client state for no player value |
+| DDD-R2 | **The session token**: HMAC-SHA256 over `v1.{seed}.{issuedAt}`, base64url (43 characters). `issuedAt` comes from the root's clock. The roots build a **session signer**, `{ sign, verify, gameId }`, from the secret (`netlify/scores/sessions.mjs`); the handler never holds the secret. `verify` checks the session's shape first (an object with exactly a 32-hex `seed`, a safe-integer `issuedAt` and a 43-character base64url `token`) and returns false on any mismatch, before `timingSafeEqual` compares two buffers of equal length. **Lifetime** (D18): a session older than 2 hours is refused as `session-expired`; one issued more than the clock allowance in the future is `invalid-session`. **The secret** is `SCORES_SESSION_SECRET` in the Netlify environment: 32 random bytes, base64-encoded. One shorter than 32 characters is treated as missing (D3). Locally, `scripts/serve.mjs` draws 32 random bytes at each start | D3. A session has no store footprint. The token binds the seed and the time, not the initials, the deposit or the record (ADR-010, Consequences) |
+| DDD-R3 | **The signing**: `POST /api/scores` with exactly `{ initials, score, session, record }`, read with a **128 KB cap** (131,072 bytes), where `record` is `{ rules, steps, keys }`. The checks run in the order of the Signing checks table below, cheapest first; the replay is last but one, and only the write follows it | A record takes about 2 characters a key change (probe). 128 KB holds 60 minutes at about 18 changes a second, sustained: above human pace (D20, up to 15). A program that changes keys at every step (26–33 a second) fits about 35–40 minutes, which D9 doesn't owe it |
+| DDD-R4 | **One row per game, with the port and the key format unchanged.** A row's id is its **game id**: the first 32 hex characters of the SHA-256 of the seed (`gameId(seed)`), so the key format (ADR-004) and the rows already on the table (D4) are unchanged, and every session for one seed names the same row. **Keeping a key**: after its write, a signing keeps its key only if its own listing shows no other well-formed key with that game id. Otherwise it removes its own key and answers 409 `already-signed`. **Ranking**, one rule for every answer and for pruning: the well-formed keys in arcade order, keeping only the first key per game id (a *winner*); the table is the first 10 winners. **Pruning**: the other keys of a game (*losers*) go first, whatever the count, then the lowest winners beyond 20, at most 5 deletes per signing in all. A sequential re-send is not checked before the replay: it writes, lists, removes its key and answers 409 | D7 with no second key family (D3). With list-after-write (ADR-004's strong consistency), at most one of two concurrent signings for one game keeps its key: if X keeps, Y wrote after X's listing, so Y's listing shows X's key and Y removes its own. Both may remove theirs, leaving none: only a forger signs one game twice at once. No extra Blobs operation on the honest path (K10's p95 is 924 ms against 1000 ms); a re-send costs a replay and three operations, under the rate limit |
+| DDD-R5 | **The record** lives in the new pure module `src/game/record.js`, which imports nothing. It holds `RULES_VERSION` (1), `MAX_GAME_STEPS` (432,000, i.e. 60 minutes × 7,200), the control bits (1 left, 2 right, 4 fire), the encoding, `createRecorder()` and `readRecord(record)`, which returns `{ rules, steps, changes }` or null. `keys` is one entry per change: the step delta in base 36, then a capital A–H for the three bits. The first entry is at step 0, every later delta is at least 1, every change comes before `steps`, and `steps` is a safe integer from 1 to `MAX_GAME_STEPS` | Compact text, as probed: about 2 characters a change, and no separators, because the letters close each entry. One module for both sides of the wire, like `high-scores.js` (ADR-006). `readRecord` bounds everything the replay will meet |
+| DDD-R6 | **Deterministic rules.** The new pure module `src/game/chance.js`, which imports nothing, has `createChance(seed)`: sfc32 over the seed's four 32-bit words, warmed up 12 draws. **The seed's lifecycle**: `createGame` draws nothing. `startGame` calls `newSeed()` once, then `createChance(seed)`, then emits `gameStarted { seed }`, and only then calls `startWave(0)`, whose Dream Home timer is the game's first draw. A chance is never shared between two games. Every gameplay draw takes `chance.next()`: enemy fire (3 draws), the Dream Home's timers, direction and bonus, and erosion, through `erode(hit, r, chance)`. Erosion compares squared distances (`dx*dx + dy*dy` against `r*r` and `(r - 1.2)²`), which decides as `Math.hypot` did when `r ≥ 1.2` (the radii are 2.2 and 2.8): a unit test checks all 49 cells of the 7 × 7 neighbourhood for both radii. The particles move to `src/game/particles.js`, which keeps `Math.random`, `Math.cos` and `Math.sin` and never touches gameplay; a game created with `particles: false` makes none | D13. The probe played the same games with squared distances, and identical games in four engines. A chance created once per instance would make game 2 depend on game 1's draws: a unit property replays games 1 and 2 of one instance against fresh replays |
+| DDD-R7 | **One game per instance**: `createGame({ newSeed, particles = true })` returns `{ g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot, canPlayAgain, invaderX, invaderY }`. Today's module-level state (`g`, the outbox, the signings on their way, the notice counter, the best store) moves into the closure, along with the chance and the recorder, which stay out of `g` so it stays plain data. The pure exports and constants stay module exports. `main.js` creates the one browser game and exports nothing, so `import()` from the console reaches no live game. `render.js` receives the instance instead of importing `g`. `newSeed` is required: `main.js` draws 128 bits from `Math.random` | The function needs a fresh game per check, and a request can't share module state with the next one. Merging the module's exports with the instance (`{ ...module, ...createGame(…) }`) keeps the test harnesses' `rules.g`, `rules.update` and `rules.IW` working, and `structuredClone(g)` (typed-initials' closed-world check) valid. The seed needs no secrecy (D2), and the browser drivers already make `Math.random` reproducible |
+| DDD-R8 | **What is recorded, and how steps are counted.** Step *k* (from 0) is the *k*-th `update` call after `startGame`. In every recorded call, whatever the state (play, dead or clear), `update` reads the three controls once, through one function, `heldControls(keys)`, which `movePlayer` uses too, and records a change. The call that ends the game is the last recorded one, so `steps` is the number of recorded calls. `gameStarted` carries `{ seed }`, and `initialsEntered` carries `{ initials, score, signing, record }`. The record stays inside the instance until the next game starts. `update` is called only with `STEP` (`main.js`); a record of calls with another `dt` (only tests make them) is not signable | DISCUSS US-03's analysis: only these three controls reach the gameplay, and a paused game makes no calls. Reading the controls in one place means the record can't drift from what `movePlayer` saw. A unit property: every game recorded in Node replays to game over exactly at its `steps`, with its deposit |
+| DDD-R9 | **The replay**: `src/game/replay.js` exports `replay({ seed, record })` → `{ over, steps, deposit }`. It creates `createGame({ newSeed: () => seed, particles: false })`, presses Enter on the title, then runs one `update(STEP, …)` per step with that step's controls. It stops at game over or at `record.steps`, whichever comes first, and drains the events every step. Pure and synchronous, never longer than `MAX_GAME_STEPS` steps, and in fact never longer than the game it replays: random inputs lose the game within minutes | The probe's replayer, on the real rules. The handler checks its result against `record.steps` and the claimed deposit (Signing checks). A unit property: any record `readRecord` accepts replays without throwing, so no record reaches the catch-all |
+| DDD-R10 | **The browser's table client**: `platform/leaderboard.js` gains `startSession(seed)`, which rejects any answer without rows, a `listedAt` or a session for the seed it sent. `sign` now takes `{ initials, score, session, record }`. Each request keeps its 5000 ms timeout (DDD-13), which starts when that request is sent. In `main.js`, on `gameStarted` the session request starts; its rows go to `tableAnswered`, and a failure to `tableFailed`. On `initialsEntered`, the signing goes out once that game's session has arrived, or is settled as failed (`signingFailed`) as soon as the session request has failed. The page-load `GET` stays | D2, D11 and US-02. The rules never see a session: it is the adapter's business. A signing is always for the game just over, because Enter can't start a new game while the entry is open |
+| DDD-R11 | **The clock check** (slice 03): `too-fast` when `steps × STEP × 1000 > now() − issuedAt + clockAllowanceMs`, with an allowance of **10,000 ms**, passed by the roots. Production has no test allowance. The local root uses 10,000 ms too, except for a request that carries the cookie `test-clock=lenient` with a `test-board` cookie, which skips the check (E6) | D8: the 5000 ms session timeout, plus margin for clock skew between instances (ADR-008's edge). The browser scenarios play on Playwright's fake clock, so they need the lenient cookie; slice 03's own scenarios don't send it |
+| DDD-R12 | **The rules version and the corpus.** A record from another `RULES_VERSION` is refused as `rules-changed`, without replay (slice 03). **The recorded-games corpus** (E5, K21): `tests/fixtures/recorded-games/`, one JSON per game `{ browser, seed, record, deposit, steps }`, at least 3 games per browser of 1 to 15 minutes, under 300 KB in all. It is recorded by a browser spec tagged `@record-corpus`, run only with `RECORD_CORPUS=1`. That spec plays scripted key sequences on the fake clock and saves the body of the signing it intercepts with `page.route`, so it needs no game internals. A unit spec replays every game in Node, so the build gate fails when one replays to another deposit or step. Re-recording follows a `RULES_VERSION` bump, with the same command | D10. Only a change a recorded game reaches is caught: when a change touches a rule the corpus doesn't reach (a rare Dream Home path, say), its author adds a game that reaches it (ADR-011) |
+| DDD-R13 | **Layering**: rule 5 becomes "`netlify/**` imports from `src/` only `src/game/high-scores.js`, `src/game/record.js` and `src/game/replay.js`". New rule 7: `game/chance.js` and `game/record.js` import nothing. New rule 8, **the determinism scan**, an allowlist over `src/game/` (except `particles.js`) and `src/theme/`: every `Math` must be followed by `.` and one of `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `sign`, `imul`, so a bare `Math` (destructuring, aliasing, `Math['random']`, `globalThis.Math`) fails; and none of `**`, `Date`, `performance` or `crypto` may appear. Unit cases break each form once | The function reaches `game.js`, `shields.js`, `config.js`, `events.js`, `particles.js` and `theme.js` only through `replay.js`. ECMAScript defines the four operations, comparisons, the allowed `Math` functions and the bit operations exactly; every other `Math` function is implementation-approximated or unused. Like the import scan, it reads text, so it can over-report but never miss |
+| DDD-R14 | **Observability** (DDD-17 extended): `scores.rejected` gains the reasons `session-required`, `invalid-session`, `session-expired`, `invalid-record`, `rules-changed`, `game-too-long`, `too-fast`, `replay-mismatch` and `already-signed`. `scores.error` gains `secret-missing`. New events are `sessions.issued ok`, `sessions.rejected` (`method-not-allowed`, `json-required`, `payload-too-large`, `invalid-seed`) and `sessions.error` (`secret-missing`, `store-unavailable`, `list-failed`, `unexpected`). Every line that replayed carries `steps` and `replayMs` (K22). A line never carries the session, its token, the seed, the game id, the record, initials or an IP; `scores-log-leak.spec.js` grows to cover them | D15 and the RCA's RC4. `steps` is a game length, not personal data |
+| DDD-R15 | **Enabling tasks keep the suite green**, in this order: E2 (seeded chance and squared distances, DDD-R6); E3 (`createGame`, with the harness moved to it, DDD-R7); E4 (the recorder, DDD-R8, and the layering rules, DDD-R13); E5 (the corpus, DDD-R12). Each commit leaves `npm test` green. The browser drivers' games keep a seeded `Math.random`, but its draws now pick the game's seed, so each game's random sequence differs from today's. DISTILL re-checks each driver's choreography (Open questions 1) | Slice 02's enabling tasks are not a slice (DISCUSS, Scope assessment) |
+| DDD-R16 | **The ceiling** (D14): `MAX_PLAUSIBLE_SCORE` in `high-scores.js` becomes 500,000 in slice 02, in the same commit that makes the function replay, so `makesTheTable` and the function move together. It is checked on the claim before the replay (Signing checks, row 15) | Before the replay, £250,000 is the only check on a deposit; after it, the ceiling is defence in depth and must not refuse a verified game (D9) |
+| DDD-R17 | **Tests arrange rows without games** (E1). Handler-level tests build sessions with `createSessionSigner` and a known test secret, and use corpus records, or records they make in Node with `createGame` and a scripted input; they arrange other players' rows through the port, as today. Browser tests arrange them through a route that only `scripts/serve.mjs` serves, `POST /__test/rows` with `{ initials, score }`, for a request with a `test-board` cookie, which writes a well-formed key through that board's port. The function has no such route | `leaderboard-game.js`'s `signTheTable`, `seedSignatures` and `anotherHouseHunterSigns` post `{ initials, score }` today, which slice 01 refuses. The local server is never deployed, as with `test-board` (DDD-16) |
 
 ### Signing checks (`POST /api/scores`), in order
 
-The first check that fails decides the answer. Nothing is written before row 14.
+The first check that fails decides the answer. Nothing is written before row 17.
 
 | # | Check | Refusal | Log reason |
 |---|---|---|---|
 | 1 | The method is GET or POST | 405 | `method-not-allowed` |
-| 2 | Content type `application/json` | 415 | `json-required` |
-| 3 | The body is at most 128 KB, counted as it is read | 413 | `payload-too-large` |
-| 4 | JSON with a `session` field | 400 | `session-required` (a page loaded before the release, D12; the RCA's `curl`) |
-| 5 | Exactly `{ initials, score, session, record }`; `{ initials, score }` valid (`isValidSignature`) | 400 | `invalid-signature` |
-| 6 | The initials are allowed | 400 | `initials-not-allowed` |
-| 7 | The root has a secret; the session's shape, and its token verifies | 500 if no secret; else 400 | `secret-missing`; `invalid-session` |
-| 8 | The record reads (`readRecord`) | 400 | `invalid-record` |
-| 9 | `record.rules` is `RULES_VERSION` (slice 03) | 400 | `rules-changed` |
-| 10 | `record.steps ≤ MAX_GAME_STEPS` | 400 | `game-too-long` |
-| 11 | Not faster than the clock (slice 03) | 400 | `too-fast` |
-| 12 | The claimed deposit is plausible (≤ £250,000), checked before the replay so a refusal costs no replay | 400 | `implausible-score` |
-| 13 | The replay is over exactly at `record.steps`, with the claimed deposit | 400 | `replay-mismatch` |
-| 14 | `putIfNew` of `s/{9999999 − deposit}-{at}-{initials}-{session.id}` | 503 | `key-exists` (unchanged) |
-| 15 | After the listing, the key is its session's first (DDD-R4) | 409, its key removed | `session-used` |
+| 2 | The root has a secret (a POST only; checked before the body is read) | 500 `unexpected` | `secret-missing` |
+| 3 | Content type `application/json` | 415 | `json-required` |
+| 4 | The body is at most 128 KB, counted as it is read | 413 | `payload-too-large` |
+| 5 | The body is JSON | 400 | `invalid-signature` |
+| 6 | It has a `session` field | 400 | `session-required` (a page loaded before the release, D12; the RCA's `curl`) |
+| 7 | Exactly `{ initials, score, session, record }`, and `{ initials, score }` valid (`isValidSignature`) | 400 | `invalid-signature` |
+| 8 | The initials are allowed | 400 | `initials-not-allowed` |
+| 9 | The session is an object of the right shape, and its token verifies | 400 | `invalid-session` |
+| 10 | The session is at most 2 hours old (D18) | 400 | `session-expired` |
+| 11 | The record reads (`readRecord`) | 400 | `invalid-record` |
+| 12 | `record.rules` is `RULES_VERSION` (slice 03) | 400 | `rules-changed` |
+| 13 | `record.steps ≤ MAX_GAME_STEPS` | 400 | `game-too-long` |
+| 14 | Not faster than the clock (slice 03) | 400 | `too-fast` |
+| 15 | The claimed deposit is at most the ceiling (£250,000 in slice 01, £500,000 from slice 02), so a refusal costs no replay | 400 | `implausible-score` |
+| 16 | The replay is over exactly at `record.steps`, with the claimed deposit (slice 02) | 400 | `replay-mismatch` |
+| 17 | `putIfNew` of `s/{9999999 − deposit}-{at}-{initials}-{gameId(seed)}` | 503 | `key-exists` (unchanged) |
+| 18 | After the listing, no other key has this game id (DDD-R4) | 409, its key removed | `already-signed` |
 
-The leaderboard's other answers stand: a listing that fails is 500 `list-failed`; a failed tidy-up is still 200, logged `prune-failed`; anything else is 500 `unexpected`.
+The leaderboard's other answers stand: a listing that fails is 500 `list-failed`; a failed tidy-up is still 200, logged `prune-failed`; anything else is 500 `unexpected`. In slice 01 there is no record, so the envelope is `{ initials, score, session }` and rows 11–14 and 16 don't exist yet.
 
 ## Wave: DESIGN / [REF] Component decomposition
 
 | Component | Path | Change | What this feature changes |
 |---|---|---|---|
-| Rules and state | `src/game/game.js` | EXTEND | `createGame` (DDD-R7); gameplay draws from the chance (DDD-R6); the recorder in `update`, and `heldControls` (DDD-R8); `gameStarted { seed }` and `initialsEntered { …, record }`. `burst` and `updateParticles` move to `particles.js` |
+| Rules and state | `src/game/game.js` | EXTEND | `createGame` (DDD-R7); the seed's lifecycle and the gameplay draws from the chance (DDD-R6); the recorder in `update`, and `heldControls` (DDD-R8); `gameStarted { seed }` and `initialsEntered { …, record }`. `burst` and `updateParticles` move to `particles.js` |
 | Shields | `src/game/shields.js` | EXTEND | `erode(hit, r, chance)`, with squared distances (DDD-R6) |
 | Chance | `src/game/chance.js` | CREATE NEW | sfc32 from the 32-hex seed; imports nothing (DDD-R6) |
 | Particles | `src/game/particles.js` | CREATE NEW (moved out of `game.js`) | Particles on `Math.random`, `cos` and `sin`, written to `g.particles`; none when `particles: false` (DDD-R6) |
 | Record | `src/game/record.js` | CREATE NEW | `RULES_VERSION`, `MAX_GAME_STEPS`, the control bits, the encoding, `createRecorder`, `readRecord`; imports nothing (DDD-R5) |
 | Replay | `src/game/replay.js` | CREATE NEW | `replay({ seed, record })` (DDD-R9) |
+| High-score rules | `src/game/high-scores.js` | EXTEND (one constant) | `MAX_PLAUSIBLE_SCORE` = 500,000 in slice 02 (DDD-R16). `isValidSignature` still checks `{ initials, score }`; the handler checks the envelope |
 | Loop and wiring | `src/main.js` | EXTEND | Creates the one game (`newSeed` from `Math.random`) and hands it to the views. On `gameStarted` it starts the session in place of `loadTable`; on `initialsEntered` it signs with that session and the record (DDD-R10) |
 | Rendering | `src/view/render.js` | EXTEND | `createRenderer(canvas, game)`: reads `game.g`, `game.canPlayAgain()` and `game.invaderX/Y` instead of importing them. Nothing drawn changes |
 | High-score table client | `src/platform/leaderboard.js` | EXTEND | `startSession(seed)`; `sign` with the session and the record (DDD-R10) |
-| Score API | `netlify/functions/scores.mjs` | EXTEND | Routes `/api/sessions`; the Signing checks table; the replay call; one row per session in the ranking and the prune plan (DDD-R4); the new reasons and fields (DDD-R14). The entry reads the secret and builds the session signer |
-| Session signer | `netlify/scores/sessions.mjs` | CREATE NEW | `createSessionSigner(secret)` → `{ sign, verify }`, with `node:crypto`. Outside `netlify/functions/`, because every top-level file there becomes a function (ADR-006) |
+| Score API | `netlify/functions/scores.mjs` | EXTEND | `handleSessions` and the path dispatch (DDD-R1); the Signing checks table; the replay call; one row per game in the ranking and the prune plan (DDD-R4); the new reasons and fields (DDD-R14). The entry reads the secret and builds the session signer |
+| Session signer | `netlify/scores/sessions.mjs` | CREATE NEW | `createSessionSigner(secret)` → `{ sign, verify, gameId }`, with `node:crypto`. Outside `netlify/functions/`, because every top-level file there becomes a function (ADR-006) |
 | Restricted table port | `netlify/functions/scores.mjs` (`createTablePort`) | UNCHANGED | D3 |
-| High-score rules | `src/game/high-scores.js` | UNCHANGED | `isValidSignature` still checks `{ initials, score }`; the handler checks the envelope |
-| Local server | `scripts/serve.mjs` | EXTEND | Serves `/api/sessions`; a random secret per start; `test-clock=lenient` for test boards (DDD-R11) |
-| Smoke test | `scripts/smoke-leaderboard.mjs` | EXTEND (DEVOPS) | Signs real recorded games: a session for each corpus game's seed, then its record (Open questions 2, 3) |
+| Local server | `scripts/serve.mjs` | EXTEND | Routes `/api/sessions`; a random secret per start; `test-clock=lenient` (DDD-R11) and `POST /__test/rows` (DDD-R17), both for test boards only |
+| Smoke test | `scripts/smoke-leaderboard.mjs` | EXTEND (DEVOPS) | Signs real recorded games: a session for each corpus game's seed, then its record, paced under the rate limit (Open questions 2, 3) |
 | Layering test | `tests/unit/layering.spec.js` | EXTEND | Rules 5, 7 and 8 (DDD-R13) |
 | Test support | `tests/unit/support/fresh-game.js` | EXTEND | `loadFreshGame()` returns `{ ...module, ...createGame({ newSeed }) }`, with `newSeed` drawn from `Math.random`, so `withDeterministicChance` keeps fixing the game |
+| Recorded games | `tests/fixtures/recorded-games/` | CREATE NEW | The corpus (DDD-R12) |
 
 ## Wave: DESIGN / [REF] Driving ports
 
 - **HTTP**:
   - `POST /api/sessions` (new, DDD-R1);
   - `POST /api/scores` (changed: the signing envelope and its checks, DDD-R3);
-  - `GET /api/scores` (unchanged: the page-load read, cached for 15 s).
+  - `GET /api/scores` (unchanged: the page-load read, cached for 15 s);
+  - locally only, `POST /__test/rows` (DDD-R17).
 - **The keyboard** (unchanged): the three controls the rules read at each step are recorded (DDD-R8).
 - **Page load, `blur`, `visibilitychange`** (unchanged).
 
@@ -552,61 +600,69 @@ The leaderboard's other answers stand: a listing that fails is 500 `list-failed`
 | The shared table, from the browser | `platform/leaderboard.js`, with injected `fetch` and timers | — | EXTEND: `startSession`, and `sign` with the session and the record |
 | The restricted table store | — | `createTablePort` over `@netlify/blobs` (Netlify entry, `serve.mjs`) | UNCHANGED (D3) |
 | The session signer | — | `createSessionSigner(secret)`: the Netlify entry with `SCORES_SESSION_SECRET`, `serve.mjs` with random bytes | NEW |
-| Clock, id source, logger | — | Injected by the roots, as today | The clock also issues and checks sessions; the id source now names sessions |
+| Clock, id source, logger | — | Injected by the roots, as today | The clock also issues and checks sessions; the id source no longer names rows (the game id does) |
 | The game's seed | `main.js`: 128 bits from `Math.random` | `replay.js`: the session's seed | NEW (the `newSeed` option) |
 | Cosmetic randomness | `particles.js`: `Math.random`, `cos`, `sin` | None (`particles: false`) | Moved |
 
 ## Wave: DESIGN / [REF] Technology choices
 
-- No new dependency, in the browser or in the function. HMAC-SHA256 and `timingSafeEqual` come from `node:crypto` (built into Node 22). sfc32 is about ten lines (DDD-R6).
-- One environment variable on Netlify, `SCORES_SESSION_SECRET`, which DEVOPS sets per deploy context.
+- No new dependency, in the browser or in the function. HMAC-SHA256, SHA-256 and `timingSafeEqual` come from `node:crypto` (built into Node 22). sfc32 is about ten lines (DDD-R6).
+- One environment variable on Netlify, `SCORES_SESSION_SECRET` (32 random bytes, base64), which DEVOPS sets per deploy context.
 - Unchanged: vanilla ES modules, Canvas2D, Netlify Functions v2 on Node 22, `@netlify/blobs` 11.1.6, Playwright 1.62.1, playwright-bdd 9.2.1, fast-check 4.10.2.
 
 ## Wave: DESIGN / [REF] Decisions table
 
 | ID | Decision |
 |---|---|
-| DDD-R1 | `POST /api/sessions` on the same function: seed in, session plus rows out, all or nothing |
-| DDD-R2 | HMAC-SHA256 token over id, seed and issue time; a session signer built by the roots; `SCORES_SESSION_SECRET` of at least 32 characters; no expiry |
+| DDD-R1 | `POST /api/sessions` on the same function, dispatched by path: seed in, session plus rows out, all or nothing |
+| DDD-R2 | HMAC-SHA256 token over seed and issue time; a session signer built by the roots; shape checked before `timingSafeEqual`; a 2-hour lifetime; a secret of 32 random bytes |
 | DDD-R3 | The signing is exactly `{ initials, score, session, record }` under 128 KB; the checks run cheapest first, as in the Signing checks table |
-| DDD-R4 | Row id = session id; per id the first signed key counts; a later one removes itself (409 `session-used`); pruning removes duplicates first |
-| DDD-R5 | `src/game/record.js`: version, 60-minute limit, control bits, compact `keys` text, recorder and reader |
-| DDD-R6 | `src/game/chance.js` (sfc32); every gameplay draw from it; squared distances; particles apart, in `particles.js` |
+| DDD-R4 | Row id = SHA-256 of the seed; a signing keeps its key only if its listing shows no other key for the game, else 409 `already-signed`; one ranking (first key per game) for answers and pruning |
+| DDD-R5 | `src/game/record.js`: version, 60-minute limit, control bits, compact `keys` text, recorder and reader, with every bound the replay meets |
+| DDD-R6 | `src/game/chance.js` (sfc32), created at each `startGame` before the first draw; squared distances, checked exhaustively; particles apart, in `particles.js` |
 | DDD-R7 | `createGame({ newSeed, particles })`; one game per instance; `main.js` exports nothing; `render.js` receives the game |
-| DDD-R8 | `heldControls` read once a step, used by `movePlayer` and recorded from `startGame` to game over |
-| DDD-R9 | `src/game/replay.js`: a fresh game, Enter, one step per recorded step, no particles |
-| DDD-R10 | The client starts a session on `gameStarted` (its rows refresh the table) and signs with it once it has arrived |
-| DDD-R11 | `too-fast` beyond a 10 s allowance; strict in production; `test-clock=lenient` for local test boards only |
-| DDD-R12 | `rules-changed` without replay; the recorded-games corpus in the build gate |
-| DDD-R13 | Layering rule 5 amended; new rules 7 (two modules import nothing) and 8 (the determinism scan) |
+| DDD-R8 | Step *k* is the *k*-th `update` call after `startGame`, game-over call included; `heldControls` read once a step, used by `movePlayer`, recorded |
+| DDD-R9 | `src/game/replay.js`: a fresh game, Enter, one step per recorded step, no particles; never throws on a record `readRecord` accepted |
+| DDD-R10 | The client starts a session on `gameStarted` (its rows refresh the table) and signs with it once it has arrived; each request's timeout starts when it is sent |
+| DDD-R11 | `too-fast` beyond a 10 s allowance; no test allowance in production; `test-clock=lenient` for local test boards only |
+| DDD-R12 | `rules-changed` without replay; the recorded-games corpus in `tests/fixtures/recorded-games/`, recorded on demand, replayed in the build gate |
+| DDD-R13 | Layering rule 5 amended; new rules 7 (two modules import nothing) and 8 (an allowlist of `Math` functions over `src/game/` and `src/theme/`) |
 | DDD-R14 | New refusal reasons and session events; `steps` and `replayMs`; nothing secret or personal in the log |
-| DDD-R15 | Three precursor commits, each with the suite green; the drivers re-checked by DISTILL |
+| DDD-R15 | Four enabling tasks, each a commit with the suite green; the drivers re-checked by DISTILL |
+| DDD-R16 | `MAX_PLAUSIBLE_SCORE` = 500,000, with the replay, in slice 02 |
+| DDD-R17 | Tests arrange rows through the port, or locally through `POST /__test/rows`, never through the function |
 
 ## Wave: DESIGN / [REF] Reuse Analysis
 
 Searched `src/**`, `netlify/**`, `scripts/**` and `tests/**` for:
-- randomness: `Math.random` (9 gameplay sites and the particles in `game.js`, 1 in `shields.js`), and the tests' seeded generators (`fresh-game.js` and the browser drivers' init scripts); `sound/voices.js` has a private LCG for white noise;
-- engine-dependent maths: `Math.hypot` (`shields.js:43`), and `cos` and `sin` (particles only);
+- randomness: `Math.random` (8 gameplay sites and 3 in `burst` in `game.js`, 1 in `shields.js`), and the tests' seeded generators (`fresh-game.js` and the browser drivers' init scripts); `sound/voices.js` has a private LCG for white noise;
+- engine-dependent maths: `Math.hypot` (`shields.js:43`), and `cos` and `sin` (particles only); no `Math` in `src/theme/`'s gameplay data;
 - module state in the rules: `g`, `outbox`, `onTheirWay`, `noticesShown` and `bestStore`;
 - who imports the rules: `main.js`, `render.js`, the unit specs, both tier-B harnesses (through `fresh-game.js`), and `game-driver.js` (constants only);
-- ids, clocks and secrets in the function: `newId`, the injected `now`, and no secret anywhere.
+- ids, clocks and secrets in the function: `newId`, the injected `now`, and no secret anywhere;
+- who posts `{ initials, score }`: the client, `leaderboard-game.js`, the handler and server specs, and the smoke test.
 
 | Existing component | File | Overlap | Decision | Contract shape | Universe, and how it is checked | Justification |
 |---|---|---|---|---|---|---|
-| Rules and state | `src/game/game.js` | The game itself | EXTEND (factory) | bounded-change | The instance's methods are today's exports: `{ ...module, ...instance }` passes every existing unit and tier-B test unchanged (DDD-R15, precursor 2) | A separate simulation module would duplicate the rules |
-| Shields | `src/game/shields.js` | Erosion | EXTEND | pure | The same games (probe); a unit test of `erode` with a stub chance | Two lines |
+| Rules and state | `src/game/game.js` | The game itself | EXTEND (factory) | bounded-change | The instance's methods are today's exports: `{ ...module, ...instance }` passes every existing unit and tier-B test unchanged (E3) | A separate simulation module would duplicate the rules |
+| Shields | `src/game/shields.js` | Erosion | EXTEND | pure | The exhaustive 49-cell check for both radii; a unit test of `erode` with a stub chance | Two lines |
 | Noise LCG | `src/sound/voices.js` | A private generator | NOT REUSED → CREATE NEW `chance.js` | pure | Unit property: the same seed gives the same draws, all in [0, 1) | `game/` can't import `sound/` (rule 1), and the noise generator's quality and API are the synth's own |
 | Particles in the rules | `src/game/game.js` (`burst`, `updateParticles`) | Particles | MOVE → `particles.js` | bounded-change | The canvas draws the same particles (DoD 8, by hand) | The determinism scan needs a file boundary (DDD-R13) |
-| Probe replayer | `docs/feature/…/probe/replay.js` | Replaying a log | CREATE NEW `src/game/replay.js`, after the probe's design | pure | K21's corpus, and the forgery catalogue (K20) | The probe ran on a patched copy; the real replay must use the real rules |
-| Key codec, ranking, prune plan | `netlify/functions/scores.mjs` | Row ids, ranking, pruning | EXTEND | pure | Unit properties: at most one row per id in the table; duplicates pruned first, still at most 5 per signing | DDD-R4 keeps the key format and the port |
+| Probe replayer | `docs/feature/…/probe/replay.js` | Replaying a log | CREATE NEW `src/game/replay.js`, after the probe's design | pure | K21's corpus; the forgery catalogue (K20); the never-throws property | The probe ran on a patched copy; the real replay must use the real rules |
+| High-score rules | `src/game/high-scores.js` | The claim's shape and the ceiling | EXTEND (one constant) | pure | The existing properties, with the new ceiling | DDD-R16 |
+| Loop and wiring | `src/main.js` | Composition | EXTEND | composition root | The browser scenarios | The one place that creates the game and wires the session |
+| Rendering | `src/view/render.js` | Reads the rules' state | EXTEND (receives the game) | — | The canvas is unchanged (DoD 8) | It can no longer import a module-level `g` |
+| Key codec, ranking, prune plan | `netlify/functions/scores.mjs` | Row ids, ranking, pruning | EXTEND | pure | Unit property: after any interleaving of signings, the rows answered equal the first 10 winners; losers pruned first, at most 5 deletes per signing | DDD-R4 keeps the key format and the port |
 | Restricted table port | `netlify/functions/scores.mjs` | Store access | UNCHANGED | — | The existing port tests | D3 |
-| Signature validity | `src/game/high-scores.js` | The claimed initials and deposit | UNCHANGED (reused by check 5) | pure | The existing properties | The envelope is the handler's concern |
-| Id source | `newId` in `scores.mjs` | Random ids | REUSE for session ids | — | — | Same alphabet as a key's id field |
+| Id source | `newId` in `scores.mjs` | Random ids | KEPT for the local seeding route; rows now take the game id | — | — | A row's id must name its game (DDD-R4) |
 | Table client | `src/platform/leaderboard.js` | Requests with a timeout and shape checks | EXTEND | composition | Its unit tests, plus `startSession`'s shape check | One more request of the same kind |
-| Local server | `scripts/serve.mjs` | A root of the handler | EXTEND | composition root | The acceptance suite | The same root, with one more route and option |
-| Test support | `tests/unit/support/fresh-game.js` | Fresh rules per run | EXTEND | — | The suite stays green after precursor 2 | Replaces the `?copy=` import trick |
-| Session signer | — | — | CREATE NEW `netlify/scores/sessions.mjs` | pure (plus `node:crypto`) | Unit: any changed field fails `verify`; a token never verifies under another secret | Nothing signs anything today |
+| Local server | `scripts/serve.mjs` | A root of the handler | EXTEND | composition root | The acceptance suite | The same root, with one more route, two test-only switches |
+| Smoke test | `scripts/smoke-leaderboard.mjs` | Signs on a preview | EXTEND (DEVOPS) | — | Its own unit tests | It must sign real records now |
+| Layering test | `tests/unit/layering.spec.js` | Import rules | EXTEND | — | Each new rule broken once and kept once | Same scan, two more rules and an allowlist |
+| Test support | `tests/unit/support/fresh-game.js` | Fresh rules per run | EXTEND | — | The suite stays green after E3 | Replaces the `?copy=` import trick |
+| Session signer | — | — | CREATE NEW `netlify/scores/sessions.mjs` | pure (plus `node:crypto`) | Unit: any changed field fails `verify`; a token never verifies under another secret; tokens of 42 and 44 characters give false, never an error | Nothing signs anything today |
 | Record | — | — | CREATE NEW `src/game/record.js` | pure | Unit property: `readRecord` round-trips what the recorder wrote; malformed text gives null | Shared by both sides, like `high-scores.js` |
+| Recorded games | — | — | CREATE NEW `tests/fixtures/recorded-games/` | data | The unit replay spec | K21 |
 
 ## Wave: DESIGN / [REF] C4 diagrams
 
@@ -660,11 +716,11 @@ flowchart LR
   game --> rules["game/high-scores.js"]
   replay["game/replay.js<br/>replay({ seed, record })"] --> game
   replay --> record
-  lb -.->|"HTTP /api/sessions, /api/scores"| api["netlify/functions/scores.mjs<br/>sessions, signing checks, replay, one row per session"]
+  lb -.->|"HTTP /api/sessions, /api/scores"| api["netlify/functions/scores.mjs<br/>sessions, signing checks, replay, one row per game"]
   api --> replay
   api --> record
   api --> rules
-  api --> signer["netlify/scores/sessions.mjs<br/>HMAC session signer (node:crypto)"]
+  api --> signer["netlify/scores/sessions.mjs<br/>HMAC session signer, game id (node:crypto)"]
   api --> blobsLib["@netlify/blobs"]
 ```
 
@@ -672,11 +728,11 @@ flowchart LR
 
 Deferred on purpose, each with its owner and a proposed answer:
 
-1. **The browser drivers' choreography (DISTILL).** `leaderboard-game.js` plays "one shot at the Damp straight above the pin, then standing still", and `game-driver.js` drives the sound scenarios. Both are tuned on today's seeded `Math.random`. After precursor 1, the same seeded `Math.random` picks the game's seed, so each game's random sequence changes. Proposed: DISTILL checks each driver's assumptions on the new sequence (for example, that no bolt lands on the pin before the shot does), and adjusts the drivers' seeds where needed. No scenario text changes.
+1. **The browser drivers' choreography (DISTILL).** `leaderboard-game.js` plays "one shot at the Damp straight above the pin, then standing still", and `game-driver.js` drives the sound scenarios. Both are tuned on today's seeded `Math.random`. After E2, the same seeded `Math.random` picks the game's seed, so each game's random sequence changes. Proposed: DISTILL checks each driver's assumptions on the new sequence (for example, that no bolt lands on the pin before the shot does), and adjusts the drivers' seeds where needed. No scenario text changes.
 2. **K22 and the clock check on Netlify (DEVOPS).** After slice 03, signing a 60-minute record needs a session at least 60 minutes old. Proposed: measure K22 on slice 02's preview, before D8 lands; a later re-run waits the hour, in the background.
-3. **The smoke test (DEVOPS).** K10 and K11 post 30 and 20 signings, and each needs its own session and a real record. Proposed: sessions for a short corpus game's seed (about 30 s of game time), requested together, then the signings once that time has passed. Every row on the preview then has the same deposit, which K11's top-10 check allows.
-4. **One secret per deploy context (DEVOPS, the owner).** Proposed: one value for production, and another shared by deploy previews and branch deploys, so that a preview's session can never sign production.
-5. **`config.path` with two paths and one rate-limit rule (DEVOPS).** Netlify documents both an array of paths and a per-function rate limit. That they combine as DDD-R1 assumes is checked by K14's re-run on the preview. If they don't, `/api/sessions` moves to a function of its own, with the plan's second code rule.
+3. **The smoke test (DEVOPS).** K10, K11 and K25 need sessions and real records, and the rate limit is 10 requests a minute per IP, cache hits included. Proposed: the smoke test makes its own records in Node with the same rules (`createGame` and a scripted input, one seed per signing; a game that stands still and fires ends within a couple of minutes). It paces every request at one every 13 s or slower, as K10's run already does, and asks for each signing's session at least that game's length before signing. K11's 20 simultaneous signings need 20 seeds, because one game has one row; it runs, as before, on a throwaway preview without the rate-limit rule. K22 signs the corpus's longest game with a session for its seed.
+4. **One secret per deploy context (DEVOPS, the owner).** Proposed: one value for production, and another shared by deploy previews and branch deploys, so that a preview's session can never sign production. A deploy's own older production deploys share production's secret: their sessions are accepted by the published deploy, which validates the signing with its own code (ADR-005, qualified). The guide states the rotation steps, and whether a change in Netlify's environment reaches the functions without a redeploy (checked on a preview).
+5. **`config.path` with two paths and one rate-limit rule (DEVOPS, before DELIVER's slice 01).** Netlify documents both an array of paths and a per-function rate limit. A one-route probe on a throwaway preview checks that both paths are routed and counted by the one rule. If they aren't, `/api/sessions` moves to a function of its own with the plan's second code rule, and ADR-007's budgets are redone.
 6. **The level-backdrops branch (the owner).** If it changes sprite sizes or timings, it changes the gameplay. Proposed: whichever merges second raises `RULES_VERSION` and re-records the corpus.
 7. **Tier-B models (DISTILL).** `tier-b/signing-rules.js` treats each `gameStarted` as a load in flight, and the session request is one (its rows go to `tableAnswered`). Proposed: no model change; its pump ignores the new event fields.
 
@@ -684,25 +740,28 @@ Deferred on purpose, each with its owner and a proposed answer:
 
 The earlier documents are amended once the user approves this DESIGN. Their originals are quoted here:
 
-- **ADR-004, Decision**: the key's last field is "a random id" → it is the session's id, a random id drawn by the session request; the key format is unchanged, and per id the table keeps the first signed key (DDD-R4).
-- **ADR-006, Context**: "`src/game/game.js` can't be imported server side: it holds the module-level game state `g`" → `createGame` makes one game per instance (DDD-R7), and the function reaches it through `replay.js`. **Rule 5**: "`netlify/**` imports only `src/game/high-scores.js` from `src/`" → also `record.js` and `replay.js` (DDD-R13).
-- **ADR-007, Decision**: "The body is read with a 1 KB byte cap … The body must be JSON with exactly `{ initials, score }`" → 128 KB and the signing envelope (DDD-R3), and 1 KB for a session request. "**Accepted risk**: made-up scores from a script, up to the plausible ceiling" → superseded by ADR-010: made-up deposits are refused, and the accepted risk narrows to D16.
+- **ADR-004, Decision**: the key's last field is "a random id" → it is the game id, the SHA-256 of the seed cut to 32 hex characters; the key format is unchanged, and per game id the table keeps the first key in arcade order (DDD-R4). **Consequences**: "a POST is one write, one listing and at most 5 deletes" → plus, on an `already-signed` refusal, the removal of its own key.
+- **ADR-005, Consequences**: "Old production deploys can't sign the real table with old code." → still true of their code; a session an older production deploy issued is accepted by the published deploy, which checks the signing with its own code (Open questions 4).
+- **ADR-006, Context**: "`src/game/game.js` can't be imported server side: it holds the module-level game state `g`" → `createGame` makes one game per instance (DDD-R7), and the function reaches it through `replay.js`. **Rule 5**: "`netlify/**` imports only `src/game/high-scores.js` from `src/`" → also `record.js` and `replay.js` (DDD-R13). **The ceiling**: "the plausible ceiling `MAX_PLAUSIBLE_SCORE` (£250,000)" → £500,000 (DDD-R16).
+- **ADR-007, Decision**: "The body is read with a 1 KB byte cap … The body must be JSON with exactly `{ initials, score }`" → 128 KB and the signing envelope (DDD-R3), and 1 KB for a session request. "A score above the plausible ceiling, £250,000" → £500,000. "**Accepted risk**: made-up scores from a script, up to the plausible ceiling" → superseded by ADR-010. **Worst-case operation counts**: "Per POST: 1 write + 1 listing + up to 5 deletes" → plus one delete on an `already-signed` refusal, and one listing per session request.
 - **ADR-008, Decision**: "When the table is read: on page load, in the background whenever a game starts (`gameStarted`)" → the game-start read is the session request's answer, which is never cached (DDD-R1, DDD-R10).
-- **Leaderboard DDD-7**: "The table is read on page load, in the background on every `gameStarted`, and from every POST answer" → as ADR-008. **DDD-17**: the reasons and events grow (DDD-R14).
+- **Leaderboard DDD-5**: "The body is read with a 1 KB byte cap" → as ADR-007. **DDD-7**: "The table is read on page load, in the background on every `gameStarted`, and from every POST answer" → as ADR-008. **DDD-17**: the reasons and events grow (DDD-R14).
+- **OUT-8**: "exactly {initials, score}" under "a 1 KB byte cap", with its error list → the envelope under 128 KB, the new reasons, 409 `already-signed`, and 500 `secret-missing`. **OUT-9**: "each POST adds one well-formed key under s/ … other keys are never touched" → a refused `already-signed` signing removes the key it added, and pruning removes a game's other keys first. **OUT-10**: the ceiling, £500,000. A new outcome for the session request (DISTILL registers it).
+- **Leaderboard `environments.yaml`**: no secrets → `SCORES_SESSION_SECRET` per deploy context.
 - **Brief, Operability**: "One function and one store, with no secrets" → one secret. **Platform and Delivery**: "no environment variables beyond `NODE_VERSION`" → plus `SCORES_SESSION_SECRET`.
 - **The RCA, S3 item 5**: "The function imports `src/game/game.js` and its imports" → it imports `replay.js` and `record.js`, which bring the rules with them.
-- **This feature's DISCUSS** (the codes it proposed): all are kept, and three are added: `invalid-record` (a malformed record), `invalid-seed` (a malformed session request) and `secret-missing` (a log reason under 500 `unexpected`). `session-used` is a 409.
+- **This feature's DISCUSS** (the codes it proposed): all are kept, and some are added: `invalid-record` (a malformed record), `invalid-seed` (a malformed session request), `session-expired` (D18) and `secret-missing` (a log reason under 500 `unexpected`). `session-used` became `already-signed` (409), because a game, not a session, has one row.
 
 ## Wave: DESIGN / [REF] Wave decisions summary
 
 - **Pattern**: unchanged, a modular monolith with ports and adapters. The rules become a factory, one game per instance, which the browser and the function both create. **Paradigm**: OOP.
-- **New modules**: `game/chance.js`, `game/record.js`, `game/particles.js` (moved), `game/replay.js` and `netlify/scores/sessions.mjs`. **No new dependency.**
+- **New modules**: `game/chance.js`, `game/record.js`, `game/particles.js` (moved), `game/replay.js` and `netlify/scores/sessions.mjs`; a test fixture folder. **No new dependency.**
 - **Key constraints**:
-  - Gameplay maths is exact everywhere: the determinism scan (DDD-R13), and the corpus in the build gate (DDD-R12).
-  - The table port and the key format are unchanged.
+  - Gameplay maths is exact everywhere: the determinism allowlist (DDD-R13), and the corpus in the build gate (DDD-R12).
+  - The table port and the key format are unchanged; a row's id names its game.
   - A game start still costs one request.
   - The frame never waits on the network.
   - The secret never leaves the roots.
 - **ADRs**: ADR-010 (the table replays every game; supersedes ADR-007's accepted risk) and ADR-011 (deterministic rules, one game per instance; amends ADR-006). Both proposed.
-- **For DEVOPS**: the secret per deploy context, the smoke test with real records, K22 on slice 02's preview, and the re-runs of K10, K11 and K14.
-- **For DISTILL**: the forgery catalogue (K20), the recorded-games corpus (K21), the `test-clock=lenient` cookie in the fixtures, the drivers' choreography, and the new walking-skeleton scenario at the server's port.
+- **For DEVOPS**: the secret per deploy context, the `config.path` probe before slice 01, the smoke test with real records and paced requests, K25 on slice 01's preview, K22 on slice 02's preview, and the re-runs of K10, K11 and K14.
+- **For DISTILL**: the forgery catalogue (K20), the recorded-games corpus (K21), the `test-clock=lenient` cookie and `POST /__test/rows` in the fixtures, the drivers' choreography, and the new walking-skeleton scenario at the server's port.

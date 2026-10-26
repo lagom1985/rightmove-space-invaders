@@ -66,6 +66,24 @@ This probe measures all three. It ran against a **patched copy** of `src/game/` 
 - At human pace, a 60-minute game is about **50–100 KB** of compact text. A program that changes keys every step needs about 4 KB a minute, so 240 KB for an hour.
 - The body cap of 1 KB (DDD-5) can't carry any of this. DESIGN sets the new cap and the encoding.
 
+### 4. Choosing the seed (added after the first review cycle)
+
+`seeds.mjs` plays the same greedy bot on 100 seeds (1000–1099, 3 homes):
+
+| | Deposit |
+|---|---|
+| Lowest | £8,150 |
+| 25th percentile | £32,650 |
+| Median | £46,100 |
+| 75th percentile | £55,100 |
+| 90th percentile | £64,300 |
+| Highest | £75,100 (17.2 minutes, level 7) |
+| Best of 10 seeds, averaged over 10 groups | £67,300 (+46 % over the median) |
+
+- Per minute of game time: £2,800 to £4,700, median £3,900. Most of the spread is in how long the bot survives, not in how fast it scores.
+- So a program that tries many seeds and keeps the best gains about half again over a typical seed. A seed chosen by the server would cap the choice at the seeds the rate limit hands out, about 10 a minute, which already reaches best-of-10.
+- At £2,800–£4,700 a minute, a 60-minute game would be worth £170,000–£280,000, so the £250,000 ceiling could refuse a long honest game.
+
 ## What the probe does not show
 
 - **Real human logs.** The paces above are bots. A human holds keys longer, so the 100 ms bot is a fair upper bound, but not a measurement. DISTILL's browser scenarios produce real key timings, from synthetic key events.
@@ -80,4 +98,5 @@ cp -R src/game src/theme <probe-dir>/src/ && python3 -I patch_probe.py <probe-di
 node node-run.mjs 3 1 2 3 4 5 && node node-run.mjs 30 11 12
 node browser-run.mjs <repo>/package.json games-3.json games-30.json
 node sizes.mjs
+node seeds.mjs 100
 ```

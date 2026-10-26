@@ -8,12 +8,12 @@ Feature: My initials follow the rules, whatever I type
   # three also let the first 0.6 seconds pass. "In one go" is one frame of the game. Around every frame that starts with
   # the entry open, nothing in the game may change but the entry, the skip and the signing (DESIGN open question 10).
 
-  @US-01 @US-02 @slice-01 @in-memory @property @contract-shape:bounded-change @DDD-T3 @DDD-T6 @pending
+  @US-01 @US-02 @slice-01 @in-memory @property @contract-shape:bounded-change @DDD-T3 @DDD-T6
   Scenario: Whatever I type, my initials are the first three letters, in capitals, less any I took back
     When I type any keys at all, as fast or as slowly as I like, once the first 0.6 seconds are over
     Then my initials are always the first three letters typed, in capitals, less those taken back with Backspace
 
-  @US-02 @US-03 @slice-01 @in-memory @property @error @contract-shape:unbounded-preservation @DDD-T3 @pending
+  @US-02 @US-03 @slice-01 @in-memory @property @error @contract-shape:unbounded-preservation @DDD-T3
   Scenario: A key that isn't a letter A to Z never changes my initials
     When I press any key that isn't a letter A to Z, after typing up to three letters
     Then my initials never change, and nothing is announced or sent

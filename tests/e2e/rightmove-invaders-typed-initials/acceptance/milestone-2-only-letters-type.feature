@@ -11,7 +11,7 @@ Feature: Only letters type while I sign (US-02)
 
   # A and D move the pin, M and N toggle the sound and the music, P pauses: during the entry they are letters. Three
   # letters at most, so two rows.
-  @US-02 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T2 @pending
+  @US-02 @slice-01 @kpi @kpi-K17 @real-io @contract-shape:bounded-change @DDD-T2
   Scenario Outline: Game keys type their letters: "<typed>"
     Given my deposit of £50 makes the high-score table
     And the sound and the music are on
@@ -26,14 +26,14 @@ Feature: Only letters type while I sign (US-02)
 
   # One game for the eight keys DISCUSS lists (UAT 2's outline), each in a frame of its own: two kinds of key the entry
   # ignores, named keys (the arrows) and characters that aren't letters (7, Space, ., -, /).
-  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation @pending
+  @US-02 @slice-01 @real-io @error @contract-shape:unbounded-preservation
   Scenario: Keys that aren't letters don't type
     Given my deposit of £50 makes the high-score table
     When I press Up, Down, Left, 7, Space, full stop, hyphen and slash, one after another
     Then after each of them the initials field still shows "No letters yet, letter 1 of 3"
     And nothing about the initials is announced
 
-  @US-02 @slice-01 @real-io @contract-shape:bounded-change @DDD-T2 @pending
+  @US-02 @slice-01 @real-io @contract-shape:bounded-change @DDD-T2
   Scenario: The game keys work again once the entry closes
     Given my deposit of £50 makes the high-score table
     And I have signed by typing "mnp" and pressing Enter

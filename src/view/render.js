@@ -1,10 +1,10 @@
 import { W, H, PX } from '../game/config.js';
-import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, neighbourhood, pounds } from '../theme/theme.js';
+import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
-import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H, BANNER_TIME } from '../game/game.js';
+import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
-import { buildBackdrop } from './backdrop.js';
+import { backdropPlan, createBackdropCache, showBackdrop } from './backdrop.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
@@ -42,32 +42,6 @@ function createShieldCache() {
     }
     return c;
   };
-}
-
-// Backdrops are built when first drawn and kept, at most two: the rung's own and the next one's, fading in. A build
-// takes a few ms (spike findings), too long for every frame. A resize drops them, to be rebuilt at the new scale.
-function createBackdropCache() {
-  const built = new Map();   // neighbourhood -> canvas, the least recently drawn first
-  let k = 1;
-  return {
-    rescale(scale) { k = scale; built.clear(); },
-    get(n) {
-      const c = built.get(n) ?? buildBackdrop(n, k);
-      built.delete(n); built.set(n, c);
-      if (built.size > 2) built.delete(built.keys().next().value);
-      return c;
-    },
-  };
-}
-
-// The rung's neighbourhood. While "Wave cleared!" shows, the next rung's fades in over it; past Forever home it stays.
-function drawBackdrop(ctx, backdrops) {
-  const here = neighbourhood(g.level), next = neighbourhood(g.level + 1);
-  ctx.drawImage(backdrops.get(here), 0, 0, W, H);
-  if (g.state !== 'clear' || next === here) return;
-  ctx.globalAlpha = 1 - g.banner / BANNER_TIME;
-  ctx.drawImage(backdrops.get(next), 0, 0, W, H);
-  ctx.globalAlpha = 1;
 }
 
 function blit(ctx, s, x, y, scale = PX) { ctx.drawImage(s, Math.round(x), Math.round(y), s.width * scale, s.height * scale); }
@@ -237,7 +211,8 @@ export function createRenderer(canvas) {
     pin: sprite(PIN_ART, COLORS.green), dream: sprite(DREAM_ART, COLORS.dream),
   };
   const shieldCanvas = createShieldCache();
-  const backdrops = createBackdropCache();
+  // The neighbourhoods' backdrops, each built when first shown: a build takes a few ms, too long for every frame.
+  const store = createBackdropCache(() => document.createElement('canvas'));
 
   // Size the backing store to the window at device resolution and keep drawing in logical units.
   function resize() {
@@ -249,11 +224,11 @@ export function createRenderer(canvas) {
     const k = canvas.width / W;
     ctx.setTransform(k, 0, 0, k, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    backdrops.rescale(k);
+    store.rescale(k);
   }
 
   function draw() {
-    drawBackdrop(ctx, backdrops);
+    showBackdrop(ctx, backdropPlan({ level: g.level, state: g.state, banner: g.banner }), store.canvasFor);
     if (g.state === 'title') { drawTitle(ctx, sprites); drawHud(ctx); return; }
 
     drawShields(ctx, shieldCanvas);

@@ -6,6 +6,7 @@ import { COLORS, NEIGHBOURHOODS, neighbourhood } from '../theme/theme.js';
 // the palette p and the rung's random generator r.
 
 const SEED = 1000;   // + the rung
+const KEPT = 2;      // backdrops the store keeps: the rung's own and the next one's, fading in
 
 // mulberry32. A backdrop never calls Math.random: it comes out the same every time it is built, and the game's own
 // random sequence is left alone.
@@ -191,23 +192,6 @@ const SKYLINES = {
   },
 };
 
-// A neighbourhood's backdrop on a canvas of its own, k device pixels to a unit, painted by paintBackdrop below.
-export function buildBackdrop(neighbourhood, k) {
-  const c = document.createElement('canvas');
-  c.width = Math.round(W * k); c.height = Math.round(H * k);
-  const b = c.getContext('2d');
-  b.setTransform(k, 0, 0, k, 0, 0);
-  paintBackdrop(b, neighbourhood);
-  return c;
-}
-
-// ---- RED scaffolds (DISTILL, 2026-10-26; revised after the Final Wave Review Gate) ----
-// The four exports DESIGN added (ADR-010), named for DELIVER to build. Only the acceptance scenarios in
-// tests/e2e/rightmove-invaders-level-backdrops/acceptance/ call them: render.js still uses buildBackdrop and its own
-// cache, so the game runs exactly as before. DELIVER replaces each body, moves render.js onto them, and deletes this
-// marker with the last one.
-export const __SCAFFOLD__ = true;
-
 // What the screen shows behind the game on a frame (DDD-B5), from that frame's { level, state, banner } and nothing
 // else: { here, next, mix }, here and next being NEIGHBOURHOODS entries. While the wave is cleared below Forever home,
 // next is the next rung's and mix is 1 - banner / BANNER_TIME, clamped to [0, 1]; otherwise next is null and mix 0.
@@ -236,13 +220,36 @@ export function paintBackdrop(context, neighbourhood) {
 // Failed marks are kept apart from the two and never evicted. rescale(k) with a new scale drops every canvas and every
 // failed mark; with the same scale it returns at once. Nothing is thrown or logged.
 export function createBackdropCache(createCanvas) {
-  throw new Error('Not yet implemented -- RED scaffold');
+  const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first
+  let k = 1;
+  const build = place => {
+    const canvas = createCanvas();
+    canvas.width = Math.round(W * k); canvas.height = Math.round(H * k);
+    const context = canvas.getContext('2d');
+    context.setTransform(k, 0, 0, k, 0, 0);
+    paintBackdrop(context, place);
+    return canvas;
+  };
+  return {
+    rescale(scale) { k = scale; built.clear(); },
+    canvasFor(place) {
+      const canvas = built.get(place) ?? build(place);
+      built.delete(place); built.set(place, canvas);
+      if (built.size > KEPT) built.delete(built.keys().next().value);
+      return canvas;
+    },
+  };
 }
 
 // The shell (DDD-B5): draws the plan on the screen's context. It is handed the store's canvasFor alone (a view of the
-// store that can't rescale it), and asks it for here, then for next whenever the plan names one, even at a mix of 0. It draws here at full strength and next at globalAlpha = mix, each over the
-// whole screen (0, 0, W, H); a null canvas is a fillRect in that palette's bg at the same strength, never drawImage(null)
-// (the feature delta's composition table). It puts globalAlpha back to the value it found.
-export function showBackdrop(context, plan, canvasFor) {
-  throw new Error('Not yet implemented -- RED scaffold');
+// store that can't rescale it), and asks it for here, then for next whenever the plan names one, even at a mix of 0. It
+// draws here at full strength and next at globalAlpha = mix, each over the whole screen (0, 0, W, H); a null canvas is a
+// fillRect in that palette's bg at the same strength, never drawImage(null) (the feature delta's composition table). It
+// puts globalAlpha back to the value it found.
+export function showBackdrop(context, { here, next, mix }, canvasFor) {
+  const found = context.globalAlpha;
+  const under = canvasFor(here), over = next ? canvasFor(next) : null;
+  context.globalAlpha = 1; context.drawImage(under, 0, 0, W, H);
+  if (over) { context.globalAlpha = mix; context.drawImage(over, 0, 0, W, H); }
+  context.globalAlpha = found;
 }

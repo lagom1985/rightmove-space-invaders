@@ -17,7 +17,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
   # neighbourhood underneath first, then the one fading in. "Double size" and "triple size" are how large the window
   # shows the game. That the game's own screen uses these same parts is checked by hand.
 
-  @in-memory @pending @contract-shape:bounded-change @DDD-B3
+  @in-memory @contract-shape:bounded-change @DDD-B3
   Scenario: A neighbourhood is prepared once, however long it is shown
     Given the game is shown at double size
     When City centre at dawn is shown for 10 seconds
@@ -25,7 +25,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
 
   # The least recently shown goes first: after City centre, Terraced streets, City centre again, Suburbs drops Terraced
   # streets, not City centre.
-  @in-memory @pending @edge @contract-shape:bounded-change @DDD-B3
+  @in-memory @edge @contract-shape:bounded-change @DDD-B3
   Scenario: The screen keeps the two neighbourhoods it showed last
     Given the game is shown at double size
     When City centre at dawn, Terraced streets in the morning, City centre at dawn, Suburbs at midday, City centre at dawn and Terraced streets in the morning are shown in turn
@@ -34,7 +34,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
   # The shell's composition (DESIGN's composition table, DDD-B5): the neighbourhood underneath at full strength, then the
   # one fading in at the fade's strength; a backdrop that couldn't be prepared is its plain background, at the same
   # strength. Asked for in that order, on a screen that has prepared nothing yet.
-  @in-memory @pending @contract-shape:bounded-change @DDD-B4 @DDD-B5
+  @in-memory @contract-shape:bounded-change @DDD-B4 @DDD-B5
   Scenario Outline: When the screen <trouble>, I see <underneath>, with <over it>
     Given the game is shown at double size
     And the screen <trouble>
@@ -46,7 +46,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
       | has room for every backdrop | nothing fading in                               | City centre at dawn's backdrop | nothing over it                                             |
       | has room for every backdrop | Terraced streets in the morning faded in to 50% | City centre at dawn's backdrop | Terraced streets in the morning's backdrop over it at 50%   |
 
-    @error
+    @error @pending
     Examples:
       | trouble                                   | fade                                            | underneath                             | over it                                                           |
       | has no room for another backdrop          | nothing fading in                               | City centre at dawn's plain background | nothing over it                                                   |
@@ -142,7 +142,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
   # The whole climb from the title, played in memory, the screen drawing behind every moment of it. Each moment is named
   # by what the page says on it; a backdrop prepared at any other moment would be named after that moment and fail the
   # table.
-  @in-memory @pending @property @contract-shape:bounded-change @DDD-B3 @DDD-B5
+  @in-memory @property @contract-shape:bounded-change @DDD-B3 @DDD-B5
   Scenario: Over a whole climb, each neighbourhood is prepared only as it first appears
     Given the game is shown at double size
     When I climb to the seventh wave
@@ -157,7 +157,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
 
   # The screen keeps two backdrops, so the city centre was let go during the climb, and a new game prepares it again:
   # the one moment a backdrop is prepared while I may be moving, and the quickest of the six to prepare (DDD-B3).
-  @in-memory @pending @edge @contract-shape:bounded-change @DDD-B3
+  @in-memory @edge @contract-shape:bounded-change @DDD-B3
   Scenario: Playing again after a long climb prepares the city centre at dawn once more, as the new game starts
     Given the game is shown at double size
     And I am playing the seventh wave

@@ -8,12 +8,12 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
   # in over it, and how strongly, to the nearest twentieth of a percent. How the screen then draws it is "The game plays
   # on smoothly"'s; the picture itself is never read. Whether the game is paused makes no difference to what is shown.
 
-  @in-memory @pending @contract-shape:unbounded-preservation @DDD-B5 @DDD-B9
+  @in-memory @contract-shape:unbounded-preservation @DDD-B5 @DDD-B9
   Scenario: The title shows the city centre at dawn, with nothing fading in
     When the game loads
     Then the backdrop shows City centre at dawn, with nothing fading in
 
-  @in-memory @pending @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @contract-shape:unbounded-preservation @DDD-B5
   Scenario: Starting a game keeps the city centre at dawn, with nothing fading in
     Given the game has just loaded
     When I start climbing the property ladder
@@ -82,26 +82,26 @@ Feature: The next neighbourhood fades in while "Wave cleared!" shows
     When I pause the game for 10 seconds
     Then the backdrop still shows City centre at dawn, with Terraced streets in the morning faded in to 50%
 
-  @in-memory @pending @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @contract-shape:unbounded-preservation @DDD-B5
   Scenario: When the banner ends, I am in the next neighbourhood, with nothing fading in
     Given I am playing the first wave
     And I have cleared the first wave
     When the banner ends
     Then the backdrop shows Terraced streets in the morning, with nothing fading in
 
-  @in-memory @pending @edge @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @edge @contract-shape:unbounded-preservation @DDD-B5
   Scenario: Losing a home fades nothing in
     Given I am playing the second wave
     When I lose a home to a bolt
     Then the backdrop shows Terraced streets in the morning, with nothing fading in
 
-  @in-memory @pending @edge @contract-shape:unbounded-preservation @DDD-B5
+  @in-memory @edge @contract-shape:unbounded-preservation @DDD-B5
   Scenario: The game-over screen shows the neighbourhood I reached
     Given I am playing the fifth wave
     When I lose the game
     Then the backdrop shows Countryside at sunset, with nothing fading in
 
-  @in-memory @pending @edge @contract-shape:unbounded-preservation @DDD-B5 @DDD-B9
+  @in-memory @edge @contract-shape:unbounded-preservation @DDD-B5 @DDD-B9
   Scenario: Playing again from a higher rung goes straight back to the city centre at dawn
     Given I am playing the fifth wave
     And I have lost the game

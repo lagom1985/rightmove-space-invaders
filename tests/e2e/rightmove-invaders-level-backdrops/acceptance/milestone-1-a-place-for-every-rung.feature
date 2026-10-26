@@ -42,7 +42,7 @@ Feature: Every rung of the property ladder is a place of its own
 
   # The approved wording (DDD-B8, the user, 2026-10-26), heard at the start of every wave after a clear, the repeats from
   # Forever home onwards included. "Wave cleared! Moving up the ladder to ..." is unchanged.
-  @in-memory @pending @property @contract-shape:bounded-change @DDD-B8
+  @in-memory @property @contract-shape:bounded-change @DDD-B8
   Scenario Outline: Moving up to the <wave> wave, I hear that I am now at <rung>, in <neighbourhood>
     Given I am playing the <previous> wave
     When I move up to the <wave> wave

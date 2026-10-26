@@ -55,7 +55,7 @@ export function createStatus(root) {
     switch (g.state) {
       case 'title': return 'Press Enter to start. Move with the arrow keys or A and D, fire with Space, pause with P.';
       case 'play':
-        if (last.state === 'clear') return `Now on the property ladder at ${ladderName(g.level)}.`;
+        if (last.state === 'clear') return `Now on the property ladder at ${ladderName(g.level)}. ${neighbourhood(g.level).name}.`;
         return last.state === 'dead' || last.paused ? '' : 'Game started. Defend your dream home from the hurdles.';
       case 'dead': return g.lives ? `Home lost. ${g.lives} left.` : 'Home lost. No homes left.';
       case 'clear': return `Wave cleared! Moving up the ladder to ${ladderName(g.level + 1)}.`;

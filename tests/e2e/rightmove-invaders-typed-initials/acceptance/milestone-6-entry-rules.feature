@@ -24,7 +24,7 @@ Feature: My initials follow the rules, whatever I type
     Then only three letters A to Z, never on the word filter, ever leave for the high-score table
 
   # Includes Esc, so it is enabled with slice 02 (in slice 01, Esc is a key the entry ignores).
-  @US-01 @US-02 @US-04 @US-05 @slice-02 @in-memory @property @contract-shape:bounded-change @DDD-T2 @DDD-T5 @DDD-T6 @DDD-T7 @pending
+  @US-01 @US-02 @US-04 @US-05 @slice-02 @in-memory @property @contract-shape:bounded-change @DDD-T2 @DDD-T5 @DDD-T6 @DDD-T7
   Scenario: Whatever I type, press and wait whenever a game ends, the entry and the game keys follow the rules
     When I type, press keys and wait in any order whenever a game ends, over any number of games
     Then my initials, my signing, the skip and the game keys always follow the rules
@@ -46,7 +46,7 @@ Feature: My initials follow the rules, whatever I type
       | a     | 0.61 seconds | counts          | A        | no notice        |
       | Enter | 0.61 seconds | counts          |          | the too-few hint |
 
-    @US-05 @slice-02 @pending
+    @US-05 @slice-02
     Examples:
       | keys  | gap          | outcome         | initials | notice           |
       | Esc   | 0.6 seconds  | is dropped      |          | no notice        |

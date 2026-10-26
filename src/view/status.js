@@ -1,5 +1,5 @@
 import { ladderName, pounds } from '../theme/theme.js';
-import { INITIALS_NOTICES, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_NOTICES, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, SIGNING_SKIPPED_SENTENCE, TABLE_UNAVAILABLE } from './messages.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 
 const SETTING_MESSAGES = {
@@ -7,7 +7,7 @@ const SETTING_MESSAGES = {
   music: { on: 'Music on.', off: 'Music off. Press N to turn it on.' },
 };
 
-const INITIALS_HELP = 'New high score! Enter your initials: type 3 letters, then press Enter to sign.';
+const INITIALS_HELP = 'New high score! Enter your initials: type 3 letters, then press Enter to sign. Esc skips.';
 const NO_ROWS = Object.freeze([]);
 
 // What game over says about the table (DISTILL, Messages): only that it can't be reached. While it is unknown (at most
@@ -23,9 +23,11 @@ function initialsField({ letters }) {
   return letters.length < INITIALS_LENGTH ? `${spelled}, letter ${letters.length + 1} of ${INITIALS_LENGTH}` : `${spelled}, press Enter to sign`;
 }
 
-// While the initials are being entered, Enter signs them; once they're signed it starts a new game again. Only a
-// signing made at this game over is described, and only while it is on its way: its outcome is announced on its own.
+// While the initials are being entered, Enter signs them and Esc skips; once they're signed or skipped it starts a new
+// game again. A skip is said in place of the prompt. Only a signing made at this game over is described, and only while
+// it is on its way: its outcome is announced on its own.
 function gameOverAnnouncement(g) {
+  if (g.skipped) return SIGNING_SKIPPED_SENTENCE;
   if (g.signedThisGame) return g.signing.status === 'pending' ? `${SIGNING_MESSAGES.pending(g.signing)} ${PLAY_AGAIN_SENTENCE}` : PLAY_AGAIN_SENTENCE;
   return [`Game over: ${g.overReason.replace(/[^.!?]$/, '$&.')} Deposit saved ${pounds(g.score)}.`, g.newBest ? 'New best!' : '',
     tableLine(g), g.initials ? INITIALS_HELP : PLAY_AGAIN_SENTENCE].filter(Boolean).join(' ');

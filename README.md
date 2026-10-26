@@ -20,8 +20,9 @@ Then open http://localhost:4173.
 | N | Music on / off |
 | A–Z, on a new high score | Type your initials |
 | Backspace | Take back the last letter |
+| Esc, on a new high score | Skip signing |
 
-On a new high score, type 3 letters and press Enter to sign the shared high-score table. While you type, every letter key types its letter, A, D, M, N and P included.
+On a new high score, type 3 letters and press Enter to sign the shared high-score table, or press Esc to skip signing: nothing is sent, and Enter starts the next game. While you type, every letter key types its letter, A, D, M, N and P included.
 
 The game needs a physical keyboard. Phones and narrow windows get a "play on desktop" screen.
 
@@ -63,7 +64,7 @@ Plain Canvas2D and ES modules, with no runtime dependencies in the browser and n
 | `src/sound/recipes.js` | Sound data: pitches, the mix, the tune and each sound's recipe |
 | `src/view/render.js` | Drawing |
 | `src/view/status.js` | Mirrors the HUD into the page for screen readers |
-| `src/view/messages.js` | The words both views show (the signing messages, the refused initials, the unavailable table, play again), declared once (data only, no imports) |
+| `src/view/messages.js` | The words both views show (the signing messages, the refused initials, the skipped signing, the unavailable table, play again), declared once (data only, no imports) |
 | `src/platform/input.js` | Keyboard, including holding very quick taps so they aren't lost |
 | `src/platform/storage.js` | Best score and the sound and music settings in `localStorage` |
 | `src/platform/leaderboard.js` | The high-score table client: reads and signs `/api/scores`, one request per call with a 5-second timeout |

@@ -32,7 +32,8 @@ const CEILING = 64;   // the top of the playfield, under the HUD
 // lastListedAt: when the server listed the rows shown (DDD-12), null before any.
 // initials: while a score that makes the table is being signed, { letters (0 to 3 capitals, in the order typed), notice
 //   (null, or Enter's answer, { kind: 'too-few' | 'refused', n }, shown until the next key the entry acts on) }.
-// skipped: this game over's signing was skipped (typed initials, slice 02); false until Esc can skip.
+// skipped: this game over's signing was skipped with Esc (DDD-T7); a new game clears it. A skip isn't a signing: it
+//   sends nothing, publishes nothing, and leaves the current signing, its mark, settled, the table and the best as they are.
 // signing: the current signing, { n, initials, status: 'pending' | 'confirmed' | 'off-table' | 'unconfirmed', id, rank },
 //   id and rank set once confirmed; null before the first. A new game keeps it: only the next signing replaces it (DDD-8).
 // signedThisGame: the current signing was made at this game over (the game-over screen describes no earlier one).
@@ -183,9 +184,10 @@ function enterTyped(typed) {
   }
 }
 
-// The entry step's shell (DDD-T6): it writes the entry, numbers a new notice, and signs through sign().
-function applyPlan({ letters, notice, signing }) {
+// The entry step's shell (DDD-T6): it writes the entry, numbers a new notice, records a skip, and signs through sign().
+function applyPlan({ letters, notice, skip, signing }) {
   g.initials = letters === null ? null : { letters, notice: numbered(notice) };
+  if (skip) g.skipped = true;
   if (signing) sign(signing);
 }
 
@@ -202,18 +204,20 @@ const isLetter = key => /^[A-Za-z]$/.test(key);
 // The entry step (DDD-T6): what one typed press does to the entry { letters, notice }, as a plan for handlePresses to
 // apply. Pure: it reads only its arguments and publishes nothing. The plan is { letters: the letters after the press,
 // or null once it closes the entry; notice: the entry's own notice when the press leaves it be, a fresh one without a
-// number for Enter's answer, else null; skip: false (Esc skips in slice 02); signing: the initials to sign, or null }.
-// A fourth letter, Backspace on an empty entry and every key it doesn't name leave the entry as it is, its notice
-// included (D14).
+// number for Enter's answer, else null; skip: true once Esc closes the entry, else false; signing: the initials to sign,
+// or null }. Esc skips from any entry, whatever its letters and notice (DDD-T7). A fourth letter, Backspace on an empty
+// entry and every key it doesn't name leave the entry as it is, its notice included (D14).
 export function entryStep(entry, { key }) {
   if (isLetter(key)) return entry.letters.length < INITIALS_LENGTH ? plan(entry.letters + key.toUpperCase()) : asItIs(entry);
   if (key === 'Backspace') return entry.letters ? plan(entry.letters.slice(0, -1)) : asItIs(entry);
   if (key === 'Enter') return enter(entry.letters);
+  if (key === 'Escape') return skipSigning();
   return asItIs(entry);
 }
 
 const plan = (letters, notice = null, signing = null) => ({ letters, notice, skip: false, signing });
 const asItIs = ({ letters, notice }) => plan(letters, notice);
+const skipSigning = () => ({ letters: null, notice: null, skip: true, signing: null });
 
 // Enter signs three allowed letters. Initials on the word filter are refused here, before anything is sent (ADR-007):
 // no signing and no event, and the entry is emptied for different ones. With fewer than three, a hint, and the letters
@@ -252,7 +256,8 @@ function setPaused(paused) {
 }
 
 function startGame() {
-  g.score = 0; g.lives = LIVES; g.newBest = false; g.initials = null; g.signedThisGame = false;   // the signing is kept
+  g.score = 0; g.lives = LIVES; g.newBest = false;
+  g.initials = null; g.signedThisGame = false; g.skipped = false;   // the signing is kept
   startWave(0);
   emit(GameEvent.GAME_STARTED);
 }

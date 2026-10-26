@@ -3,7 +3,7 @@ import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../them
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
 import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
-import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
@@ -185,7 +185,7 @@ function drawInitialsEntry(ctx, y) {
     const next = i === letters.length;
     if (!next || blink()) text(ctx, letters[i] ?? '_', W / 2 + (i - 1) * 64, y + 80, 40, next ? COLORS.green : COLORS.text, 'center');
   }
-  text(ctx, 'Type 3 letters   Enter sign   Backspace delete', W / 2, y + 130, 8, COLORS.dim, 'center');
+  text(ctx, 'Type 3 letters   Enter sign   Backspace delete   Esc skip', W / 2, y + 130, 8, COLORS.dim, 'center');
   if (notice) text(ctx, INITIALS_NOTICES[notice.kind], W / 2, y + 160, 8, NOTICE_COLORS[notice.kind], 'center');
 }
 
@@ -211,8 +211,9 @@ function drawGameOver(ctx) {
   text(ctx, 'Deposit saved  ' + pounds(g.score), W / 2, top + 70, 16, COLORS.text, 'center');
   text(ctx, 'Reached  ' + ladderName(g.level), W / 2, top + 110, 16, COLORS.green, 'center');
   if (g.newBest) text(ctx, 'New best!', W / 2, top + 160, 16, COLORS.dream, 'center');
-  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // open until Enter signs
+  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // open until Enter signs or Esc skips
   if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
+  if (g.skipped) text(ctx, SIGNING_SKIPPED, W / 2, top + 182, 8, COLORS.dim, 'center');   // where the signing line goes
   if (hasHighScores()) drawHighScores(ctx, top + 200);
   // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
   if (g.table.status === 'unavailable') text(ctx, TABLE_UNAVAILABLE, W / 2, top + 200, 8, COLORS.dim, 'center');

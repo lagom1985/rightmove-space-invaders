@@ -103,7 +103,7 @@ test('Enter with fewer than 3 letters keeps them and shows a fresh too-few hint,
 // ---- the entry step, enumerated against its oracle: DESIGN's Rules operations table ("the entry step", DDD-T3, DDD-T6) ----
 // bypass: an enumerated table rather than a property, because its oracle is a table of rows: each row is checked by name
 // over one representative of every entry state and of every press class, DDD-T3's traps among them, the plan compared
-// whole. Rows to come: 02-01 turns Esc into the skip.
+// whole.
 const CAPITAL_OF = { j: 'J', Z: 'Z' };
 // Three letters on the word filter, the list's first entry as the acceptance tests take it. The entry holds capitals
 // whichever case they were typed in (the letter row puts a letter typed in either case in capitals), so this one entry
@@ -123,7 +123,7 @@ const KELVIN_SIGN = 'K';
 const DECOMPOSED_E_ACUTE = 'é';
 const NOT_ONE_ASCII_LETTER = ['é', 'ü', 'ß', 'å', 'ı', 'ſ', KELVIN_SIGN, DECOMPOSED_E_ACUTE, 'Dead', 'Process', 'Unidentified', ' ', ...'0123456789', '/', 'ab'];
 const OTHER_KEY_NAMES = ['Tab', 'Shift', 'CapsLock', 'Meta', 'Control', 'Alt', 'F5', 'ArrowLeft', 'ArrowUp', 'Delete', 'Home'];
-const planned = ({ letters, notice = null, signing = null }) => ({ letters, notice, skip: false, signing });
+const planned = ({ letters, notice = null, skip = false, signing = null }) => ({ letters, notice, skip, signing });
 const identity = ({ entry }) => identityOf(entry);
 
 const ENTRY_STEP_TABLE = [
@@ -145,7 +145,7 @@ const ENTRY_STEP_TABLE = [
       return BLOCKED_INITIALS.includes(letters) ? planned({ letters: '', notice: { kind: 'refused' } }) : planned({ letters: null, signing: letters });
     },
   },
-  { operation: 'Esc, in slice 01: the identity', keys: ['Escape'], plan: identity },
+  { operation: 'Esc, whatever the letters and the notice: the entry closes and is skipped, its notice cleared, and nothing is signed (DDD-T7)', keys: ['Escape'], plan: () => planned({ letters: null, skip: true }) },
   { operation: "a key that isn't one ASCII letter (DDD-T3's traps, a space, the digits, '/', 'ab'): the identity", keys: NOT_ONE_ASCII_LETTER, plan: identity },
   { operation: 'any other key name: the identity', keys: OTHER_KEY_NAMES, plan: identity },
 ];
@@ -161,11 +161,10 @@ for (const { operation, keys, plan } of ENTRY_STEP_TABLE) {
   });
 }
 
-// Every other key, generated: anything but one ASCII letter, Backspace or Enter (Esc too, in slice 01), whatever the
-// entry. One ASCII letter is checked by membership of the 52, not by a pattern, and the generators lean on the traps:
+// Every other key, generated: anything but one ASCII letter, Backspace, Enter or Esc, whatever the entry. One ASCII letter is checked by membership of the 52, not by a pattern, and the generators lean on the traps:
 // DDD-T3's characters, a letter with something before or after it, key names, and arbitrary strings.
 const ONE_ASCII_LETTER = [...ALPHABET, ...ALPHABET.toLowerCase()];
-const isActedOn = key => ONE_ASCII_LETTER.includes(key) || key === 'Backspace' || key === 'Enter';
+const isActedOn = key => ONE_ASCII_LETTER.includes(key) || ['Backspace', 'Enter', 'Escape'].includes(key);
 const besideALetter = fc.tuple(
   fc.constantFrom(...ONE_ASCII_LETTER),
   fc.oneof({ arbitrary: fc.constantFrom(' ', '\n', '\t', '́', '​'), weight: 2 }, fc.string({ unit: 'grapheme', minLength: 1, maxLength: 2 })),
@@ -174,7 +173,7 @@ const besideALetter = fc.tuple(
 const aKeyTheEntryIgnores = fc.oneof(
   { arbitrary: fc.constantFrom(...NOT_ONE_ASCII_LETTER), weight: 3 },
   { arbitrary: besideALetter, weight: 3 },
-  fc.constantFrom(...OTHER_KEY_NAMES, 'Escape'),
+  fc.constantFrom(...OTHER_KEY_NAMES),
   fc.string({ unit: 'grapheme', maxLength: 3 }),
   fc.string({ unit: 'binary', maxLength: 12 }),
 ).filter(key => !isActedOn(key));

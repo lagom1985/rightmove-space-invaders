@@ -212,7 +212,7 @@ test('each settled signing is announced exactly once, however often the mirror s
 // not drawn here: a frame is played only when its Enter with three letters signs.
 const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'Backspace', 'ArrowUp', '1', 'é', 'Enter'];
 const QUIET_KEYS = ['a', 'l', 'x', 'Backspace', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
-const HINT = 'Type 3 letters to sign.';
+const HINT = 'Type 3 letters to sign, or press Esc to skip.';
 
 // What one key does to the letters, and which moment that was; Enter is the frame's own (keysDo).
 function keyDoes(letters, key) {
@@ -357,6 +357,34 @@ test('initials on the word filter are refused at Enter: the entry is emptied, an
     openEntry(model, mirrored, times);
     for (const letter of blocked.toLowerCase()) typeKeys([letter], times).run(model, mirrored);
     mirrored.frame(() => mirrored.type('Enter'), times, { heard: appendedWith(`${REFUSAL} ${FIELD('')}`), field: FIELD('') });
+  }));
+});
+
+// ---- the skip (DDD-T7, DDD-T9) ----
+// Esc on the entry, empty, partly typed or full, with the too-few hint on show or not, after other keys within its frame
+// or before keys the skip then drops (a letter, M, Enter): the mirror hears "Signing skipped. Press Enter to house-hunt
+// again." once, in a write of its own, in place of the prompt, and the field empties; every later sync says nothing. A
+// skip in the next game is heard again, though its words are the same as the last game's.
+const SKIPPED = 'Signing skipped. Press Enter to house-hunt again.';
+const aSkip = fc.record({
+  typed: fc.constantFrom('', 'p', 'ps', 'psh'),
+  hint: fc.boolean(),
+  before: fc.constantFrom([], ['h'], ['Backspace']),
+  after: fc.constantFrom([], ['a'], ['m'], ['Enter']),
+});
+
+test('Esc on the entry, whatever was typed, is heard once as the skip, in a write of its own, with the field emptied, and a skip in the next game is heard again', async () => {
+  await fc.assert(fc.asyncProperty(syncs, aSkip, aSkip, async (times, ...games) => {
+    const mirrored = await MirroredGame.fresh();
+    const model = { entry: null, hint: false, seen: new Set() };
+    mirrored.frame(() => {}, times, { heard: nothingAboutTheInitials, field: '' });   // the title
+    for (const { typed, hint, before, after } of games) {
+      openEntry(model, mirrored, times);
+      if (typed) typeKeys([...typed], times).run(model, mirrored);
+      if (hint && typed.length < INITIALS_LENGTH) typeKeys(['Enter'], times).run(model, mirrored);
+      mirrored.frame(() => mirrored.type(...before, 'Escape', ...after), times, { heard: appendedWith(SKIPPED), field: '' });
+      model.entry = null;
+    }
   }));
 });
 

@@ -128,7 +128,7 @@ Feature: Only letters type while I sign (US-02)
       | after a deposit that doesn't make a full table |
       | after signing                                  |
 
-    @US-05 @slice-02 @pending
+    @US-05 @slice-02
     Examples:
       | situation      |
       | after skipping |

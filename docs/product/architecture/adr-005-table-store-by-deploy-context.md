@@ -1,6 +1,6 @@
 # ADR-005: The high-score store is chosen by deploy context
 
-**Status**: Accepted (user, 2026-10-24, revision 2); amended in DEVOPS (user, 2026-10-24): only the published production deploy writes the site store; qualified by [ADR-010](adr-010-the-table-replays-every-game.md) (user, 2026-10-26): sessions from an older production deploy · **Feature**: rightmove-invaders-leaderboard
+**Status**: Accepted (user, 2026-10-24, revision 2); amended in DEVOPS (user, 2026-10-24): only the published production deploy writes the site store; qualified by [ADR-012](adr-012-the-table-replays-every-game.md) (user, 2026-10-26): sessions from an older production deploy · **Feature**: rightmove-invaders-leaderboard
 
 ## Context
 `getStore('leaderboard')` is site-wide. In the walking skeleton every deploy uses it, so a deploy preview or a branch deploy signs the production table. **Until this ADR is implemented, the branch `worktree-leaderboard-spike` must not be pushed.** The production table must survive new deploys and rollbacks. Preview smoke tests (DEVOPS) need to sign freely and start from an empty table. Locally, `scripts/serve.mjs` already gives each `test-board` cookie a table of its own.
@@ -52,7 +52,7 @@ Every deploy keeps its own copy of the function, reachable at its permalink unti
 ## Consequences
 - The production table is shared by every production deploy, so it survives deploys and rollbacks. Only the deploy that is published at the time writes it.
 - **Old production deploys can't sign the real table with old code.** Reached through their permalinks, they write a deploy store of their own, which Netlify deletes with the deploy. A production deploy built while auto publishing is locked does the same, until it is published.
-  - *Qualified by ADR-010 (user, 2026-10-26; corrected after the DEVOPS review)*: each deploy keeps the session secret's value it was built with.
+  - *Qualified by ADR-012 (user, 2026-10-26; corrected after the DEVOPS review)*: each deploy keeps the session secret's value it was built with.
     - A page on an older permalink signs to that permalink's own function, which stores the row in its own deploy store.
     - A session an older production deploy issued verifies on the published deploy only if both were built with the same value. The published deploy then checks the signing with its own code (its replay and its rules version), so old code still decides nothing on the real table.
 - **A rollback publishes the chosen deploy, which then writes normally**: `published` is true for it from that moment, and false for the deploy it replaced.

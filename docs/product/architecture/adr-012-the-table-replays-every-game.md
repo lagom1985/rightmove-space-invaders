@@ -1,4 +1,4 @@
-# ADR-010: The high-score table replays every game, from a session issued as it starts; supersedes ADR-007's accepted risk
+# ADR-012: The high-score table replays every game, from a session issued as it starts; supersedes ADR-007's accepted risk
 
 **Status**: Accepted (user, 2026-10-26), after three review cycles (rightmove-invaders-replay-verified-scores, DESIGN). D1–D4, D14, D18 and the re-entry of a deleted row within its session's 2 hours were the user's own decisions; the PO defaults D5–D21 were approved with it. Not yet built: it takes effect slice by slice in DELIVER · **Feature**: rightmove-invaders-replay-verified-scores · **Supersedes**: ADR-007's "Accepted risk" (the rest of ADR-007 stands, amended as below)
 
@@ -63,7 +63,7 @@ The user re-accepted this with these numbers on 2026-10-26: with 10 rows on the 
   - **The build can read the secret**: on legacy Free, environment variables are visible to the build as well as the functions. So code that runs in the build could read the production value: a compromised dependency, for example.
     - Netlify's install runs with `NPM_FLAGS=--ignore-scripts` (the user, 2026-10-26), which blocks dependencies' install scripts. The dependencies stay pinned exactly.
     - What is left is accepted: the test gate's own code, run in the build. Rotate on any advisory against a dependency.
-  - **The game rules carry a version** (ADR-011): a deploy that changes how the game plays refuses signings from pages loaded before it (`rules-changed`), until they reload.
+  - **The game rules carry a version** (ADR-013): a deploy that changes how the game plays refuses signings from pages loaded before it (`rules-changed`), until they reload.
   - **A signing's body grows** from about 40 bytes to tens of KB, and the function replays it: about 50 ms for a 10-minute game in Node. On Netlify, the signing path's budget (D21) is a 10-minute replay under 250 ms at p95, with K10 re-baselined from 1000 ms to 1,250 ms for a POST carrying that record, and K22 measures the longest game; a miss reopens this decision. "Signing ALX…" still shows at once. Legacy Free bills invocations, not CPU time.
   - **The game-start request is no longer CDN-cacheable**, so a game start always costs an invocation and a Blobs listing. A game costs about 2–3 invocations (K15 holds). Its rate-limit count is unchanged, because cache hits counted already (K14's baseline).
   - **Quick restarts can meet the rate limit** (D19): a game started after about 10 requests within a minute from one IP, on one hostname, gets no session and can't be signed. ADR-007's plan to split the function, using the plan's second code rule, applies if it bites.

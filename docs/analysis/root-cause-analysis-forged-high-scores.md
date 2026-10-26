@@ -90,7 +90,7 @@ Ordered by cost. Each line names the root causes it closes.
 6. **Wall-clock time must be at least the simulated time**, which comes from S2's `startedAt`. A 20-minute game can't be fabricated offline in one minute.
 - **Residual risk**: a bot that plays well in real time. Without anti-bot measures that are far beyond this project, no client game can rule that out.
 - **Cost check**: a 10-minute game is 72,000 steps of a small simulation, well within a function's run time. Each signing is still one invocation (ADR-007's quota figures are unchanged), plus the session request.
-- **S2 and S3 designed** (user, 2026-10-26): [rightmove-invaders-replay-verified-scores](../feature/rightmove-invaders-replay-verified-scores/feature-delta.md), with S2 as its walking skeleton. DISCUSS and DESIGN are accepted ([ADR-010](../product/architecture/adr-010-the-table-replays-every-game.md), [ADR-011](../product/architecture/adr-011-deterministic-rules-one-game-per-instance.md)), and DISTILL is next. It differs from the countermeasures above in four points:
+- **S2 and S3 designed** (user, 2026-10-26): [rightmove-invaders-replay-verified-scores](../feature/rightmove-invaders-replay-verified-scores/feature-delta.md), with S2 as its walking skeleton. DISCUSS and DESIGN are accepted ([ADR-012](../product/architecture/adr-012-the-table-replays-every-game.md), [ADR-013](../product/architecture/adr-013-deterministic-rules-one-game-per-instance.md)), and DISTILL is next. It differs from the countermeasures above in four points:
   - the game picks its own seed, and the session binds it with the issue time;
   - only the three held controls are recorded, because presses, initials and pauses never reach the gameplay;
   - there is no R: the replay and a clock check replace it;

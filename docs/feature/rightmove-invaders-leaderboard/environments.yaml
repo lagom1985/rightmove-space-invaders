@@ -153,7 +153,7 @@ function:
       Netlify-Vary: "query=table"
       Content-Type: "application/json"
   errors: "nothing escapes the handler: a catch-all around the request handler logs only scores.error with the reason unexpected and answers 500 unexpected (DDD-17); module-load errors and runtime timeouts sit outside it, with no key on that path"
-  secrets: none   # amended by rightmove-invaders-replay-verified-scores (ADR-010, user, 2026-10-26; DEVOPS still owed): SCORES_SESSION_SECRET, 32 random bytes in base64, one value for production and another for deploy previews and branch deploys
+  secrets: none   # amended by rightmove-invaders-replay-verified-scores (ADR-012, user, 2026-10-26; DEVOPS still owed): SCORES_SESSION_SECRET, 32 random bytes in base64, one value for production and another for deploy previews and branch deploys
   environment_variables: none   # the ADR-007 fallback (an owner switch) was rejected (user, 2026-10-24); SCORES_SESSION_SECRET from replay-verified-scores, above
   client_contract: "OK or not OK only; a 429 is a not-OK answer like any other"
 
@@ -185,7 +185,7 @@ coexistence_matrix:
   # Nothing else: no husky, pre-commit, GitHub Actions or containers in this repo.
 
 deployment_assumptions:
-  - "Static files plus one function and one Blobs store; no database, no secrets, no environment variables beyond NODE_VERSION (amended by rightmove-invaders-replay-verified-scores, ADR-010: plus SCORES_SESSION_SECRET per deploy context)"
+  - "Static files plus one function and one Blobs store; no database, no secrets, no environment variables beyond NODE_VERSION (amended by rightmove-invaders-replay-verified-scores, ADR-012: plus SCORES_SESSION_SECRET per deploy context)"
   - "Atomic: the files, the function and its rate-limit rule publish together, only after the build, the bundling and the post-processing; a failed build leaves the previous deploy live"
   - "An invalid rate-limit rule does not fail the deploy: the site deploys without the limit; read the deploy log's post-processing stage, and K14 shows it"
   - "Idempotent: building the same commit twice gives the same dist/ and, with the same build image, the same function bundle"

@@ -238,7 +238,7 @@ kpis:
     measured_by: "GET /api/scores on production weekly (read-only); the owner's own notes of rows deleted, which are the only record of a row that came back (re-entry, D16); the log's refusals by reason"
     window: "weekly for 30 days after release"
     gate: soft
-    on_miss: "investigate, then decide whether the accepted residual risk (ADR-010) needs more"
+    on_miss: "investigate, then decide whether the accepted residual risk (ADR-012) needs more"
     baseline: "2026-10-26: forged rows of about 9999950, deleted by the owner at S0; the owner records their count before release"
   - id: K25
     feature: rightmove-invaders-replay-verified-scores

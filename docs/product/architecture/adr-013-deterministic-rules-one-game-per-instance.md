@@ -1,9 +1,9 @@
-# ADR-011: Deterministic game rules, one game per instance, shared by the browser and the function
+# ADR-013: Deterministic game rules, one game per instance, shared by the browser and the function
 
 **Status**: Accepted (user, 2026-10-26), after three review cycles (rightmove-invaders-replay-verified-scores, DESIGN). Not yet built: it lands in slice 02's enabling commits · **Feature**: rightmove-invaders-replay-verified-scores · **Amends**: ADR-006 (its Context, layering rule 5 and the ceiling)
 
 ## Context
-ADR-010 has the function replay each signed game. That needs three things the rules don't have:
+ADR-012 has the function replay each signed game. That needs three things the rules don't have:
 - **The same game everywhere.** Every gameplay random draw is `Math.random` (enemy fire, the Dream Home, shield erosion), and erosion calls `Math.hypot`, which ECMAScript leaves implementation-approximated.
 - **A fresh game per check.** The rules are one module-level state, `g`, with an outbox, a notice counter, the signings on their way and a best-score store beside it. ADR-006 says why the function couldn't import them: "it holds the module-level game state `g`". The same singleton is what the console's `import()` reached in the RCA's Vector B.
 - **A record of what the player did**, by simulation step.
@@ -14,7 +14,7 @@ A probe (2026-10-26) showed that a copy of the rules, seeded and without `Math.h
 - **One game per instance**: `game.js` exports `createGame({ newSeed, particles = true })`, which returns the game: `{ g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot, canPlayAgain, invaderX, invaderY }`.
   - Everything that is module-level state today moves into the closure. The chance and the recorder live there too, outside `g`, so `g` stays plain data.
   - The pure functions and constants stay module exports.
-  - `main.js` creates the one browser game and exports nothing, so the console's `import()` finds no live game. This is defence in depth: ADR-010's replay is the guarantee.
+  - `main.js` creates the one browser game and exports nothing, so the console's `import()` finds no live game. This is defence in depth: ADR-012's replay is the guarantee.
   - `render.js` receives the game instead of importing `g`.
 - **Gameplay chance from the game's seed**: the new pure module `game/chance.js` (sfc32 over a 128-bit seed of 32 hex characters, imports nothing) makes every gameplay draw.
   - **The seed's lifecycle**: `createGame` draws nothing. `startGame` calls `newSeed()` once, creates the chance from that seed, emits `gameStarted { seed }`, and only then sets up the first wave, whose Dream Home timer is the game's first draw. A chance is never shared between games, so game 2 doesn't depend on how many draws game 1 made.
@@ -27,10 +27,10 @@ A probe (2026-10-26) showed that a copy of the rules, seeded and without `Math.h
 - **The replay**: the new module `game/replay.js` creates a game with the session's seed and no particles, presses Enter, steps through the record, and returns `{ over, steps, deposit }`. It never throws on a record `readRecord` accepted (a unit property).
 - **Layering**, amending ADR-006 and enforced by `tests/unit/layering.spec.js`:
   - Rule 5 becomes: `netlify/**` imports from `src/` only `src/game/high-scores.js`, `src/game/record.js` and `src/game/replay.js`.
-  - Rule 7 (new): `game/chance.js` and `game/record.js` import nothing.
-  - Rule 8 (new), **the determinism scan**, an allowlist over `src/game/` (except `particles.js`) and `src/theme/`: every `Math` must be followed by `.` and one of `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `sign` or `imul`, so a bare `Math` (destructuring, an alias, `Math['random']`, `globalThis.Math`) fails; and `**`, `Date`, `performance` and `crypto` don't appear. Like the import scan, it reads text, so it can over-report but never miss.
-- **A gameplay change is deliberate**: a corpus of recorded games (`tests/fixtures/recorded-games/`: bot games of 1 to over 15 minutes, made on demand in Node by a test-support bot on the real rules) replays in the `unit` project, and so in the build gate. The build fails when a recorded game replays to another deposit or step, until `RULES_VERSION` is raised and the corpus re-recorded. A browser spec replays the same corpus in Chromium, Firefox and WebKit, by loading `game/replay.js` into the page, which checks each engine against Node. Games played with the keyboard are checked too: the local function replays every signing of the browser scenarios. The function refuses a record of another version (`rules-changed`, ADR-010).
-- **The ceiling** (`MAX_PLAUSIBLE_SCORE` in `high-scores.js`) becomes £500,000 in the change that makes the function replay (ADR-010).
+  - Rule 8 (new; rule 7 is level-backdrops' ADR-010): `game/chance.js` and `game/record.js` import nothing.
+  - Rule 9 (new), **the determinism scan**, an allowlist over `src/game/` (except `particles.js`) and `src/theme/`: every `Math` must be followed by `.` and one of `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `sign` or `imul`, so a bare `Math` (destructuring, an alias, `Math['random']`, `globalThis.Math`) fails; and `**`, `Date`, `performance` and `crypto` don't appear. Like the import scan, it reads text, so it can over-report but never miss.
+- **A gameplay change is deliberate**: a corpus of recorded games (`tests/fixtures/recorded-games/`: bot games of 1 to over 15 minutes, made on demand in Node by a test-support bot on the real rules) replays in the `unit` project, and so in the build gate. The build fails when a recorded game replays to another deposit or step, until `RULES_VERSION` is raised and the corpus re-recorded. A browser spec replays the same corpus in Chromium, Firefox and WebKit, by loading `game/replay.js` into the page, which checks each engine against Node. Games played with the keyboard are checked too: the local function replays every signing of the browser scenarios. The function refuses a record of another version (`rules-changed`, ADR-012).
+- **The ceiling** (`MAX_PLAUSIBLE_SCORE` in `high-scores.js`) becomes £500,000 in the change that makes the function replay (ADR-012).
 
 ## Alternatives considered
 - **Keep the singleton, and add a `reset()` for the replay**: smaller, but every new piece of module state would have to remember to reset, and the console's `import()` would still reach the live game.
@@ -43,7 +43,7 @@ A probe (2026-10-26) showed that a copy of the rules, seeded and without `Math.h
 
 ## Consequences
 - **One rules module serves the browser and the function**, with no duplicated rules. The function's bundle grows from one file of `src/` (3.5 KB) to the rules, the shields, the theme data and the config: about 35 KB of source.
-- **Every gameplay change needs a `RULES_VERSION` bump** and a re-recorded corpus, and the build gate catches a change that a recorded game reaches. **A change no recorded game reaches is not caught**, for example a rare Dream Home path: its author adds a recorded game that reaches it. The bump refuses signings from pages loaded before the deploy (ADR-010).
+- **Every gameplay change needs a `RULES_VERSION` bump** and a re-recorded corpus, and the build gate catches a change that a recorded game reaches. **A change no recorded game reaches is not caught**, for example a rare Dream Home path: its author adds a recorded game that reaches it. The bump refuses signings from pages loaded before the deploy (ADR-012).
 - **Tests**:
   - The unit and tier-B harnesses keep their shape: `loadFreshGame()` returns `{ ...module, ...createGame({ newSeed }) }`, with the seed drawn from `Math.random`, so `withDeterministicChance` still fixes each game.
   - The browser drivers keep their seeded `Math.random`, but each game's random sequence changes, so DISTILL re-checks their choreography.

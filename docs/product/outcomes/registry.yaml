@@ -144,7 +144,7 @@ outcomes:
       query=table. 429 comes from Netlify only, above 10 requests per 60 s per IP and
       domain (its body and headers, no no-store guarantee; amended in DEVOPS, user,
       2026-10-24). The client distinguishes only OK from not OK. Planned by rightmove-invaders-replay-verified-scores
-      (ADR-010, accepted by the user 2026-10-26; in effect slice by slice as DELIVER builds it): the body is exactly
+      (ADR-012, accepted by the user 2026-10-26; in effect slice by slice as DELIVER builds it): the body is exactly
       {initials, score, session, record} under a 128 KB cap; the checks and refusals of that feature''s Signing checks
       table (session-required, invalid-session, session-expired, invalid-record, rules-changed, game-too-long, too-fast,
       replay-mismatch, 409 already-signed, 500 unexpected logged secret-missing); the saved deposit is the replayed
@@ -168,7 +168,7 @@ outcomes:
     shape: 'every saved signature that belongs in the true top 10 is in the table; through
       the restricted table-store port (list, putIfNew, remove of well-formed keys only,
       no deleteAll) each POST adds one well-formed key under s/ and deletes, best-effort, k = min(5, n - 20) well-formed keys ranked 11th or lower, n being the well-formed keys in the listing after its write, and none unless n is above 20 (exact rule accepted: user, 2026-10-24);
-      other keys are never touched. Planned by rightmove-invaders-replay-verified-scores (ADR-010, accepted by the user
+      other keys are never touched. Planned by rightmove-invaders-replay-verified-scores (ADR-012, accepted by the user
       2026-10-26): one row per game id (the key signed first counts); a signing whose own key is not its game''s only
       one after its listing removes it and answers 409 already-signed; pruning removes a game''s other keys first; at
       most 5 deletes per signing, that removal included'
@@ -189,7 +189,7 @@ outcomes:
       id}] best first}, deposit; signature {initials, score}'
   output:
     shape: 'makesTheTable (browser only) = status available and deposit > 0 and deposit
-      plausible and (fewer than 10 rows or deposit above the 10th; a tie misses). Valid signature shape (isValidSignature, browser and function) = exactly {initials, score}, initials of 3 letters A-Z, score a positive integer multiple of 50 up to 9999999; allowed initials (isAllowedInitials) = not on the word filter; plausible score (isPlausibleScore, browser and function) = at most MAX_PLAUSIBLE_SCORE, 250000 (amended after the forged-scores RCA, user, 2026-10-26). The browser needs all three; the function maps a bad shape to 400 invalid-signature, blocked initials to 400 initials-not-allowed (clarified in DISTILL) and an implausible score to 400 implausible-score. The function never decides qualification. Planned by rightmove-invaders-replay-verified-scores (ADR-010, ADR-011, accepted by the user 2026-10-26): MAX_PLAUSIBLE_SCORE becomes 500000 in the change that makes the function replay each game (slice 02)'
+      plausible and (fewer than 10 rows or deposit above the 10th; a tie misses). Valid signature shape (isValidSignature, browser and function) = exactly {initials, score}, initials of 3 letters A-Z, score a positive integer multiple of 50 up to 9999999; allowed initials (isAllowedInitials) = not on the word filter; plausible score (isPlausibleScore, browser and function) = at most MAX_PLAUSIBLE_SCORE, 250000 (amended after the forged-scores RCA, user, 2026-10-26). The browser needs all three; the function maps a bad shape to 400 invalid-signature, blocked initials to 400 initials-not-allowed (clarified in DISTILL) and an implausible score to 400 implausible-score. The function never decides qualification. Planned by rightmove-invaders-replay-verified-scores (ADR-012, ADR-013, accepted by the user 2026-10-26): MAX_PLAUSIBLE_SCORE becomes 500000 in the change that makes the function replay each game (slice 02)'
   keywords:
   - qualification
   - makes-the-table

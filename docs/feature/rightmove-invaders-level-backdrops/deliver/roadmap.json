@@ -1,0 +1,256 @@
+{
+  "roadmap": {
+    "project_id": "rightmove-invaders-level-backdrops",
+    "created_at": "2026-10-26T00:00:00Z",
+    "total_steps": 10
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01: A neighbourhood for every rung of the property ladder",
+      "description": "Builds on the walking skeleton: BANNER_TIME moves to config.js; a pure plan says which neighbourhood each frame shows and how far the next has faded in; the recipes paint on a context they are handed; a store of two, with its fail-safe, and a shell that render.js only calls replace the skeleton's cache and fade; the arrival sentence names the neighbourhood; two road colours are darkened so that everything stays readable. Ends with no @pending, no RED scaffold, and the Rendering universe checked by hand.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "BANNER_TIME moves to the game's timing constants",
+          "criteria": [
+            "BANNER_TIME, 2.4 s, is declared once, in src/game/config.js beside STEP and MAX_FRAME; game.js imports it and re-exports it, and keeps no value of its own.",
+            "Every existing import of BANNER_TIME from game.js still works and reads 2.4: render.js, the fanfare-length unit check and the in-memory harness's copy of the rules.",
+            "The seventh layering rule holds: view/backdrop.js imports only from theme/ and game/config.js, and its broken case, importing BANNER_TIME from game.js, is still reported.",
+            "No scenario is enabled and nothing the game does changes: the unit and in-memory projects pass as before."
+          ],
+          "test_file": "tests/unit/layering.spec.js | tests/unit/fanfare-length.spec.js",
+          "scenario_name": "src and netlify keep the seven layering rules of ADR-006, ADR-009 and ADR-010 | no stretch of the fanfare, up to any note, outlasts the Wave cleared banner",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "src/game/config.js",
+            "src/game/game.js"
+          ],
+          "implementation_notes": "DDD-B5 and DDD-B15 (H-1, F9; the user's decision): DELIVER's first step, so the plan can take the banner time under the seventh rule. Declare BANNER_TIME = 2.4 in src/game/config.js beside STEP and MAX_FRAME, moving its comment with it (seconds the 'Wave cleared!' banner shows; the fanfare must fit inside it). game.js (line 19) imports it from ./config.js and re-exports it; its own use at line 410 is untouched. render.js (line 4), tests/unit/fanfare-length.spec.js and the in-memory harness (rules.BANNER_TIME on a fresh copy of game.js) keep importing it from game.js unchanged. backdrop.js doesn't import it yet: the plan does in 01-03. The game/ layering rule already allows game.js to import ./config.js. Enables no scenario: of DISTILL's 55 @pending runs, none depends on this move. EXEMPT FROM PARADIGM: a constant moves, with no behaviour to state as a property. Compensate with the property-based test at unit level on the adjacent slot: fanfare-length.spec.js's fast-check property, which reads BANNER_TIME through the re-export. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\". ALSO DONE WHEN (L2): grep -nE 'BANNER_TIME *=' src/game/*.js finds config.js only."
+        },
+        {
+          "id": "01-02",
+          "name": "The backdrop plan: which neighbourhood each screen shows",
+          "criteria": [
+            "The title and a game just started show City centre at dawn, with nothing fading in.",
+            "In play, with a home lost and at game over, the backdrop is the neighbourhood of the rung reached, with nothing fading in: Terraced streets in the morning once the first wave's banner ends or a home is lost on the second wave, Countryside at sunset at game over on the fifth.",
+            "Playing again from a higher rung shows City centre at dawn at once, with no fade.",
+            "The plan answers from the frame it is handed alone (its level, state and banner), whatever the pause, and changes nothing it is handed."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-2-the-next-neighbourhood-fades-in.feature",
+          "scenario_name": "The title shows the city centre at dawn, with nothing fading in | Starting a game keeps the city centre at dawn, with nothing fading in | When the banner ends, I am in the next neighbourhood, with nothing fading in | Losing a home fades nothing in | The game-over screen shows the neighbourhood I reached | Playing again from a higher rung goes straight back to the city centre at dawn",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-2-the-next-neighbourhood-fades-in.feature"
+          ],
+          "implementation_notes": "Split from DISTILL's handoff step 2 (all of M2: 11 scenarios, 21 runs) at the plan table's own seam: every state but 'clear' here, the fade in 01-03. DDD-B5 and DDD-B9; the plan table under DESIGN's Component decomposition is the oracle. backdropPlan({ level, state, banner }) returns { here, next, mix }, where here and next are the theme's own NEIGHBOURHOODS entries: the steps compare them by name, and the shell will read their palettes. In this step here = neighbourhood(level), next = null and mix = 0 for title, play, dead and over; 'clear' is 01-03's, and its scenarios are that step's RED. The steps hand the plan a frozen { level, state, banner, paused }: read only the first three, ignore paused, write nothing. backdrop.js still imports only theme/ and game/config.js (the seventh rule). render.js doesn't call the plan until 01-05, so the game is unchanged. The six scenarios fail today at the Then, on the plan's RED scaffold. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\" (an outline's rows run under their rendered titles), and see it fail as DISTILL's RED classification says. Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-03",
+          "name": "The backdrop plan: the next neighbourhood fades in while Wave cleared! shows",
+          "criteria": [
+            "On the first 'Wave cleared!' frame the next rung's neighbourhood is named over the one being left, at a strength of 0%.",
+            "The strength is the share of the 2.4 s banner gone, to within a twentieth of a percent: 25%, 50%, 75% and 97.9% after 0.6, 1.2, 1.8 and 2.35 s, and 50% half way through the banner on each of the first five waves.",
+            "For a banner the game never reaches, the strength holds at its ends: 100% with -0.5 s left, 0% with 3 s left.",
+            "From Forever home onwards, on the sixth, seventh and tenth waves, nothing fades in while 'Wave cleared!' shows.",
+            "Pausing for 10 s mid-fade holds the fade at 50%; the plan takes the banner time from game/config.js, never from the rules."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-2-the-next-neighbourhood-fades-in.feature",
+          "scenario_name": "Clearing a wave starts the next neighbourhood fading in, from nothing | Half way through \"Wave cleared!\" on the <wave> wave, the backdrop shows <here>, with <fade> | <passed> seconds into \"Wave cleared!\", the next neighbourhood has faded in to <strength> | \"Wave cleared!\" with <left> seconds of the banner left holds the fade at <strength> | Pausing mid-fade holds the fade where it is",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-2-the-next-neighbourhood-fades-in.feature"
+          ],
+          "implementation_notes": "The second half of DISTILL's handoff step 2: the fade's strength, its limits and the top of the ladder. DDD-B5: while state is 'clear' and the next rung is another place (level below 5, so neighbourhood(level + 1) is not neighbourhood(level)), next = neighbourhood(level + 1) and mix = 1 - banner / BANNER_TIME, clamped to [0, 1]. BANNER_TIME is imported from ../game/config.js; importing it from game.js is exactly the seventh rule's broken case. At or past Forever home, 'clear' gives next = null and mix = 0. A pause needs no code: the banner doesn't count down while paused, so the mix holds. Fades are matched to within 0.0005. This step enables three outlines whole: 'Half way through' with both its Examples blocks (8 runs), 'seconds into' (3) and 'seconds of the banner left' (2), plus two scenarios. Together that is 15 runs, and with 01-02 all 21 of M2. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\" (an outline's rows run under their rendered titles), and see it fail as DISTILL's RED classification says. Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-04",
+          "name": "Each neighbourhood painted on a context it is handed; Forever home's cottage moved",
+          "criteria": [
+            "Every neighbourhood paints in full on a context it is handed, in game units, without setting a transform or asking for anything the context doesn't offer.",
+            "Painting never reaches for Math.random, and painting a neighbourhood twice makes the same calls in the same order.",
+            "Every fill and stroke is one of the neighbourhood's palette colours, or COLORS.green for the ground line, with its streets in its road colour and its skyline in its sky colour.",
+            "The game keeps drawing every neighbourhood through these same recipes, which exist once in backdrop.js.",
+            "Forever home's cottage, with its roof and lit window, lies clear of the houses' x ranges (84-156, 324-396, 564-636, 804-876), by its coordinates; the visual pass test of every landmark is 01-10's by-hand check."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-3-the-same-place-every-time.feature",
+          "scenario_name": "Drawing every neighbourhood leaves the game's luck alone | Every neighbourhood is drawn exactly the same way every time | Every neighbourhood is drawn only in its own colours, and the green of the ground line | Every neighbourhood has its streets and its skyline",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-3-the-same-place-every-time.feature"
+          ],
+          "implementation_notes": "DISTILL's handoff step 3. DDD-B1 and DDD-B2: paintBackdrop(context, neighbourhood) paints on the context it is handed, in game units. It paints the palette's bg over 0, 0, W, H, then the look's map, the look's skyline and the green ground line (COLORS.green, 0, GROUND, W, 2). It uses the rung's own mulberry32, seeded with 1000 + its index in NEIGHBOURHOODS. It sets no transform: the painting context doesn't offer setTransform, and refuses it. The store will set the scale before it paints (01-05). It may use only the calls the recipes make today (PAINT_CALLS in tests/unit/support/fake-canvas.js). buildBackdrop keeps the game drawing until 01-05 deletes it. Meanwhile it only creates, sizes and scales a canvas and hands that canvas's context to paintBackdrop, so the recipes exist once. DDD-B11 (Forever home, look 'coast'): the cottage stands at x 74-146, y 524-576. That is mostly behind the first house (x 84-156, y 530-584; its solid wall is at y 551-584), so it fails today. Move the cottage and its lit window clear of the houses' x ranges (84-156, 324-396, 564-636, 804-876), for example into the gap between the first and second houses, still standing on the cliff. Never move the houses. The lighthouse (x 298-322) already stands clear. M3 then checks that the moved art is still palette-only and seeded; the other landmarks are checked by hand in 01-10. Today 'drawn' is 'failed: Not yet implemented -- RED scaffold' for all six neighbourhoods (3 runs), and the fourth scenario fails at its arranging Given. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\", and see it fail as DISTILL's RED classification says. Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\". ALSO DONE WHEN (L3, L4): grep -cE '^const (MAPS|SKYLINES) = ' src/view/backdrop.js counts 2; the cottage's coordinates in the coast skyline recipe lie outside the four houses' x ranges. 01-04 is done without the visual check, which 01-10 owns."
+        },
+        {
+          "id": "01-05",
+          "name": "The store and the shell, with render.js only calling them",
+          "criteria": [
+            "A neighbourhood shown for 10 s is prepared once, at the game's size (1920 by 1440 at double size), and scaled to that size before anything is painted on it.",
+            "The store keeps the two neighbourhoods asked for last, dropping the least recently asked-for first, and never prepares again one that it holds at its size.",
+            "The shell draws the neighbourhood underneath at full strength over the whole screen, then the one fading in at the fade's strength, asking for it even at 0%, and leaves the strength as it found it.",
+            "Over a climb to the seventh wave, each neighbourhood is prepared only as it first appears: City centre at dawn as the title appears, and each next one as 'Wave cleared!' first appears. A new game after the climb prepares City centre at dawn once more.",
+            "render.js only calls showBackdrop(ctx, backdropPlan({ level, state, banner }), store.canvasFor), with the frame read from g, at the start of draw(). It creates the store with () => document.createElement('canvas'), its resize() calls rescale(k), and it has no cache or fade logic left.",
+            "buildBackdrop, the skeleton's cache code in render.js and the RED-scaffold marker are deleted: no old path coexists with the new one.",
+            "The walking skeleton stays green in Chromium, Firefox and WebKit."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature",
+          "scenario_name": "A neighbourhood is prepared once, however long it is shown | The screen keeps the two neighbourhoods it showed last | When the screen <trouble>, I see <underneath>, with <over it> | Over a whole climb, each neighbourhood is prepared only as it first appears | Playing again after a long climb prepares the city centre at dawn once more, as the new game starts",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-03",
+            "01-04"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "src/view/render.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature"
+          ],
+          "implementation_notes": "DISTILL's handoff step 4 enables 8 scenarios (9 runs), so it is split. This step covers the store, the shell and render.js on them; the same-scale rule is 01-06's. They can't be split from each other: every M4 scenario draws through the real shell over the real store. DDD-B3, DDD-B5 (F7, M-3, N8, L-4b). THE STORE: createBackdropCache(createCanvas) returns { rescale(k), canvasFor(neighbourhood) }. canvasFor builds a backdrop the first time it is asked for one. It takes a canvas from createCanvas() (called with no arguments) and sizes it round(W * k) by round(H * k). The 2D context's first call is setTransform(k, 0, 0, k, 0, 0), and paintBackdrop follows. canvasFor moves the neighbourhood to most recent and keeps at most two, dropping the least recently asked-for. Both methods must work detached, since render.js hands store.canvasFor to the shell unbound (closures, as the skeleton's cache uses). In this step, rescale(k) sets the scale and drops every canvas, as the skeleton's cache does; the early return on the same scale is 01-06's. A canvas that can't be built is 01-07's. THE SHELL: showBackdrop(context, plan, canvasFor) asks canvasFor for here, then for next whenever the plan names one, even at mix 0. That is why the next rung is built on the first 'Wave cleared!' frame, which the climb scenario checks. It draws here's canvas over 0, 0, W, H at full strength, then next's at globalAlpha = mix, then puts globalAlpha back as it found it. The screen's recording offers only drawImage, fillRect, save and restore, plus fillStyle and globalAlpha. RENDER.JS (L1, in one edit, so no name is declared twice): delete its own backdrop cache and fade (the createBackdropCache and drawBackdrop functions), and the BANNER_TIME and neighbourhood imports only they used. Add const store = createBackdropCache(() => document.createElement('canvas')). draw() starts with showBackdrop(ctx, backdropPlan({ level: g.level, state: g.state, banner: g.banner }), store.canvasFor), and resize() ends with store.rescale(k). main.js is unchanged: it already calls resize() at load and on every window resize. Delete buildBackdrop from backdrop.js: canvases now come only from the factory. With the last scaffold body gone, delete `export const __SCAFFOLD__ = true` and the RED-scaffold header comment too (L6), rewording any unit comment that still speaks of scaffolds. COMPOSITION OUTLINE: move its @pending from the outline onto its @error Examples block. That enables the first block's 2 runs (here ok, next none or ok); 01-07 enables the rest. Today these scenarios fail at the When or at an arranging Given, on the store's RED scaffold. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\" (an outline's rows run under their rendered titles), and see it fail as DISTILL's RED classification says. Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\". ALSO DONE WHEN (H2, H3): grep -nE 'buildBackdrop|drawBackdrop|BANNER_TIME|function createBackdropCache' src/view/render.js finds nothing; grep -nE 'buildBackdrop|__SCAFFOLD__' src/view/backdrop.js finds nothing; the full npm test is green (about 25 minutes; PORT=4174 CI=1 npm test if a server already holds port 4173); and a one-off check, not committed, loads the game in Chromium, Firefox and WebKit, starts a game, lets it play and clear a wave on the fake clock (or play several seconds), and sees no page error and no console error."
+        },
+        {
+          "id": "01-06",
+          "name": "Only a change of scale prepares the backdrops again",
+          "criteria": [
+            "A resize that keeps the game's size prepares nothing again: the neighbourhoods on screen keep the backdrops they have.",
+            "A resize to a new size prepares each neighbourhood on screen once more, at the new size (2880 by 2160 at triple size).",
+            "A resize half way through 'Wave cleared!' prepares both the neighbourhood being left and the one fading in once more, at the new size."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature",
+          "scenario_name": "Resizing the window without changing the game's size keeps the backdrops it has | Resizing the window to a new size prepares the neighbourhoods on screen again, once each | Resizing the window mid-fade prepares both neighbourhoods again, once each",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-05"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature"
+          ],
+          "implementation_notes": "The second half of DISTILL's handoff step 4: DDD-B3's scale rule (M-2). If rescale(k) is given the scale the store already has, it returns at once: the canvases are kept, and from 01-08 the failed marks too. A new scale drops every canvas, and each is built again at the new scale the next time it is asked for (here, and next during a fade). After 01-05 the store drops everything on every rescale. So 'Resizing the window to a new size prepares...' and 'Resizing the window mid-fade...' should pass once enabled; confirm each. 'Resizing the window without changing the game's size keeps...' is this step's RED. The wiring from the window's resize event, through render.js's resize(), to rescale stays a recorded gap (F8), checked by hand in 01-10. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\", and see it fail as DISTILL's RED classification says (or, for the two above, confirm that it passes). Then delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-07",
+          "name": "A backdrop that can't be prepared shows its plain background, and the game plays on",
+          "criteria": [
+            "When the screen has no room for a backdrop, or loses its drawing part-way through one, that neighbourhood shows its plain background over the whole screen and the game plays on: nothing is thrown to the game, nothing is reported, and nothing is asked of the screen that it doesn't offer.",
+            "The composition table's four failing rows draw as it says: a neighbourhood that couldn't be prepared is a fill in its palette's bg, at the strength its backdrop would have had, and no image is ever drawn from a backdrop that failed.",
+            "When the title's backdrop can't be prepared, City centre at dawn shows its plain background, and a game still starts at Studio flat, saying only 'Game started. Defend your dream home from the hurdles.'",
+            "A backdrop that couldn't be prepared doesn't stop the next one: Terraced streets in the morning shows its plain background, and Suburbs at midday its backdrop."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature",
+          "scenario_name": "When the screen <trouble>, I see <underneath>, with <over it> | When the screen <trouble>, the neighbourhood shows its plain background and the game plays on | The title's backdrop can't be prepared, and the game still starts and plays | A backdrop that couldn't be prepared doesn't stop the next one",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-05"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature"
+          ],
+          "implementation_notes": "DISTILL's handoff step 5 enables 8 scenarios (12 runs), so it is split at DDD-B4's own seam. This step covers what a failed build shows; how long the failure is remembered is 01-08's. DDD-B4, and DDD-B5's null guard (the composition table's failing rows). A build fails when getContext('2d') returns null, or when a call throws while the canvas is sized, scaled or painted. canvasFor then returns null for that neighbourhood, throws nothing and writes nothing to the console. Catch only around the build: a built canvas is assumed not to throw when drawn (Catalogued lies), and a wider catch would hide rendering bugs. THE SHELL: for a null canvas it calls fillRect(0, 0, W, H) in that neighbourhood's palette.bg, at the strength its canvas would have had (full for here, mix for next), and never calls drawImage(null). globalAlpha is put back as before. In this step a failed neighbourhood may be built again the next time it is asked for: remembering failures is 01-08's. COMPOSITION OUTLINE: delete the @pending that 01-05 moved onto its @error Examples block (4 runs). TROUBLE OUTLINE: both rows (no room; drawing lost part-way). The title probe is DDD-B4's Earned-Trust probe: the first build, on the title, fails, and the game starts anyway. Today these scenarios fail on the store's or the shell's RED scaffold. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\" (an outline's rows run under their rendered titles), and see it fail as DISTILL's RED classification says. Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-08",
+          "name": "A backdrop that couldn't be prepared waits for a change of scale",
+          "criteria": [
+            "A neighbourhood whose backdrop couldn't be prepared isn't tried again, however long it is shown, even once the screen has room again.",
+            "It takes neither of the two places kept, and however many other neighbourhoods are shown, the store never forgets it and tries it again.",
+            "A resize that keeps the game's size doesn't try it again; a resize to a new size tries it once more, and it then shows its backdrop."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature",
+          "scenario_name": "A backdrop that couldn't be prepared takes no room from the two kept, however many others are shown | A backdrop that couldn't be prepared isn't tried again until the game's size changes | Resizing the window without changing the game's size doesn't try a backdrop that couldn't be prepared again | Resizing the window to a new size tries a backdrop that couldn't be prepared again",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-06",
+            "01-07"
+          ],
+          "files_to_modify": [
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-4-the-game-plays-on.feature"
+          ],
+          "implementation_notes": "The second half of DISTILL's handoff step 5. DDD-B4, with DDD-B3. A neighbourhood whose build failed gets a failed mark, kept apart from the built canvases. A mark doesn't count towards the two and is never evicted. For a marked neighbourhood, canvasFor returns null at once and asks the factory for no new canvas. Only a change of scale clears the marks, together with the canvases (rescale with a new k); rescale with the same k keeps them (01-06's early return). 'Resizing the window to a new size tries...' may already pass after 01-07; confirm it. The other three are this step's RED. 'Takes no room' is the only scenario that catches marks counted among the two, or evicted with them (DISTILL, testing the tests). TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run each scenario first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"<a fragment of its title>\", and see it fail as DISTILL's RED classification says (or, for the one above, confirm that it passes). Then make it pass and delete its @pending, one at a time. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-09",
+          "name": "The arrival sentence names the neighbourhood",
+          "criteria": [
+            "Moving up to each of the second to sixth waves, a screen reader hears 'Wave cleared! Moving up the ladder to {rung}.', then 'Now on the property ladder at {rung}. {Neighbourhood}.', for example 'Now on the property ladder at Terrace. Terraced streets in the morning.'",
+            "From Forever home onwards it is heard at the start of every wave: 'Now on the property ladder at Forever home. Seaside at night.' on the seventh and on the tenth.",
+            "A new game still says only 'Game started. Defend your dream home from the hurdles.', and resuming from a pause or the pin coming back says nothing new."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-1-a-place-for-every-rung.feature",
+          "scenario_name": "Moving up to the <wave> wave, I hear that I am now at <rung>, in <neighbourhood>",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "src/view/status.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-1-a-place-for-every-rung.feature"
+          ],
+          "implementation_notes": "DISTILL's handoff step 6. DDD-B8 (F4). The sentence status.js says when a wave starts after a clear (its 'play' case after 'clear') becomes `Now on the property ladder at ${ladderName(g.level)}. ${neighbourhood(g.level).name}.`, and status.js already imports neighbourhood. Nothing else changes. 'Wave cleared! Moving up the ladder to {rung}.' stays as it is, and the arrival is still one live-region write. The words stay in status.js (DDD-T9's rule: only the mirror says them), so messages.js is unchanged. M1's enabled scenarios (starting a game, the two interruptions, playing again after Country pile) guard the cases that must not change. No unit spec asserts the old sentence. The step doesn't depend on any backdrop step. Remove the outline's @pending (both Examples blocks, 7 runs). Today each run fails at the Then, because the old sentence is heard. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. These contracts are closed, finite domains, so DISTILL checks them exhaustively, as @property outlines with assertStateDelta (tests/common/state-delta.js) over declared universes at the ports, with no sampling, no fast-check and no seed (DISTILL, WS strategy). A unit test added anyway goes in tests/unit, imports ./support/seed.js, and is a fast-check property with assertStateDelta over a declared universe, or carries a `// bypass:` reason. ENABLE: run the outline first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"I hear that I am now at\", and see each row fail as DISTILL's RED classification says. Then make it pass and delete its @pending. Change no step, driver, helper or scenario text. DONE WHEN: this step's scenarios are green in the in-memory project, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), and the walking skeleton is green in all three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"."
+        },
+        {
+          "id": "01-10",
+          "name": "Everything stays readable on every neighbourhood, and the feature closes",
+          "criteria": [
+            "The Dream home text and the Dream Home stand out as much as text needs to against every colour of every neighbourhood, a shade brighter: Terraced streets in the morning's road goes from #2f3f57 to #2e3e56 and Leafy avenue in the afternoon's road from #403f33 to #3f3e32, and no foreground colour changes.",
+            "Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name: the door, the game-over red, the legend's outline and the veils, and no other. The brightness cap, the other five uses and the legend still pass.",
+            "No @pending is left in this feature's acceptance files, and no RED-scaffold marker under src/. npx bddgen export --unused-steps lists none, and npm run build and the full npm test are green.",
+            "src/view/backdrop.js references no DOM global: a whole-word search for document, window and devicePixelRatio finds nothing.",
+            "README no longer describes this feature's acceptance suite as its walking skeleton only.",
+            "(by hand) The Rendering universe, in Chrome, Firefox and Safari at 1x and 2x: all six backdrops, a frame mid-fade, DDD-B11's landmarks, Terrace's streets with bolts in motion, a fade frame's cost in Firefox at 2x, a resize during the fade (the only check of the resize wiring) and during play, and, against main run locally side by side (H4), everything else the canvas draws: the title, HUD, houses, formation, Dream Home, pin, shot, bolts, particles, banner, overlays, initials entry and score tables unchanged."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-5-everything-stays-readable.feature",
+          "scenario_name": "Every neighbourhood leaves <use> readable | Every colour the game draws over a backdrop stands out as much as its use needs, or is excused by name",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-08",
+            "01-09"
+          ],
+          "files_to_modify": [
+            "src/theme/theme.js",
+            "src/view/backdrop.js",
+            "tests/e2e/rightmove-invaders-level-backdrops/acceptance/milestone-5-everything-stays-readable.feature",
+            "README.md"
+          ],
+          "implementation_notes": "DISTILL's handoff step 7, plus the close-out. The scaffold marker's deletion and the grep for DOM globals move here from DISTILL's step 5, so that they come last. DDD-B6 (L-1) and DDD-B7. The Legibility needs table is the oracle, and milestone 5 is the authority. In src/theme/theme.js, darken Terrace's road from #2f3f57 to #2e3e56, and Leafy avenue's road from #403f33 to #3f3e32. In DISTILL's scratch build these gave the Dream home's pink 4.548 and 4.532 to 1, with the 0.001 allowance. If the check reports any other pair short, darken that palette colour by a step. Never lighten a foreground colour, and never touch COLORS.dream: either would be a product decision. ENABLE in M5: delete the @pending of the outline's Dream home Examples block (1 run; the other five rows are enabled already) and of the closed-set scenario (1 run). Both fail today on the same two dream pairs. CLOSE-OUT: the RED-scaffold marker was deleted in 01-05 with the last scaffold body (L6); check grep -rn __SCAFFOLD__ src/ finds nothing. grep -nwE 'document|window|devicePixelRatio' src/view/backdrop.js must find nothing, comments included (DDD-B15, L-4a). grep -rn '@pending' tests/e2e/rightmove-invaders-level-backdrops/acceptance/ must find nothing. npx bddgen export --unused-steps must list none. npm run build must pass, and so must the full npm test, which takes about 25 minutes (run PORT=4174 CI=1 npm test if a server already holds port 4173). README.md, only because it is now stale: drop 'for now its walking skeleton only' from the acceptance-suites paragraph, and change nothing else. BY HAND (D10, the Rendering universe; owed to the user and recorded in the execution log; run with npm start in Chrome, Firefox and Safari at 1x and 2x): all six backdrops in the real game; one frame mid-fade; DDD-B11's landmarks: Studio flat's towers (on the title too), Forever home's cottage (moved in 01-04), Country pile's manor and Country pile's trees. A landmark passes when more than half of its silhouette is visible; on a fail, the art moves or the user excuses it by name. Also: Terrace's streets with bolts in motion; a fade frame's cost on real hardware in Firefox at 2x; a resize during the fade, the only check of the resize wiring (F8), after which both neighbourhoods show again at the new size and the fade carries on; and a resize during play, which costs at most one hitch per change of scale. Also by hand (H4): compare this branch with main locally, side by side (a git worktree of main, npm start on two ports, screenshots at 1x and 2x), for everything else the canvas draws: it must not change. The orchestrator prepares the screenshots; the user owns the judgement. Not in this roadmap, because each needs the user's OK: pushing the branch, comparing against main on the deploy preview, and the merge. TEST PARADIGM (project adaptation, as typed-initials): DISTILL wrote every test this step needs, and DELIVER writes none. Milestone 5 checks every pair in plain loops, 639 pairs plus 54 cap checks, with no sampling, no fast-check and no seed (DDD-B6). ENABLE: run each first with RUN_PENDING=1 npx playwright test --project=in-memory --grep \"Dream home text\" or --grep \"Every colour the game draws\", and see it fail on the two road pairs. Then darken the roads and delete its @pending. Change no step, driver, helper or scenario text. DONE WHEN: the criteria above hold, npm run build is green (bddgen, the unit and in-memory projects, then the dist copy; H1), the walking skeleton is green in all three engines (npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Clearing the first wave\"), and the full npm test is green."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/"
+    ],
+    "test_directories": [
+      "tests/e2e/rightmove-invaders-level-backdrops/acceptance/",
+      "tests/unit/"
+    ],
+    "excluded_patterns": [
+      "node_modules/**",
+      "dist/**",
+      ".features-gen/**",
+      "netlify/**"
+    ],
+    "other_files": [
+      "README.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (conditionally_approved, 0 blockers; conditions applied)",
+    "approved_at": "2026-10-26T17:30:00Z",
+    "notes": "Filled in by nw-solution-architect from DISTILL's DELIVER handoff (its steps 1 to 7). Three handoff steps enabled 8 or more scenarios and are each split at a seam DESIGN already draws. The plan splits into 01-02 (every state but 'clear') and 01-03 (the fade). The store and shell split into 01-05 (the store, the shell and render.js on them) and 01-06 (DDD-B3's scale rule). The fail-safe splits into 01-07 (the plain background) and 01-08 (failed marks and their lifetime). So DISTILL's steps 3, 6 and 7 are 01-04, 01-09 and 01-10. Forever home's cottage moves in 01-04, the painting step (DDD-B11), and the scaffold marker's deletion and the grep for DOM globals move from DISTILL's step 5 to 01-10. Every @pending run maps to exactly one step: 01-01 0, 01-02 6, 01-03 15, 01-04 4, 01-05 6, 01-06 3, 01-07 8, 01-08 4, 01-09 7, 01-10 2, which totals 55. M4's composition outline is shared between steps by Examples block: 01-05 moves @pending onto its @error block, and 01-07 removes it. No new test files. 01-01's test_file and scenario_name are the unit tests it keeps green. Orchestrator ran des-roadmap validate (exit 0, length warnings only) and des-verify-integrity --roadmap-only (exit 0), and the roadmap quality gate (clean). Reviewed by nw-acceptance-designer-reviewer: conditionally_approved (0 blockers, 4 high, 9 low). Applied by the orchestrator: H1 (npm run build in every DONE WHEN), H2 (01-05 runs the full npm test and a one-off page-error check), H3 (01-05 greps for the old path), H4 (01-10 compares with main locally), L1 (01-05 edit order), L2 (01-01 grep), L3 and L4 (01-04 checks by grep and coordinates), L5 (exact road colours), L6 (the scaffold marker goes in 01-05), L7 (01-09 has no deps). Not applied: L8 (informational), L9 (fixed in the feature delta)."
+  }
+}

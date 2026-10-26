@@ -616,7 +616,7 @@ The run's own error lines group the same 55 by message: 42 "Not yet implemented 
 | M5 Every neighbourhood leaves the Dream home text and the Dream Home readable (1) | Then: `dream on Terraced streets in the morning road: 4.479 to 1, needs 4.5`, `dream on Leafy avenue in the afternoon road: 4.463 to 1, needs 4.5` | **Palette-data failure against its need** (DELIVER darkens the two roads) |
 | M5 Every colour the game draws over a backdrop… (1) | Then: every colour measured 54 times, excused exactly `danger`, `door` and the veils (cycle 2, L4), and `short` lists the same two dream pairs, nothing else | **Palette-data failure against its need** (the same two pairs) |
 
-The M4 scenarios stop at the store's scaffold first. Once the store is built (DELIVER 01-04), the shell's scaffold is caught by the screen driver as a failure, and each Then fails on its `failures` guard: still RED.
+The M4 scenarios stop at the store's scaffold first. Once the store is built (DELIVER 01-05), the shell's scaffold is caught by the screen driver as a failure, and each Then fails on its `failures` guard: still RED.
 
 **Already passing, and enabled (19 runs)**, because what they check is built and no DELIVER step owns it:
 - **The M1 field** (1 start + 7 rungs, the clamp included): the skeleton built the field (DDD-B8, "as built").
@@ -676,6 +676,8 @@ The first run's five painting variants still hold.
 - a recipe that resets the scale itself: 2 scenarios fail, the painter's surface refusing `setTransform`.
 
 ## Wave: DISTILL / [REF] DELIVER handoff
+
+*Superseded by the DELIVER roadmap (`deliver/roadmap.json`), which splits three of these steps: DISTILL's 1 → 01-01; 2 → 01-02 and 01-03; 3 → 01-04; 4 → 01-05 and 01-06; 5 → 01-07 and 01-08; 6 → 01-09; 7 → 01-10.*
 
 **Enable order.** Enable one scenario at a time, and run it first with `RUN_PENDING=1 npx playwright test --project=in-memory --grep "<title>"`. A step is done when:
 - its scenarios are green;

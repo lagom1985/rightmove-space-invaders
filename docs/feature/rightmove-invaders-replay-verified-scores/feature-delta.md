@@ -855,7 +855,7 @@ The owner does this. Nobody else handles the values. Never paste them into a cha
 
 **The secret and the build** (F-09; decided by the user, 2026-10-26). Scopes need Pro, so on legacy Free the build can read `SCORES_SESSION_SECRET` as well as the functions can, P included in production builds. Code that runs in the build could therefore mint production sessions for any seed and issue time:
 - **Mitigation**: `NPM_FLAGS = "--ignore-scripts"` in `netlify.toml`'s `[build.environment]`.
-  - It lands in slice 01's pull request, before P is set, and its preview's build log shows the flag on the install and a passing gate. Netlify passes `NPM_FLAGS` to its `npm install`.
+  - It landed in PR #5, at the user's request on 2026-10-26, because the owner had already set the secret, so no production build would run without it. PR #5's preview build log is the check: the flag is on the install, and the gate passes. Netlify passes `NPM_FLAGS` to its `npm install`.
   - It blocks dependencies' install scripts, the common supply-chain route. None of the four dependencies needs one, because the gate runs no browsers.
 - **Kept**: the dependencies stay pinned exactly in `package-lock.json`.
 - **Accepted residual risk**: the test gate's own code runs in the build: `@playwright/test`, `playwright-bdd` and `fast-check`, plus `@netlify/blobs`. Rotate on any advisory against one of them.
@@ -872,7 +872,7 @@ The leaderboard's pipeline, unchanged in shape. Deltas:
 
 | Stage | Change |
 |---|---|
-| Install | `NPM_FLAGS = "--ignore-scripts"` (slice 01's pull request; The secret and the build) |
+| Install | `NPM_FLAGS = "--ignore-scripts"` (PR #5; The secret and the build) |
 | Test gate (`npm run build`: unit + in-memory) | Gains what DELIVER adds:<br>• the determinism scan (layering rule 8);<br>• the recorded-games corpus replayed in Node (K21), about 6 games, well under a second;<br>• the session signer's units;<br>• the forgery catalogue as `@server` scenarios (K20, including item 4, a session older than 2 hours, on an injected clock);<br>• the `config` contract test with both paths |
 | Functions bundling | The function now inlines `src/game/{replay,record,game,shields,chance,particles,config,events,high-scores}.js`, `src/theme/theme.js` and `netlify/scores/sessions.mjs`: about 35 KB of source, all static imports, so no `included_files`. A session request (S2) and a replayed signing (S7) on the preview prove the bundle |
 | Post-processing | The rate-limit rule now covers both paths. Read the deploy log's post-processing stage on slice 01's first preview |
@@ -1003,7 +1003,7 @@ The KPI rows are K20–K25 in [kpi-contracts.yaml](../../product/kpi-contracts.y
 3. Record the count of forged rows deleted at S0 (K24).
 
 **Slice 01's release**:
-1. The slice's pull request, which carries `NPM_FLAGS`, is pushed, and its preview is built with V.
+1. The slice's pull request is pushed, and its preview is built with V. `NPM_FLAGS` is already in the build, from PR #5.
 2. The preview run passes slice 01's gate.
 3. The owner checks in the UI that Production holds a value for `SCORES_SESSION_SECRET`.
 4. Merge: the production build picks up P.
@@ -1076,7 +1076,7 @@ DESIGN's open questions for DEVOPS, answered:
 - K20 item 4 is covered by `@server` on an injected clock (no Netlify step: it would need a 2-hour wait).
 
 **For DELIVER**:
-1. `NPM_FLAGS = "--ignore-scripts"` in `netlify.toml`, and `.env*` in `.gitignore` (slice 01).
+1. `.env*` in `.gitignore` (slice 01). `NPM_FLAGS = "--ignore-scripts"` is already in `netlify.toml`, from PR #5.
 2. DDD-R2's canonical-base64 check.
 3. The smoke-test extension (S1–S13, the two-phase pacing, the over-limit marks, the slice gates).
 4. `config`'s contract test for both paths, and the log-leak test extended.

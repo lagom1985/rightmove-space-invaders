@@ -73,7 +73,7 @@ platform_coverage:
 
 deployment_assumptions:
   - "Slice by slice: each slice merges to main only after its preview run passes its gate (slice 01: K25, K10, K14, K12, K20 items 1-3; slice 02: K22, K10 under D21, K11, K20 items 3, 5-8, 10, 11, K12, K21; slice 03: K20 item 9, K10 under D21), and K13 runs the same day as each merge"
-  - "The secret is set for Production, and a deploy built after it, before slice 01 reaches production; otherwise nobody can sign. NPM_FLAGS=--ignore-scripts lands with slice 01, before P is set"
+  - "The secret is set for Production, and a deploy built after it, before slice 01 reaches production; otherwise nobody can sign. NPM_FLAGS=--ignore-scripts is in netlify.toml from PR #5 (2026-10-26), because the owner set the secret before any slice"
   - "Rollback across a slice is safe for the table (the key format is unchanged both ways), but it reopens the defence that slice closed: it is never a remedy for a fault in the defence (fix forward, or pull the kill switch), and a rollback below slice 02 needs the owner's written decision"
   - "A rollback also restores the secret value the deploy was built with; after a rotation for a leak, no older deploy may be published"
   - "Every pushed preview or branch deploy, the probe's included, goes on the kill switch's list of live function hostnames until its deploy is deleted"

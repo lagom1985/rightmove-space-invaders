@@ -60,7 +60,7 @@ Feature: My initials follow the rules, whatever I type
     Then my initials are "", with the refusal
     And nothing else in the game changed
 
-  @US-01 @US-02 @slice-01 @in-memory @edge @contract-shape:bounded-change @DDD-T2 @pending
+  @US-01 @US-02 @slice-01 @in-memory @edge @contract-shape:bounded-change @DDD-T2
   Scenario: Keys after the Enter that signs, in the same go, are dropped
     Given my game has ended with a deposit that makes the table, on the game's rules alone
     And the game ended exactly 1 second ago

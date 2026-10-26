@@ -1,5 +1,5 @@
 import { ladderName, pounds } from '../theme/theme.js';
-import { INITIALS_REFUSED, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_NOTICES, PLAY_AGAIN_SENTENCE, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 
 const SETTING_MESSAGES = {
@@ -38,9 +38,9 @@ export function createStatus(root) {
   for (const el of root.querySelectorAll('[data-hud]')) fields[el.dataset.hud] = el;
   const table = root.querySelector('[data-leaderboard]');
   const shown = {};
-  let last = { state: null, paused: false, entering: false, field: '', line: '', settings: null, rows: NO_ROWS, mine: null, settled: null };
+  let last = { state: null, paused: false, entering: false, field: '', notice: null, line: '', settings: null, rows: NO_ROWS, mine: null, settled: null };
 
-  // `always` writes even the same words again: two outcomes can read alike, and each is announced.
+  // `always` writes even the same words again: two outcomes, or two notices, can read alike, and each is announced.
   function set(name, value, always = false) {
     if (shown[name] === value && !always) return;
     shown[name] = value;
@@ -72,12 +72,13 @@ export function createStatus(root) {
     }));
   }
 
-  // Each change of the letters once, while the entry is open (the prompt announced its opening), the refusal first. The
-  // rules take a frame's typed presses together, so letters typed within one frame are heard as the field they leave.
-  const initialsAnnouncement = (g, field) => {
-    if (!g.initials || !last.entering || field === last.field) return '';
-    return g.initials.notice?.kind === 'refused' ? `${INITIALS_REFUSED} ${field}` : field;
-  };
+  // Each change of the letters once, while the entry is open (the prompt announced its opening). The rules take a frame's
+  // typed presses together, so letters typed within one frame are heard as the field they leave.
+  const fieldAnnouncement = (g, field) => (g.initials && last.entering && field !== last.field ? field : '');
+
+  // Each notice of the entry's (Enter's answer) once, by its number: numbers never repeat, across games too, so a notice
+  // is heard even when its words are the same as the last one's (DDD-T10). One shown and cleared within a frame is never.
+  const noticeAnnouncement = notice => (notice && notice.n !== last.notice ? INITIALS_NOTICES[notice.kind] : '');
 
   // The table line on its own, once, when the table turns unavailable on the game-over screen; game over itself says it
   // when it is unavailable already.
@@ -114,11 +115,16 @@ export function createStatus(root) {
     const entering = g.initials !== null;
     const changed = g.state !== last.state || g.paused !== last.paused || entering !== last.entering;
     const line = tableLine(g);
-    const spelled = initialsAnnouncement(g, field);
+    const notice = g.initials?.notice ?? null;
+    const told = noticeAnnouncement(notice);
+    const spelled = fieldAnnouncement(g, field);
     const outcome = outcomeAnnouncement(g.settled);
-    const message = [changed ? announcement(g) : '', tableAnnouncement(line, changed), spelled, outcome, ...settingAnnouncements(g)]
+    const message = [changed ? announcement(g) : '', tableAnnouncement(line, changed), told, spelled, outcome, ...settingAnnouncements(g)]
       .filter(Boolean).join(' ');
-    if (message) set('announcement', message, Boolean(outcome));
-    last = { state: g.state, paused: g.paused, entering, field, line, settings: { ...g.settings }, rows, mine, settled: g.settled?.n ?? null };
+    if (message) set('announcement', message, Boolean(outcome || told));
+    last = {
+      state: g.state, paused: g.paused, entering, field, notice: notice?.n ?? last.notice, line, settings: { ...g.settings }, rows, mine,
+      settled: g.settled?.n ?? null,
+    };
   };
 }

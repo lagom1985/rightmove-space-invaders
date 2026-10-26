@@ -56,7 +56,7 @@ Feature: Typing my initials (US-01)
     Then the initials field still shows "No letters yet, letter 1 of 3"
     And nothing about the initials is announced
 
-  @US-01 @slice-01 @real-io @error @contract-shape:bounded-change @DDD-T6 @pending
+  @US-01 @slice-01 @real-io @error @contract-shape:bounded-change @DDD-T6
   Scenario: Enter with fewer than 3 letters sends nothing
     Given my deposit of £50 makes the high-score table
     And I have typed "al"
@@ -65,7 +65,7 @@ Feature: Typing my initials (US-01)
     And the initials field still shows "A L, letter 3 of 3"
     And nothing is sent to the high-score table
 
-  @US-01 @slice-01 @real-io @error @edge @contract-shape:bounded-change @DDD-T6 @pending
+  @US-01 @slice-01 @real-io @error @edge @contract-shape:bounded-change @DDD-T6
   Scenario: Enter pressed again too early gives the hint again
     Given my deposit of £50 makes the high-score table
     And I have typed "al"
@@ -74,7 +74,7 @@ Feature: Typing my initials (US-01)
     Then the game has told me "Type 3 letters to sign" twice
 
   # Notices are numbered across games (DESIGN open question 9): this fails if the numbers restart with each entry.
-  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T6 @DDD-T10 @pending
+  @US-01 @slice-01 @real-io @edge @contract-shape:bounded-change @DDD-T6 @DDD-T10
   Scenario: Enter pressed too early in my next game gives the hint again
     Given my deposit of £50 makes the high-score table
     And I have typed "al"

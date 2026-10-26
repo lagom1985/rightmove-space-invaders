@@ -57,7 +57,7 @@ test('Enter on three letters on the word filter, typed in any case and in any fr
   }));
 });
 
-// ---- the entry step's rows: Backspace, and a fourth letter (DDD-T6, D14) ----
+// ---- the entry step's rows: Backspace, a fourth letter and Enter too early (DDD-T6, D13, D14) ----
 const PLAN = ['letters', 'notice', 'skip', 'signing'];
 const capitals = (minLength, maxLength) => fc.array(fc.constantFrom(...ALPHABET), { minLength, maxLength }).map(letters => letters.join(''));
 // No notice, or Enter's answer with the number the shell gave it.
@@ -65,6 +65,7 @@ const aNotice = fc.option(fc.record({ kind: fc.constantFrom('too-few', 'refused'
 const anEntry = letters => fc.record({ letters, notice: aNotice });
 const aLetterPress = fc.tuple(fc.constantFrom(...ALPHABET), fc.boolean()).map(([letter, capital]) => ({ key: capital ? letter : letter.toLowerCase() }));
 const BACKSPACE = { key: 'Backspace' };
+const ENTER_PRESS = { key: 'Enter' };
 
 // What a press the entry doesn't act on plans: the same letters and notice, no skip and no signing.
 const identityOf = ({ letters, notice }) => ({ letters, notice, skip: false, signing: null });
@@ -89,5 +90,12 @@ test('Backspace on an empty entry changes nothing: the plan is the identity, its
 test('a fourth letter, in either case, changes nothing: the plan is the identity, its notice the very one passed in', () => {
   fc.assert(fc.property(anEntry(capitals(INITIALS_LENGTH, INITIALS_LENGTH)), aLetterPress, (entry, press) => {
     assertStateDelta(identityOf(entry), entryStep(entry, press), { universe: PLAN, expected: { notice: theVeryNotice } });
+  }));
+});
+
+// A fresh hint, without a number, even when one is already on show: the shell numbers it, and the mirror announces it.
+test('Enter with fewer than 3 letters keeps them and shows a fresh too-few hint, without a number, whatever notice was on show: no skip and no signing', () => {
+  fc.assert(fc.property(anEntry(capitals(0, INITIALS_LENGTH - 1)), entry => {
+    assertStateDelta(identityOf(entry), entryStep(entry, ENTER_PRESS), { universe: PLAN, expected: { notice: setTo({ kind: 'too-few' }) } });
   }));
 });

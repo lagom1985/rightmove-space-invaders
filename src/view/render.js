@@ -3,7 +3,7 @@ import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../them
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
 import { g, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
-import { INITIALS_REFUSED, PLAY_AGAIN, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
+import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, TABLE_UNAVAILABLE } from './messages.js';
 
 const FONT = '"Press Start 2P", ui-monospace, monospace';
 const OFF_LABELS = { sound: 'Sound off', music: 'Music off' };   // HUD indicators, stacked upwards from the bottom right
@@ -174,8 +174,10 @@ function drawHighScores(ctx, y) {
 }
 
 // Three slots, filled in capitals in the order typed ('A L _'), the next one blinking (none once all three are in),
-// like on an arcade cabinet. Initials on the word filter are refused in red under the help line until the next key the
-// entry acts on (DISTILL, Messages).
+// like on an arcade cabinet. Enter's answer shows under the help line until the next key the entry acts on (DISTILL,
+// Messages): the too-few hint, or initials on the word filter refused in red.
+const NOTICE_COLORS = { 'too-few': COLORS.text, refused: COLORS.danger };
+
 function drawInitialsEntry(ctx, y) {
   const { letters, notice } = g.initials;
   text(ctx, 'New high score!', W / 2, y, 24, COLORS.green, 'center');
@@ -184,7 +186,7 @@ function drawInitialsEntry(ctx, y) {
     if (!next || blink()) text(ctx, letters[i] ?? '_', W / 2 + (i - 1) * 64, y + 80, 40, next ? COLORS.green : COLORS.text, 'center');
   }
   text(ctx, 'Type 3 letters   Enter sign   Backspace delete', W / 2, y + 130, 8, COLORS.dim, 'center');
-  if (notice?.kind === 'refused') text(ctx, INITIALS_REFUSED, W / 2, y + 160, 8, COLORS.danger, 'center');
+  if (notice) text(ctx, INITIALS_NOTICES[notice.kind], W / 2, y + 160, 8, NOTICE_COLORS[notice.kind], 'center');
 }
 
 // What became of the signing made at this game over (DISTILL, Messages), in its status's colour; an earlier one shows

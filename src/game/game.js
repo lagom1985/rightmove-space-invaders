@@ -181,7 +181,8 @@ function applyPlan({ letters, notice, signing }) {
 }
 
 // Notices are numbered across games, outside g like the outbox, so the status mirror can tell each one from the last
-// even when its words are the same. A notice the entry kept has its number already.
+// even when its words are the same. Nothing resets the count, neither a new entry (blankInitials) nor a new game
+// (startGame). A notice the entry kept has its number already.
 let noticesShown = 0;
 const numbered = notice => (notice && notice.n === undefined ? { ...notice, n: ++noticesShown } : notice);
 

@@ -1,6 +1,6 @@
 # ADR-004: The shared high-score table is a Netlify Function over Netlify Blobs, one blob key per score
 
-**Status**: Accepted (2026-10-24, revision 3) · **Feature**: rightmove-invaders-leaderboard
+**Status**: Accepted (2026-10-24, revision 3); amended by [ADR-010](adr-010-the-table-replays-every-game.md) (user, 2026-10-26): a row's id names its game, one row per game, and the operation count of a refused duplicate · **Feature**: rightmove-invaders-leaderboard
 
 ## Context
 The user asked for an arcade high-score table that everyone shares: a deposit that makes the top 10 is signed with three initials, and another computer sees the same table. The game is static files on Netlify. The browser can't talk to Netlify Blobs directly, so something server side has to own the table. The table must not lose or overwrite a score when players sign at the same moment.
@@ -20,6 +20,11 @@ Nothing was deployed.
   - The table is computed from a strong-consistency listing of `s/`, with no blob bodies read.
   - Only keys matching `^s/\d{7}-\d{15}-[A-Z]{3}-[a-z0-9]+$` count.
 - **Bounded, best-effort pruning.** Once there are more than 20 well-formed keys, each POST deletes k = min(5, n − 20) of those ranked 11th or lower in its listing, n being the well-formed keys in the listing taken after its write (exact rule accepted: user, 2026-10-24; DELIVER replaces the skeleton's fixed delete-5). A row only ever leaves the table by being pruned, so a key ranked below 10th can never climb back, and any instance may delete it without coordination. A store failure during a delete is caught and logged with a fixed reason (`prune-failed`), and the POST still answers 200: the next POST prunes again.
+- **One row per game** (amended by ADR-010, user, 2026-10-26; built in rightmove-invaders-replay-verified-scores, slice 01). The key's last field, the "random id" above, becomes the **game id**: the SHA-256 of the game's seed, cut to 32 hex characters, which still matches `[a-z0-9]+`. The format is unchanged, and the rows already stored stay valid.
+  - Per game id, only the key signed first (the earliest time, then arcade order) counts. Every answer and the prune plan use that one ranking, so another key of the same game never shows.
+  - After its write, a signing keeps its key only if its own listing shows no other key with its game id. Otherwise it removes its key and answers 409 `already-signed`.
+  - Pruning, on a 200 only, removes a game's other keys first, whatever their count, then the lowest of the rest beyond 20. A signing deletes at most 5 keys in all, a 409's own removal included.
+  - The restricted port is unchanged: `list`, `putIfNew` and `remove`, for well-formed score keys only.
 - **Listing time.** Every answer that carries rows also carries `listedAt`, the function's `Date.now()` in ms, taken right after its `list` call returns. The browser orders answers by it (ADR-008).
 - **A restricted table-store port.** The handler never holds a `@netlify/blobs` `Store`.
   - The composition roots (the Netlify entry, and `scripts/serve.mjs` locally) build the port around the store they chose, from one factory in the function file.
@@ -38,7 +43,7 @@ Nothing was deployed.
 - **`localStorage` only**: not shared, so it fails the brief.
 
 ## Consequences
-- **Positive**: no lost signatures, by construction rather than by retries. The store stays at about 20 keys. A GET is one listing; a POST is one write, one listing and at most 5 deletes. Whatever the handler does, it can only add or remove well-formed score keys.
+- **Positive**: no lost signatures, by construction rather than by retries. The store stays at about 20 keys. A GET is one listing; a POST is one write, one listing and at most 5 deletes (amended by ADR-010: a 409 `already-signed` counts its own removal among the 5; a session request is one listing). Whatever the handler does, it can only add or remove well-formed score keys.
 - The key format is now a persisted schema. Changing it means a new prefix, which also starts a new, empty table. The 7-digit score field caps a score at £9,999,999.
 - If pruning keeps failing, keys accumulate. The log's key count shows it, and above 40 something is wrong.
 - **Negative**: the emulator is not production. Real Netlify latency, cold starts and `list` consistency right after a write are only verified by the DEVOPS smoke test, which includes a concurrent burst on a preview.

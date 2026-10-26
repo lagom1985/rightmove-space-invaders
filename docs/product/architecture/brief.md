@@ -4,7 +4,7 @@ SSOT for the game's architecture. Each architect owns one section. Decisions are
 
 ## Application Architecture
 
-*Owner: nw-solution-architect · Last updated: 2026-10-26 (rightmove-invaders-typed-initials, DELIVER: the typed-initials rows marked shipped, with the names as built; earlier that day, DESIGN revised after the Final Wave Review Gate, with no decision changed, then after the second review cycle: `update` narrowed to an `{ isDown }` view, the entry step's plan, the declared delta and the Alt defaults; on 2026-10-25, DESIGN: typed initials, ADR-009 accepted; edits marked "typed-initials". Before that: rightmove-invaders-leaderboard, DELIVER: the components marked shipped)*
+*Owner: nw-solution-architect · Last updated: 2026-10-26 (rightmove-invaders-replay-verified-scores, DESIGN accepted by the user: the table replays every game, ADR-010 and ADR-011; edits marked "replay-verified", designed and not yet built. Earlier that day: rightmove-invaders-typed-initials, DELIVER: the typed-initials rows marked shipped, with the names as built; earlier that day, DESIGN revised after the Final Wave Review Gate, with no decision changed, then after the second review cycle: `update` narrowed to an `{ isDown }` view, the entry step's plan, the declared delta and the Alt defaults; on 2026-10-25, DESIGN: typed initials, ADR-009 accepted; edits marked "typed-initials". Before that: rightmove-invaders-leaderboard, DELIVER: the components marked shipped)*
 
 *File layout note (2026-10-24): `src/` was reorganised into `game/`, `sound/`, `view/`, `platform/` and `theme/`; paths below are the current ones, while ADRs and wave records keep the paths they had at the time. A later refactor the same day moved the sound recipes to `sound/recipes.js`, handed the best-score store in from `main.js` and split the synth into `voices.js`, `effects.js`, `music.js` and `journal.js`.*
 
@@ -14,10 +14,16 @@ The shared high-score table adds one thin server-side adapter, the **Score API**
 - **Storage**: it keeps one Netlify Blobs key per score (ADR-004). Its composition roots (the Netlify entry, and `scripts/serve.mjs` locally) choose the store with a pure `chooseStore(context)` (ADR-005) and hand the handler only a restricted table-store port: `list`, `putIfNew` and `remove`, for well-formed score keys only, with `list` alone for GET.
 - **Shared rules**: the table size, initials, £50 step, signature validity, word filter and qualification live in the pure `game/high-scores.js` (ADR-006). The function uses the size and signature validity; qualification (`makesTheTable`) is the browser's alone.
 - **Browser side**: the browser reaches the table through `platform/leaderboard.js`. `main.js` hands the answers to the rules between frames, so the network is never on the frame path. Every answer with rows carries the server's listing time (`listedAt`), and the rules apply rows in that order (ADR-008).
+- *replay-verified* (designed, not yet built): **the table replays every game** (ADR-010, ADR-011).
+  - The rules become one game per instance (`createGame`), with every gameplay draw from a seed the game picks as it starts.
+  - Each game posts its seed to `POST /api/sessions` as it starts, and gets an HMAC-signed session and the refreshed table back.
+  - The rules record the three held controls by step, and the signing carries the session and that record.
+  - The function replays the record (`game/replay.js`) and saves the deposit it produces, with one row per game.
+  - The accepted risk narrows to a program that plays well.
 
 **Quality attributes, in priority order**
 1. **Responsiveness**: input and sound within one frame. The game's p95 frame work was ≤ 4 ms under stress in the spike (ADR-000); sound may add at most 0.5 ms (ADR-002, sound DDD-12 and D11). No frame waits on the network.
-2. **Integrity of the high-score table**: no signature is lost or overwritten when players sign at the same moment (0 lost with up to 100 at once on the emulator, ADR-004). The handler can only add or remove well-formed score keys. The browser and the function apply one signature-validity rule (ADR-006). Only the published production deploy writes the production table: previews and older production deploys never do (ADR-005, amended in DEVOPS, 2026-10-24).
+2. **Integrity of the high-score table**: no signature is lost or overwritten when players sign at the same moment (0 lost with up to 100 at once on the emulator, ADR-004). The handler can only add or remove well-formed score keys. The browser and the function apply one signature-validity rule (ADR-006). Only the published production deploy writes the production table: previews and older production deploys never do (ADR-005, amended in DEVOPS, 2026-10-24). *replay-verified* (designed): every deposit on the table is one its game produced. The function replays each signed game, and a game has one row (ADR-010).
 3. **Graceful degradation**: the game plays fully, with the local best, when the table is down, slow or absent. The table is unavailable only while no table has ever loaded; a failed refresh keeps the last good table. The player is told what happened to their signing, even during the next game, and Enter never waits on the server (ADR-008).
 4. **Testability**: deterministic, fast-forwardable acceptance tests through real keyboard input (fake clock, seeded randomness, the status mirror, the sound journal). The real function and the real Blobs client run on the local Blobs emulator, and network faults are injected with `page.route`.
 5. **Accessibility**: the status mirror carries the HUD, the initials being entered, the signing outcome and the High scores list, with the player's row marked.
@@ -27,12 +33,17 @@ The shared high-score table adds one thin server-side adapter, the **Score API**
 **Security and exposure**:
 - **Network**: besides the font, the browser calls only its own origin (`/api/scores`).
 - **The one public write endpoint** accepts exactly `{ initials, score }`: JSON only (else 415), read with a 1 KB byte cap (else 413), three letters A–Z that are not on the word filter, and a positive multiple of £50 up to £9,999,999 (else 400) and no more than the plausible ceiling of £250,000 (else 400 `implausible-score`; amended after the forged-scores RCA, 2026-10-26). A successful GET is cached for 15 s at the CDN; every other answer from the function is `no-store` (ADR-007, DDD-6; amended in DEVOPS, 2026-10-24).
+  - *replay-verified* (designed): a second public write path, `POST /api/sessions` (a 32-hex seed, under a 1 KB cap), answers with a session and the table.
+  - A signing becomes exactly `{ initials, score, session, record }`, under a 128 KB cap. It is refused without a valid session no more than 2 hours old, for a game that already has a row, when its game time exceeds the time since its session was issued plus 10 s, for a record over 60 minutes or of other rules, and when its replay doesn't produce the claimed deposit.
+  - The ceiling becomes £500,000 with the replay (ADR-010; the full order is in the replay-verified-scores feature delta).
 - **Rate limit**: the function asks Netlify for 10 requests per 60 s per IP and domain (`config.rateLimit`; amended in DEVOPS, 2026-10-24). Whether it holds is checked on a deploy preview before the first production deploy (K14). If it doesn't hold, the function isn't merged (see Platform and Delivery).
 - **Data kept**: a signature keeps 3 initials, a score and a time, kept until pruned or deleted by the owner, with no backup. Netlify processes client IPs for rate limiting; the game stores none, and no cookie or account. Logs carry only fixed reasons: never an error message, a key, the body, an id, initials or an IP. Nothing escapes the function's handler: a catch-all logs only the fixed reason and answers 500 `unexpected`, and `scripts/serve.mjs` logs the fixed reason only too (ADR-007, amended in DEVOPS). Module-load errors and runtime timeouts sit outside the handler; no key is on that path. The `test-board` cookie exists only on the local server.
-- **Accepted risk**: anyone can still post a made-up score up to £250,000. The owner can delete the row. Forging happened on 2026-10-26, which fired ADR-007's revisit trigger: [the root-cause analysis](../../analysis/root-cause-analysis-forged-high-scores.md) recommends server-side replay as the real fix.
+- **Accepted risk**: anyone can still post a made-up score up to £250,000. The owner can delete the row. Forging happened on 2026-10-26, which fired ADR-007's revisit trigger: [the root-cause analysis](../../analysis/root-cause-analysis-forged-high-scores.md) recommends server-side replay as the real fix. *replay-verified* (designed; accepted by the user, 2026-10-26): ADR-010 supersedes this accepted risk. Once it is built, a made-up deposit is refused.
+  - **What still gets through**: a program that plays well, in real time or by searching inputs and seeds offline. It is held to the game's rules, to real time per game, to one row per game, to the session's 2 hours, to the rate limit and to the £500,000 ceiling.
+  - **A deleted row can come back** within its session's 2 hours.
 - **Unchanged**: the only global is the frozen, data-only `window.makeTheRightMove` diagnostics handle (ADR-003). Settings are strictly parsed `'on'`/`'off'` strings that default to on.
 
-**Operability**: one function and one store, with no secrets and no scheduled jobs. The production store has no backup, an accepted loss. Each request writes one structured log line: the event, a fixed reason, the duration, the key count, the store scope, the raw deploy context and the raw `published` flag. "scope=deploy on the production site" means context detection broke.
+**Operability**: one function and one store, with no secrets and no scheduled jobs (*replay-verified*, designed: one secret, `SCORES_SESSION_SECRET`, per deploy context; without it nobody can sign, and the log says `secret-missing`). The production store has no backup, an accepted loss. Each request writes one structured log line: the event, a fixed reason, the duration, the key count, the store scope, the raw deploy context and the raw `published` flag. "scope=deploy on the production site" means context detection broke.
 
 ### C4: System context
 
@@ -139,7 +150,12 @@ Every component below is shipped: implemented, tested and committed. The leaderb
 | Local server | `scripts/serve.mjs` | Dev and test only: static files, plus the Score API's handler on a `BlobsServer` emulator (temporary directory deleted on exit, SIGINT and SIGTERM), with one store per `test-board` cookie behind the same restricted port. It answers a path that doesn't decode with 400 and other methods with 405, and streams a signing's body to the handler, whose 1 KB cap is the read limit | Shipped; the Score API mount 2026-10-25 |
 | Theme | `src/theme/theme.js` | Data: hurdles, colours, art, ladder, plus pure derivations; imports nothing | Shipped |
 | Sound recipes | `src/sound/recipes.js` | Data: hit pitch, march notes, the mix (`BUS_LEVELS`), the tune (`MUSIC`) and `SOUND_RECIPES` | Shipped |
-| Shields | `src/game/shields.js` | Destructible shield grids | Shipped |
+| Shields | `src/game/shields.js` | Destructible shield grids. *replay-verified*: `erode(hit, r, chance)` with squared distances | Shipped; the change designed (ADR-011) |
+| Chance | `src/game/chance.js` | *replay-verified*: sfc32 from the game's 128-bit seed; every gameplay draw; imports nothing | Designed (ADR-011), not built |
+| Particles | `src/game/particles.js` | *replay-verified*: the particles, moved out of `game.js`; the one module in `game/` allowed `Math.random`, `cos` and `sin`; none when `particles: false` | Designed (ADR-011), not built |
+| Record | `src/game/record.js` | *replay-verified*: `RULES_VERSION`, `MAX_GAME_STEPS` (60 minutes), the control bits, the compact `keys` encoding, recorder and reader; imports nothing; shared with the Score API | Designed (ADR-011), not built |
+| Replay | `src/game/replay.js` | *replay-verified*: replays a record from its seed on a fresh game without particles; the Score API's way into the rules | Designed (ADR-011), not built |
+| Session signer | `netlify/scores/sessions.mjs` | *replay-verified*: HMAC-SHA256 session tokens and the game id (SHA-256 of the seed), built by the composition roots from the secret | Designed (ADR-010), not built |
 | Sound director | `src/sound/director.js` | Sound policy: event → cue plan (mute, pause, rate limits, march cycle, siren, music) | Shipped |
 | Synth | `src/sound/synth.js` | Web Audio adapter: lifecycle (locked, running, suspended, unavailable), cue routing, fail-safe, diagnostics | Shipped |
 | Synth parts | `src/sound/voices.js`, `effects.js`, `music.js`, `journal.js` | Voice building (noise buffer, siren), effect voices (voice cap, loops), music look-ahead scheduler, journal of the last 100 sounds | Shipped |
@@ -163,6 +179,8 @@ Release tooling, not part of the game: `scripts/smoke-leaderboard.mjs`, the DEVO
 - [ADR-007](adr-007-proportionate-abuse-controls.md): proportionate abuse controls for the public score endpoint; forged scores are an accepted risk.
 - [ADR-008](adr-008-table-probed-never-awaited.md): the high-score table is probed, never awaited, and a signing has an explicit outcome.
 - [ADR-009](adr-009-keyboard-typed-presses-in-order.md): the keyboard reports typed key presses in order, beside positional key state (accepted, typed-initials; revised 2026-10-26; implemented in DELIVER, 2026-10-26).
+- [ADR-010](adr-010-the-table-replays-every-game.md): the high-score table replays every game, from a session issued as it starts; supersedes ADR-007's accepted risk (accepted, replay-verified-scores, 2026-10-26; not yet built).
+- [ADR-011](adr-011-deterministic-rules-one-game-per-instance.md): deterministic game rules, one game per instance, shared by the browser and the function (accepted, replay-verified-scores, 2026-10-26; not yet built).
 
 ### Architecture enforcement
 
@@ -171,8 +189,10 @@ Style: modular monolith with ports and adapters · Language: JavaScript (ES modu
 2. `theme/` imports nothing.
 3. `game/high-scores.js` imports nothing.
 4. `src/**` never imports `netlify/**` or `@netlify/*`.
-5. `netlify/**` imports only `src/game/high-scores.js` from `src/`.
+5. `netlify/**` imports only `src/game/high-scores.js` from `src/`. *replay-verified* (ADR-011, designed): only `src/game/high-scores.js`, `src/game/record.js` and `src/game/replay.js`.
 6. *typed-initials (ADR-009; added in DELIVER, `f05027a`)*: `platform/input.js` imports nothing, so the keyboard can never read the rules' state.
+7. *replay-verified (ADR-011, designed)*: `game/chance.js` and `game/record.js` import nothing.
+8. *replay-verified (ADR-011, designed)*: **the determinism scan**, an allowlist over `src/game/` (except `particles.js`) and `src/theme/`. Every `Math` is followed by `.` and one of `floor`, `ceil`, `round`, `trunc`, `abs`, `min`, `max`, `sign` or `imul`, and no `**`, `Date`, `performance` or `crypto` appears.
 
 *typed-initials*:
 - **Pure policies**: the keyboard's default policy and the rules' entry step are pure functions; the entry step emits no events. Unit tests enumerate each over each class, with representatives (ADR-009): `tests/unit/keyboard.spec.js` and `tests/unit/entry-step.spec.js`.
@@ -221,7 +241,7 @@ The game is published on **Netlify** from the GitHub repo `lagom1985/rightmove-s
 - **Smoke test**: `scripts/smoke-leaderboard.mjs` (Node 22, no dependencies) measures K10–K14 on a deploy preview, and K13 on production with GETs only.
   - Its write guard refuses any POST to a production host or to the published deploy, and any POST before a first GET that found an empty table.
   - It was written and unit-tested in DELIVER (2026-10-25), and has not run on Netlify yet. Its first run, on the pull request's preview, is the go/no-go for the merge to `main`.
-- **Nothing else**: no secrets, no environment variables beyond `NODE_VERSION`, and no scheduled jobs.
+- **Nothing else**: no secrets, no environment variables beyond `NODE_VERSION`, and no scheduled jobs. *replay-verified* (ADR-010, designed; DEVOPS still owed): the owner sets `SCORES_SESSION_SECRET`, 32 random bytes in base64. One value goes on production, and another is shared by deploy previews and branch deploys. Rotating it ends every session in flight.
 
 ### Quotas and the outage risk
 

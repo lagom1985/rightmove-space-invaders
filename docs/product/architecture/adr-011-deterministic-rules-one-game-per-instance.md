@@ -1,6 +1,6 @@
 # ADR-011: Deterministic game rules, one game per instance, shared by the browser and the function
 
-**Status**: Proposed (rightmove-invaders-replay-verified-scores, DESIGN, 2026-10-26; revised after the first review cycle), awaiting the user's approval · **Feature**: rightmove-invaders-replay-verified-scores · **Amends**: ADR-006 (its Context, layering rule 5 and the ceiling)
+**Status**: Accepted (user, 2026-10-26), after three review cycles (rightmove-invaders-replay-verified-scores, DESIGN). Not yet built: it lands in slice 02's enabling commits · **Feature**: rightmove-invaders-replay-verified-scores · **Amends**: ADR-006 (its Context, layering rule 5 and the ceiling)
 
 ## Context
 ADR-010 has the function replay each signed game. That needs three things the rules don't have:

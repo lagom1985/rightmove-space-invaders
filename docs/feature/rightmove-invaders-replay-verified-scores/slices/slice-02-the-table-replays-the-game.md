@@ -1,16 +1,16 @@
 # Slice 02: The table replays the game
 
-**Stories**: US-03, US-04, with enabling tasks E2–E5 | **Jobs**: J-TABLE-TRUST, J-TABLE-SIGN | **Estimate**: about 3 days (over the 1-day target: D17) | **Order**: 2nd
+**Stories**: US-03, US-04, with enabling tasks E2–E5 | **Jobs**: J-TABLE-TRUST, J-TABLE-SIGN | **Estimate**: about 3–3½ days (over the 1-day target: D17) | **Order**: 2nd
 
 ## Goal
 The function replays each signed game from its seed and its record, and saves the deposit the replay produces, only when it is the deposit claimed. A deposit changed in the console or claimed by `curl` never reaches the table.
 
 ## Enabling tasks (precursor commits before the slice's value commits)
-They ship no value on their own, so they are no slice (the carpaccio hard gate, option b). Each is traced to US-03 and J-TABLE-TRUST, has its acceptance line under US-03, and keeps every existing test green.
+They ship no value on their own, so they are no slice; the carpaccio hard gate doesn't apply, because this slice carries value stories. Each is traced to US-03 and J-TABLE-TRUST, has its acceptance line under US-03, and keeps every existing test green.
 - **E2, seeded gameplay**: every gameplay draw comes from the game's seed, the particles get a source of their own, and the house erosion compares squared distances (D13).
 - **E3, a game the function can create afresh**: the rules stop being one module-level state, so the function can replay a fresh game for each check. The views and the test harnesses move with them.
 - **E4, the record**: from the game's start to its game over, the three controls the rules read at each step (left, right, fire), kept as changes by step index, and handed to the signing; the layering rules that let the function import the replay.
-- **E5, the recorded-games corpus**: games played in Chromium, Firefox and WebKit, replayed in Node in the build gate (K21).
+- **E5, the recorded-games corpus**: bot games of 1 to over 15 minutes, made in Node with a test bot on the real rules, replayed in Node in the build gate and in Chromium, Firefox and WebKit (K21).
 
 ## IN scope
 - The signing carries its record and its claimed deposit. The function replays the record from the session's seed, and refuses it when the replay doesn't end at game over exactly at the record's last step, or ends at another deposit (D1).

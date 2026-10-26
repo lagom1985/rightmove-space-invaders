@@ -138,7 +138,7 @@ jobs:
     introduced_by: rightmove-invaders-typed-initials
 
   # rightmove-invaders-replay-verified-scores (DISCUSS, 2026-10-26): the table's trust, after forged deposits reached
-  # the production table on 2026-10-26 (docs/analysis/root-cause-analysis-forged-high-scores.md). Validated by K20-K24 in
+  # the production table on 2026-10-26 (docs/analysis/root-cause-analysis-forged-high-scores.md). Validated by K20-K25 in
   # docs/feature/rightmove-invaders-replay-verified-scores/feature-delta.md.
   - id: J-TABLE-TRUST
     job_story: >

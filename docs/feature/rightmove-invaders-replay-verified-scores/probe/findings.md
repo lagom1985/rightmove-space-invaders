@@ -77,7 +77,8 @@ This probe measures all three. It ran against a **patched copy** of `src/game/` 
 | Median | £46,100 |
 | 75th percentile | £55,100 |
 | 90th percentile | £64,300 |
-| Highest | £75,100 (17.2 minutes, level 7) |
+| Highest | £75,100 (seed 1048, 16.3 minutes, level 7) |
+| Longest game | 17.2 minutes (seed 1099, £72,150, level 7) |
 | Best of 10 seeds, averaged over 10 groups | £67,300 (+46 % over the median) |
 
 - Per minute of game time: £2,800 to £4,700, median £3,900. Most of the spread is in how long the bot survives, not in how fast it scores.

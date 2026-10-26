@@ -19,5 +19,6 @@ console.log(JSON.stringify({
   deposit: { min: deposits[0].deposit, p25: q(deposits, 'deposit', 0.25), median: q(deposits, 'deposit', 0.5), p75: q(deposits, 'deposit', 0.75), p90: q(deposits, 'deposit', 0.9), max: deposits.at(-1).deposit },
   bestOf10Expected: (() => { let s = 0; for (let i = 0; i < n; i += 10) s += Math.max(...games.slice(i, i + 10).map(g => g.deposit)); return Math.round(s / (n / 10)); })(),
   ratePerMinute: { min: Math.round(perMinute[0].rate), median: Math.round(q(perMinute, 'rate', 0.5)), max: Math.round(perMinute.at(-1).rate) },
+  highest: deposits.at(-1),
   longest: games.reduce((a, b) => (b.minutes > a.minutes ? b : a)),
 }));

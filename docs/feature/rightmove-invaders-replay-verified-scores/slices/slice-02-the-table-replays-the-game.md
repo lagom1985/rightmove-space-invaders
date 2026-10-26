@@ -24,7 +24,7 @@ They ship no value on their own, so they are no slice; the carpaccio hard gate d
 - Keeping records after the check, or showing replays.
 
 ## Learning hypothesis
-- **Disproves** "the replay is the same game everywhere, and cheap" if any game played in Chromium, Firefox or WebKit replays on Netlify's Node to another deposit or step, or if the longest recorded game's replay, scaled to 60 minutes, takes over 1 s on a preview (K22).
+- **Disproves** "the replay is the same game everywhere, and cheap" if a corpus game replays to another deposit or step in any of Chromium, Firefox or WebKit than in Node, if a game played with the keyboard in a browser scenario replays on the function to another deposit than the browser showed (K21), if the corpus's longest game, scaled to 60 minutes, replays in over 1 s on a preview (K22), or if the signing path misses its budget (D21).
 - **Confirms** that the RCA's two forgeries, by `curl` and by console, are both refused, with no change an honest player can see.
 
 ## Acceptance criteria

@@ -205,3 +205,43 @@ export function buildBackdrop(neighbourhood, k) {
   rect(b, COLORS.green, 0, GROUND, W, 2);
   return c;
 }
+
+// ---- RED scaffolds (DISTILL, 2026-10-26; revised after the Final Wave Review Gate) ----
+// The four exports DESIGN added (ADR-010), named for DELIVER to build. Only the acceptance scenarios in
+// tests/e2e/rightmove-invaders-level-backdrops/acceptance/ call them: render.js still uses buildBackdrop and its own
+// cache, so the game runs exactly as before. DELIVER replaces each body, moves render.js onto them, and deletes this
+// marker with the last one.
+export const __SCAFFOLD__ = true;
+
+// What the screen shows behind the game on a frame (DDD-B5), from that frame's { level, state, banner } and nothing
+// else: { here, next, mix }, here and next being NEIGHBOURHOODS entries. While the wave is cleared below Forever home,
+// next is the next rung's and mix is 1 - banner / BANNER_TIME, clamped to [0, 1]; otherwise next is null and mix 0.
+// BANNER_TIME comes from ../game/config.js once DELIVER has moved it there (its first step): the argument doesn't change.
+export function backdropPlan({ level, state, banner }) {
+  throw new Error('Not yet implemented -- RED scaffold');
+}
+
+// Paints a neighbourhood's backdrop on the 2D context it is handed, in game units (DDD-B1, DDD-B2): its ground, its map,
+// its skyline and the green ground line, with the rung's own generator (never Math.random), in its palette's colours and
+// COLORS.green only, and with no transform. The same calls every time.
+export function paintBackdrop(context, neighbourhood) {
+  throw new Error('Not yet implemented -- RED scaffold');
+}
+
+// The store of built backdrops (DDD-B3, DDD-B4): { rescale(k), canvasFor(neighbourhood) }. createCanvas() makes an
+// offscreen canvas. canvasFor returns the neighbourhood's own canvas, built the first time it is asked for at k device
+// pixels to a unit (sized round(W * k) by round(H * k), the transform set, then paintBackdrop), keeping at most two, the
+// least recently asked-for going first; or null once its build has failed (a null 2D context, or a draw that threw).
+// Failed marks are kept apart from the two and never evicted. rescale(k) with a new scale drops every canvas and every
+// failed mark; with the same scale it returns at once. Nothing is thrown or logged.
+export function createBackdropCache(createCanvas) {
+  throw new Error('Not yet implemented -- RED scaffold');
+}
+
+// The shell (DDD-B5): draws the plan on the screen's context. It is handed the store's canvasFor alone (a view of the
+// store that can't rescale it), and asks it for here, then for next whenever the plan names one, even at a mix of 0. It draws here at full strength and next at globalAlpha = mix, each over the
+// whole screen (0, 0, W, H); a null canvas is a fillRect in that palette's bg at the same strength, never drawImage(null)
+// (the feature delta's composition table). It puts globalAlpha back to the value it found.
+export function showBackdrop(context, plan, canvasFor) {
+  throw new Error('Not yet implemented -- RED scaffold');
+}

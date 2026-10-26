@@ -19,9 +19,10 @@ const browser = device => ({ use: { ...devices[device] }, grepInvert: [...NO_BRO
 
 // A browser scenario plays whole games on the fake clock, and Firefox and WebKit play them slower than Chromium: alone,
 // the slowest typed-initials scenarios take up to about 36 s in Chromium, 44 s in Firefox and 56 s in WebKit, and a full
-// run on a busy machine slows them further (WebKit's took up to 66 s, and two ran into the 90 s limit). The scenarios on
-// a high-score table get three times their project's timeout (fixtures.js): 90 s in Chromium as before, 135 s in Firefox
-// and 180 s in WebKit, about three times the slowest each takes alone.
+// run on a busy machine slows them further (WebKit's took up to 66 s, and two ran into the 90 s limit). These are the
+// projects' timeouts, so every Firefox and WebKit test gets 45 s and 60 s in place of Playwright's default 30 s, which
+// Chromium keeps. The scenarios on a high-score table get three times their project's timeout (fixtures.js): 90 s in
+// Chromium as before, 135 s in Firefox and 180 s in WebKit, about three times the slowest each takes alone.
 const SLOWER_BROWSER_TIMEOUTS = { firefox: 45_000, webkit: 60_000 };
 
 // PORT moves the test server (scripts/serve.mjs reads it too), so two checkouts can run their suites side by side.

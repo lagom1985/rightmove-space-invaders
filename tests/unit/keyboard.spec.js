@@ -65,7 +65,9 @@ function noteMoments(seen, batch) {
 }
 
 // The same key typed twice in one go takes two plain keydowns of one key in one batch, and about three test runs in a
-// thousand generated none. So one batch of A typed twice is tried first on every test run.
+// thousand generated none. So one batch of A typed twice is tried first on every test run. With it, the witness check
+// holds by construction for that moment, and for 'typed' and 'a default prevented', which the batch reaches too: it no
+// longer shows that the generated batches reach them.
 const A_TYPED_TWICE_IN_ONE_GO = [[A_KEYDOWN, A_KEYDOWN]];
 
 test('takeTyped() reports every keydown since the last call, in order, as { key } only, leaving out repeats and Cmd, Ctrl and Alt chords, the positions are reported as before, and each keydown\'s default is prevented as the default policy says', () => {
@@ -85,6 +87,7 @@ test('takeTyped() reports every keydown since the last call, in order, as { key 
           typed: setTo(batch.filter(types).map(({ key }) => ({ key }))),
           pressed: setTo(codesOf(batch.filter(press => isPositional(press) && !press.repeat))),
           held: setTo(held),
+          // The POLICY table below pins preventsDefault itself; this checks only that every keydown gets its answer.
           prevented: setTo(batch.map(press => preventsDefault(press))),
         },
       });
@@ -121,7 +124,8 @@ const RELEASE_WITNESSES = ['a key held', 'a press not yet taken', 'a tap no step
 
 // A tap no step has seen takes a keydown with neither Cmd nor Ctrl held, then its keyup before any fixed step, and about
 // one test run in a hundred (6 in 500) generated none. So a tap of A is tried first on every test run: it reaches every
-// one of the moments above.
+// one of the moments above, so the witness check holds by construction for all four and no longer shows that the
+// generated events reach any of them.
 const A_TAP_NO_STEP_HAS_SEEN = [{ type: 'keydown', fields: A_KEYDOWN }, { type: 'keyup', fields: { code: 'KeyA' } }];
 
 test('releaseAll() forgets every key held and drops every press not yet taken, and leaves the positions pressed as they were', () => {

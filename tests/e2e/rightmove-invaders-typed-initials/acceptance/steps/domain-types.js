@@ -42,8 +42,8 @@ export const KeyboardLayout = Object.freeze({
     keys: Object.freeze({ Z: press('z', 'KeyY'), Y: press('y', 'KeyZ'), Ü: press('ü', 'BracketLeft'), Ö: press('ö', 'Semicolon'), Ä: press('ä', 'Quote'), ß: press('ß', 'Minus') }),
   }),
 });
-// printedKey and keyNamed are pure lookups over the tables above (accepted here, as the leaderboard's Message.initialsField
-// is: they derive a domain value, they hold no test logic). The parameter types use keyNamed; the driver, printedKey.
+// printedKey and keyNamed are pure lookups over the tables here, accepted in a file of domain nouns because they
+// derive a domain value and hold no test logic. The parameter types use keyNamed; the driver, printedKey.
 export const printedKey = (layout, printed) => layout.keys[printed] ?? letterKey(printed);
 // The key of this layout that types `character` (é, ü, ß, å): the character itself, as the key sends it.
 export const keyTyping = (layout, character) => Object.values(layout.keys).find(({ key }) => key === character);

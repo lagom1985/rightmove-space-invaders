@@ -208,7 +208,7 @@ test('each settled signing is announced exactly once, however often the mirror s
 // the mirror hears the frame once: the hint it leaves on show if that hint is new, then the field if it changed. Each
 // hint is a new notice with a new number (DDD-T6), so it is heard even when one is on show already, and in a later game
 // even after an earlier game's; a hint left on show by a key the entry ignores is not heard again, and one shown and
-// cleared within a frame is never heard (DDD-T10's accepted edge). The word filter's refusal (01-08, its own property
+// cleared within a frame is never heard (DDD-T10's accepted edge). The word filter's refusal (D4, its own property
 // below) is not drawn here: a frame is played only when its Enter with three letters signs.
 const ENTRY_KEYS = ['a', 'l', 'x', 'm', 'F', 'Backspace', 'ArrowUp', '1', 'é', 'Enter'];
 const QUIET_KEYS = ['a', 'l', 'x', 'Backspace', 'ArrowUp', '1', 'é'];   // keys that do nothing on a game-over screen with no entry
@@ -373,19 +373,43 @@ const aSkip = fc.record({
   after: fc.constantFrom([], ['a'], ['m'], ['Enter']),
 });
 
+// Which moments one skip was: the entry as Esc found it, once the keys before Esc in its frame had acted on the letters
+// and hint the run left on show, and the keys the skip dropped.
+const DROPPED = { a: 'a letter after Esc', m: 'M after Esc', Enter: 'Enter after Esc' };
+function skipMoments(letters, hintShown, before, after) {
+  const atEsc = keysDo(letters, hintShown, before);
+  const typed = atEsc.letters.length;
+  const moments = [
+    typed === 0 ? 'Esc on an empty entry' : typed < INITIALS_LENGTH ? 'Esc on a partly typed entry' : 'Esc on a full entry',
+    atEsc.hint ? 'Esc with the too-few hint on show' : 'Esc with no hint on show',
+    ...after.map(key => DROPPED[key]),
+  ];
+  if (typed > letters.length) moments.push('Esc after a letter typed in its frame');
+  if (typed < letters.length) moments.push('Esc after a letter taken back in its frame');
+  return moments;
+}
+
+// Moments every run together must reach.
+const SKIP_WITNESSES = ['Esc on an empty entry', 'Esc on a partly typed entry', 'Esc on a full entry', 'Esc with the too-few hint on show',
+  'Esc with no hint on show', 'Esc after a letter typed in its frame', 'Esc after a letter taken back in its frame', 'a letter after Esc',
+  'M after Esc', 'Enter after Esc'];
+
 test('Esc on the entry, whatever was typed, is heard once as the skip, in a write of its own, with the field emptied, and a skip in the next game is heard again', async () => {
+  const seen = new Set();
   await fc.assert(fc.asyncProperty(syncs, aSkip, aSkip, async (times, ...games) => {
     const mirrored = await MirroredGame.fresh();
-    const model = { entry: null, hint: false, seen: new Set() };
+    const model = { entry: null, hint: false, seen };
     mirrored.frame(() => {}, times, { heard: nothingAboutTheInitials, field: '' });   // the title
     for (const { typed, hint, before, after } of games) {
       openEntry(model, mirrored, times);
       if (typed) typeKeys([...typed], times).run(model, mirrored);
       if (hint && typed.length < INITIALS_LENGTH) typeKeys(['Enter'], times).run(model, mirrored);
       mirrored.frame(() => mirrored.type(...before, 'Escape', ...after), times, { heard: appendedWith(SKIPPED), field: '' });
+      skipMoments(model.entry, model.hint, before, after).forEach(moment => seen.add(moment));
       model.entry = null;
     }
   }));
+  expect(SKIP_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 
 // ---- what game over says about the table (DDD-9) ----

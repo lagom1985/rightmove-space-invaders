@@ -855,7 +855,10 @@ The owner does this. Nobody else handles the values. Never paste them into a cha
 
 **The secret and the build** (F-09; decided by the user, 2026-10-26). Scopes need Pro, so on legacy Free the build can read `SCORES_SESSION_SECRET` as well as the functions can, P included in production builds. Code that runs in the build could therefore mint production sessions for any seed and issue time:
 - **Mitigation**: `NPM_FLAGS = "--ignore-scripts"` in `netlify.toml`'s `[build.environment]`.
-  - It landed in PR #5, at the user's request on 2026-10-26, because the owner had already set the secret, so no production build would run without it. PR #5's preview build log is the check: the flag is on the install, and the gate passes. Netlify passes `NPM_FLAGS` to its `npm install`.
+  - It landed in PR #5 (`c333a85`), at the user's request on 2026-10-26, because the owner had already set the secret, so no production build would run without it.
+  - **What PR #5's preview build (deploy `6adfcad8eac9b0d2f2fe86aa`) showed**: Netlify read `netlify.toml`. The install ran from the build cache: "up to date, audited 88 packages", so nothing was installed and no script could run. The gate passed 167 tests, and the function bundled.
+  - **What it can't show**: Netlify's log prints neither npm's command line nor the environment's names, so the flag's use rests on Netlify's documentation ("`NPM_FLAGS` … passed as flags to the `npm install` command").
+  - **Why that is enough today**: the only install script in the lockfile is `fsevents`, which is optional, macOS-only and not installed on the Linux image. Locally, `npm ci --ignore-scripts` and the gate pass. The flag guards against a future dependency with an install script.
   - It blocks dependencies' install scripts, the common supply-chain route. None of the four dependencies needs one, because the gate runs no browsers.
 - **Kept**: the dependencies stay pinned exactly in `package-lock.json`.
 - **Accepted residual risk**: the test gate's own code runs in the build: `@playwright/test`, `playwright-bdd` and `fast-check`, plus `@netlify/blobs`. Rotate on any advisory against one of them.

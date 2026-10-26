@@ -216,24 +216,29 @@ export function paintBackdrop(context, neighbourhood) {
 // The store of built backdrops (DDD-B3, DDD-B4): { rescale(k), canvasFor(neighbourhood) }. createCanvas() makes an
 // offscreen canvas. canvasFor returns the neighbourhood's own canvas, built the first time it is asked for at k device
 // pixels to a unit (sized round(W * k) by round(H * k), the transform set, then paintBackdrop), keeping at most two, the
-// least recently asked-for going first; or null once its build has failed (a null 2D context, or a draw that threw).
-// Failed marks are kept apart from the two and never evicted. rescale(k) with a new scale drops every canvas and every
-// failed mark; with the same scale it returns at once. Nothing is thrown or logged.
+// least recently asked-for going first; or null when its build fails (a null 2D context, or a call that threw while it
+// was sized, scaled or painted). A failed build is never kept among the two. rescale(k) with a new scale drops every
+// canvas; with the same scale it returns at once. Nothing is thrown or logged: only the build is guarded, as a built
+// canvas is assumed not to throw when drawn (Catalogued lies).
 export function createBackdropCache(createCanvas) {
   const built = new Map();   // neighbourhood -> its canvas, the least recently asked-for first
   let k = 1;
   const build = place => {
     const canvas = createCanvas();
-    canvas.width = Math.round(W * k); canvas.height = Math.round(H * k);
-    const context = canvas.getContext('2d');
-    context.setTransform(k, 0, 0, k, 0, 0);
-    paintBackdrop(context, place);
-    return canvas;
+    try {
+      canvas.width = Math.round(W * k); canvas.height = Math.round(H * k);
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+      context.setTransform(k, 0, 0, k, 0, 0);
+      paintBackdrop(context, place);
+      return canvas;
+    } catch { return null; }
   };
   return {
     rescale(scale) { if (scale === k) return; k = scale; built.clear(); },
     canvasFor(place) {
       const canvas = built.get(place) ?? build(place);
+      if (!canvas) return null;
       built.delete(place); built.set(place, canvas);
       if (built.size > KEPT) built.delete(built.keys().next().value);
       return canvas;
@@ -245,11 +250,18 @@ export function createBackdropCache(createCanvas) {
 // store that can't rescale it), and asks it for here, then for next whenever the plan names one, even at a mix of 0. It
 // draws here at full strength and next at globalAlpha = mix, each over the whole screen (0, 0, W, H); a null canvas is a
 // fillRect in that palette's bg at the same strength, never drawImage(null) (the feature delta's composition table). It
-// puts globalAlpha back to the value it found.
+// puts globalAlpha back to the value it found; fillStyle it may leave changed, as every draw after it sets its own.
 export function showBackdrop(context, { here, next, mix }, canvasFor) {
   const found = context.globalAlpha;
   const under = canvasFor(here), over = next ? canvasFor(next) : null;
-  context.globalAlpha = 1; context.drawImage(under, 0, 0, W, H);
-  if (over) { context.globalAlpha = mix; context.drawImage(over, 0, 0, W, H); }
+  layer(context, here, under, 1);
+  if (next) layer(context, next, over, mix);
   context.globalAlpha = found;
+}
+
+// One neighbourhood over the whole screen at a strength: its canvas, or its plain background when it has none.
+function layer(context, place, canvas, strength) {
+  context.globalAlpha = strength;
+  if (canvas) context.drawImage(canvas, 0, 0, W, H);
+  else rect(context, place.palette.bg, 0, 0, W, H);
 }

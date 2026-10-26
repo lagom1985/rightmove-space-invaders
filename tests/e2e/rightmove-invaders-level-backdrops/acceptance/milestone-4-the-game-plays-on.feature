@@ -46,7 +46,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
       | has room for every backdrop | nothing fading in                               | City centre at dawn's backdrop | nothing over it                                             |
       | has room for every backdrop | Terraced streets in the morning faded in to 50% | City centre at dawn's backdrop | Terraced streets in the morning's backdrop over it at 50%   |
 
-    @error @pending
+    @error
     Examples:
       | trouble                                   | fade                                            | underneath                             | over it                                                           |
       | has no room for another backdrop          | nothing fading in                               | City centre at dawn's plain background | nothing over it                                                   |
@@ -54,7 +54,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
       | has room for every backdrop but the first | Terraced streets in the morning faded in to 50% | City centre at dawn's plain background | Terraced streets in the morning's backdrop over it at 50%         |
       | has no room for another backdrop          | Terraced streets in the morning faded in to 50% | City centre at dawn's plain background | Terraced streets in the morning's plain background over it at 50% |
 
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B4
   Scenario Outline: When the screen <trouble>, the neighbourhood shows its plain background and the game plays on
     Given the game is shown at double size
     And the screen <trouble>
@@ -68,7 +68,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
 
   # The first backdrop the game prepares, the title's, is its probe (DDD-B4): when it fails, the rung shows its plain
   # background, and a game still starts on it.
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B4 @DDD-B9
+  @in-memory @error @contract-shape:bounded-change @DDD-B4 @DDD-B9
   Scenario: The title's backdrop can't be prepared, and the game still starts and plays
     Given the game is shown at double size
     And the screen has no room for another backdrop
@@ -78,7 +78,7 @@ Feature: The game plays on smoothly, whatever a backdrop costs
     And I am at "Studio flat", in "City centre at dawn"
     And City centre at dawn shows its plain background, and the game plays on with nothing reported
 
-  @in-memory @pending @error @contract-shape:bounded-change @DDD-B4
+  @in-memory @error @contract-shape:bounded-change @DDD-B4
   Scenario: A backdrop that couldn't be prepared doesn't stop the next one
     Given the game is shown at double size
     And the screen has room for every backdrop but the first

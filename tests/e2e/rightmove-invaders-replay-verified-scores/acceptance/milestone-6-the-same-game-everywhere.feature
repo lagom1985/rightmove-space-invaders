@@ -15,7 +15,7 @@ Feature: The same game, played back anywhere
 
   # No driving port runs the replay in a browser, so this one loads the game's replay into a page, as DESIGN's DDD-R12
   # prescribes: that every engine plays the same game is the point (a recorded deviation from Mandate 1, ATDD policy).
-  @pending @corpus @US-03 @D13 @DDD-R12 @real-io @kpi-K21
+  @corpus @US-03 @D13 @DDD-R12 @real-io @kpi-K21
   Scenario: Every recorded game plays back as it was recorded, in this browser
     Given the recorded games, from about a minute to at least 15 minutes long
     When this browser replays every one of them

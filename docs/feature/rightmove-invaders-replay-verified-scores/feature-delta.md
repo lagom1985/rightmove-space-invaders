@@ -1325,7 +1325,7 @@ Nothing the browser or the function runs today calls a scaffold. `grep -rn __SCA
 ## Wave: DISTILL / [REF] Pre-requisites
 
 - **Contracts the drivers assume** (DESIGN's, as clarified below; each lives in one driver):
-  - `handleSessions(request, port, options)` and `handleScores(request, port, options)` with `options = { now, newId, log, where, sessions, clockAllowanceMs }`, `sessions` being `{ sign, verify, gameId }` or null;
+  - `handleSessions(request, port, options)` and `handleScores(request, port, options)` with `options = { now, log, where, sessions, clockAllowanceMs }`, each handler given only its part (DDD-R1: `handleSessions` the read-only `{ list }` and `sessions = { sign }`, `handleScores` `sessions = { verify, gameId }` and no `newId`, which only the local seeding route uses), `sessions` being null for a root with no secret (corrected in DELIVER's roadmap review, 2026-10-27);
   - `createSessionSigner(secret)` and `readSessionSecret(value)` from `netlify/scores/sessions.mjs`;
   - `createGame({ newSeed, particles })` returning `{ g, update, handlePresses, takeEvents, tableAnswered, … }`;
   - `gameStarted` carries `{ seed }`, `initialsEntered` carries `{ initials, score, signing, record }`;

@@ -1,0 +1,697 @@
+{
+  "roadmap": {
+    "project_id": "rightmove-invaders-replay-verified-scores",
+    "created_at": "2026-10-27T08:59:14Z",
+    "total_steps": 25
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slice 01: A session for every game (walking skeleton)",
+      "description": "The table issues a session for every game and refuses a signing without one (flip 1); one row per game; sessions last 2 hours; the browser asks for its session as each game starts and signs with it. Ends with slice 01's smoke steps, local edges and owner docs.",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "The session signer, and the token rule first",
+          "criteria": [
+            "createSessionSigner(secret) signs v1.{seed}.{issuedAt} with HMAC-SHA256 as 43 base64url characters; gameId(seed) is the first 32 hex characters of the SHA-256 of the seed's text.",
+            "verify returns false, never throws, for any changed field, a token from another secret, a 42- or 44-character token, or a session of the wrong shape.",
+            "readSessionSecret returns the 32 bytes only for canonical base64 of exactly 32 bytes (44 characters that re-encode to themselves), and null for anything else.",
+            "The layering spec's token rule finds no test-clock, test-board, __test or TEST_SECRET in src/** or netlify/**, comments included, and reports each one planted.",
+            "No scenario is enabled and nothing calls the signer yet: the unit and in-memory projects pass as before."
+          ],
+          "test_file": "tests/unit/session-signer.spec.js | tests/unit/layering.spec.js",
+          "scenario_name": "any changed field of a session fails verify, and a token from another secret never verifies (unit) | tokens of 42 and 44 characters verify false and never throw (unit) | readSessionSecret takes canonical base64 of exactly 32 bytes, and nothing else (unit) | no test-only name (test-clock, test-board, __test, TEST_SECRET) appears in src or netlify, comments included (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [],
+          "files_to_modify": [
+            "netlify/scores/sessions.mjs",
+            "tests/unit/session-signer.spec.js",
+            "tests/unit/layering.spec.js"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 1, its first two items, split out as a precursor so that the walking-skeleton commit (01-02) is the flip itself. THE TOKEN RULE comes first (DISTILL's unit item 'before E1', the platform review's PL-2): a text scan in tests/unit/layering.spec.js, read like the import scan (it can over-report, never miss): test-clock, test-board, __test and TEST_SECRET appear nowhere in src/** or netlify/**, comments included. DISTILL already reworded the one comment that named a test board. scripts/ and tests/ are outside it. THE SIGNER, netlify/scores/sessions.mjs (DDD-R2, C1), with node:crypto only: readSessionSecret(value) returns the 32 bytes for a value of 44 characters matching ^[A-Za-z0-9+/]{43}=$ that decodes to 32 bytes and re-encodes to the same text (so no non-zero padding bits), and null for anything else (DEVOPS's 'For DELIVER' item 2). createSessionSigner(secret) returns { sign(seed, issuedAt) -> token, verify(session) -> boolean, gameId(seed) -> 32 hex }, each usable detached, since the handlers take them unbound (DDD-R1). The token is HMAC-SHA256 over `v1.{seed}.{issuedAt}`, base64url, 43 characters. verify checks the shape first (an object with exactly a 32-lowercase-hex seed, a safe-integer issuedAt and a 43-character base64url token), returns false on any mismatch, and only then compares two buffers of equal length with timingSafeEqual. It takes no clock: the lifetime is the handler's (01-07). gameId is the first 32 hex characters of the SHA-256 of the seed's 32 ASCII characters (its text, not its 16 bytes). Delete the file's `export const __SCAFFOLD__ = true` and its RED-scaffold comment. Nothing calls the signer yet: under TABLE_PROTOCOL BARE the leaderboard's harness builds none, and this feature's scenarios stay @pending (they now stop at the handler instead of the signer). Enables no scenario: test_file and scenario_name name the unit tests this step adds. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js, which applies that seed. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy), and grep -n __SCAFFOLD__ netlify/scores/sessions.mjs finds nothing. No browser path changes, so no browser run is needed."
+        },
+        {
+          "id": "01-02",
+          "name": "Walking skeleton: no signing without a session (flip 1)",
+          "criteria": [
+            "A signature with no session is refused 400 session-required, with one log line that says nothing about the player, and the table is left as it was (the walking skeleton).",
+            "Each game start sends one POST /api/sessions for a fresh seed, whose rows refresh the table; its signing carries that game's session; the leaderboard's and typed-initials' suites stay green in three engines.",
+            "The Netlify entry serves both paths under one rate-limit rule and builds its signer from SCORES_SESSION_SECRET, or none (500 secret-missing); unit tests cover both kinds of secret, both paths and the config contract.",
+            "GET and the session request get a read-only { list }; handleSessions gets only { sign }, handleScores only { verify, gameId } and no newId, because a row's id is its game id.",
+            "Flip 1: TABLE_PROTOCOL is SESSION; leaderboard M2's 'can't file' scenario, its step and makeRowsItCantFile are deleted; the broken unit specs are rewritten; serve.mjs serves /api/sessions and, to test boards, POST /__test/rows."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/walking-skeleton.feature | tests/unit/scores-entry.spec.js | tests/unit/scores-handler.spec.js",
+          "scenario_name": "The owner's table turns away a signing that no game asked for | the Netlify entry builds its signer from a canonical secret and none from any other, dispatches both paths, and keeps the config contract (unit) | each handler is handed only its part of the port and of the signer, and the signing path no newId (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "src/platform/leaderboard.js",
+            "src/main.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/walking-skeleton.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/domain-types.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.steps.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js",
+            "tests/unit/scores-handler.spec.js",
+            "tests/unit/scores-log-leak.spec.js",
+            "tests/unit/scores-entry.spec.js",
+            "tests/unit/serve-edges.spec.js",
+            "tests/unit/malformed-answers.spec.js"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 1 (the rest of it): the walking skeleton with E1 and flip 1, in one commit, because the leaderboard's and typed-initials' browser suites break the moment the function refuses a bare signature (Retirement list). THE FUNCTION, netlify/functions/scores.mjs (DDD-R1, DDD-R4, Signing checks rows 2, 6, 7 and 9): handleSessions(request, port, options) replaces its scaffold. A POST of { seed } answers 200 { session: { seed, issuedAt, token }, scores, listedAt }, no-store, with the rows and listedAt of its own listing; issuedAt is options.now at some moment between the arrival and the listing (C5); it logs sessions.issued ok. Its refusals and failures are 01-03's and 01-04's. handleScores, for a POST: row 2, no signer: 500 unexpected, logged scores.error secret-missing, before the body is read; row 6, no session field: 400 session-required; row 7, exactly { initials, score, session } with { initials, score } valid (still under the 1 KB cap, C10); row 8 as today; row 9, sessions.verify false: 400 invalid-session. A saved row's id is sessions.gameId(seed), with the key format unchanged (ADR-004), and the signing path no longer takes newId. The per-game ranking and the 409 are 01-06's, the lifetime 01-07's. The default export reads SCORES_SESSION_SECRET through readSessionSecret, builds the signer or none, and dispatches by path: /api/sessions to handleSessions with the read-only { list } and { sign }, /api/scores to handleScores with the port and { verify, gameId }. config.path becomes ['/api/scores', '/api/sessions'] under the same rateLimit (one counter, as DEVOPS's probe measured). THE LOCAL SERVER, scripts/serve.mjs (E1, DDD-R17): 32 random bytes at each start, and its own signer from them; /api/sessions routed as the entry routes it; POST /__test/rows { initials, score } served only for a request with a test-board cookie, writing one key through that board's port with newId (the port's own check of the key's shape and nothing else, so no ceiling), 200 on success. THE BROWSER (DDD-R10): src/platform/leaderboard.js gains startSession(seed), a POST /api/sessions under the same 5000 ms timeout; sign({ initials, score, session }) takes that game's pending session (the promise startSession returned), sends once it resolves, and fails unsent if it rejects (the shape check's unit test is 01-08's, the wait's 01-09's). src/main.js: on gameStarted, start the session for a fresh seed (newSeed: 128 bits from Math.random as 32 lowercase hex; the game has no seed of its own until E2, 02-01), keep its promise for that game, and hand its rows to tableAnswered and a failure to tableFailed; on initialsEntered, sign with that pending session. The page-load GET stays. FLIP 1 (Retirement list): TABLE_PROTOCOL = TableProtocol.SESSION in the leaderboard's steps/domain-types.js; delete leaderboard M2's scenario 'A new row the table can't file is refused, and nothing is written' (milestone-2-signing-the-table.feature, line 116), its step 'the high-score table makes new rows it can't file' (table-service.steps.js, line 18) and TableService.makeRowsItCantFile (table-service.js, line 317); the port's own refusal stays covered by its unit test. REWRITE the unit specs that break, keeping each a property with its state delta: scores-handler.spec.js (a key refused while tidying; a stopped clock and a repeated game in place of a repeating id; listedAt after a signing; its 1 KB test too, which row 2 now stops without a signer), scores-log-leak.spec.js (the failing clock; every signing carries a session, and the leak list gains the seed, the game id and the token: the first half of DISTILL's log-leak item, the record joins at flip 2 in 02-05), scores-entry.spec.js (DISTILL's Netlify-entry item, whole: a canonical and a non-canonical secret, both paths dispatched, the config contract with both paths). serve-edges.spec.js and malformed-answers.spec.js are listed only in case the new routes or sign's new argument break them. score-keys.spec.js is not touched here: DISTILL listed it under flip 1 from its slice-03 throwaway, but its prune-plan test breaks only with 01-06's plan. UNIT (part of DISTILL's 'user's decisions' item): GET and the session request are handed a frozen { list } alone; handleSessions gets only { sign }, handleScores only { verify, gameId }, and the signing path no newId. VARIANT S1 (test-the-tests: check 6 removed) must fail the skeleton; undo it. GUARDS: M3's 'The game starts at once while the table answers its session request' x4 and 'Two house-hunters on one table each sign a game of their own' stay green. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"turns away a signing that no game asked for\"; see it fail as distill/red-classification.md says (the table saves it), make it pass, then delete its @pending. Change no step, driver or scenario text beyond the retirements above; if a contract the drivers assume (DISTILL, Pre-requisites) proves wrong, stop and report. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the skeleton is green in-memory with RUN_PENDING=1 before its @pending is removed and without it after; the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), with the leaderboard's and typed-initials' suites signing through sessions and this feature's 7 guards green in three engines. EXPECTED AFTER THIS STEP (review HIGH-1): the wiring and the table client's wait land here, so M3's 'Typed initials sign the table through the game's own session', 'Starting a game asks the table's server once' and the two trouble rows are expected to pass once their @pending is removed; 01-08 and 01-09 enable them, add their unit properties, and show their broken variants fail. SERVE-EDGES (review LOW-3): its 1 KB test stays green until 02-05, because the 1 KB cap still holds and its 413 comes before the session check."
+        },
+        {
+          "id": "01-03",
+          "name": "A session comes with the table, or not at all",
+          "criteria": [
+            "POST /api/sessions answers 200 { session, scores, listedAt }, no-store, with its own listing's rows and a session for the seed sent, issued now; sessions.issued is logged with how long it took.",
+            "Any other method is 405 with Allow: POST; a failed look issues no session (500 unexpected, list-failed); with no secret there is neither a session nor a signing (500, secret-missing).",
+            "The Netlify entry answers a POST /__test/rows with 404 or 405 and writes no row, and a request carrying test-board or test-clock cookies gets production's behaviour (unit tests).",
+            "Every refusal and failure writes one log line with its fixed reason and nothing personal; variants S17, S18 and S21 each fail the scenario DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-1-a-session-for-every-game.feature | tests/unit/scores-entry.spec.js",
+          "scenario_name": "A game that starts gets its session and the table, in one answer | Asking for a session any other way is refused, because a session can only be asked for | When the table can't be looked at, no session is issued without it | Without its secret, the table issues no session, and the owner is told why | Without its secret, the table saves no signing, and the owner is told why | a POST /__test/rows to the Netlify entry writes no row, and test cookies change nothing (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "tests/unit/scores-entry.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-1-a-session-for-every-game.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 2, first half. M1 has 12 runs (@sizing-review-needed), so it is split at the seam between what the table answers (here: 5 scenarios, 5 runs) and what the request's body must be (01-04: the seed outline, 7 runs). DDD-R1, DDD-R14. handleSessions: any method but POST is 405 method-not-allowed with Allow: POST, logged sessions.rejected; no signer (sessions null) is 500 unexpected, logged sessions.error secret-missing, before the body is read; a listing that fails is 500 unexpected, logged sessions.error list-failed, and no session is issued (all or nothing: never a session without its rows); anything else is 500 unexpected. A signing at a root with no secret is row 2, built in 01-02: confirm 'Without its secret, the table saves no signing'. sessions.issued carries the time the request took (the harness reads 'how long it took'), and never the seed, the token or the game id. scripts/serve.mjs answers /api/sessions as the entry does, other methods included. THE TEST ROUTE NEVER REACHES THE FUNCTION (DISTILL's unit item, and E1's 'it exists only in the local server'): in scores-entry.spec.js, a POST /__test/rows to the Netlify entry is 404 or 405 and writes no row, and a request carrying test-board and test-clock cookies gets the same answer, store and log line as without them. VARIANTS (test-the-tests): S17 (a session answered without the table's rows), S18 (a session issued though the table couldn't be looked at) and S21 (no secret, still signs) must each fail the scenario DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE, one scenario at a time: RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"gets its session and the table, in one answer\", \"Asking for a session any other way\", \"no session is issued without it\" and \"Without its secret\"; see each fail as distill/red-classification.md says (or confirm it already passes after 01-02), make it pass, then delete its @pending. Change no step, driver or scenario text; if a contract the drivers assume proves wrong, stop and report. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 5 runs are green in-memory with RUN_PENDING=1 before their @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines (the local server's routes changed): npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-04",
+          "name": "A session request carries exactly one seed",
+          "criteria": [
+            "A session request whose body isn't exactly { seed } with 32 lowercase hex characters, or isn't JSON at all, is 400 invalid-seed, and no session is issued.",
+            "A body not sent as application/json is 415 json-required; one past 1 KB, counted as it is read, is 413 payload-too-large and read no further.",
+            "Each refusal is logged sessions.rejected with its reason and never the seed; a unit property shows any other body is invalid-seed with the table unchanged.",
+            "Variant S19 (any seed accepted) fails the outline's capitals and one-character-short rows."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-1-a-session-for-every-game.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A request for a session with <what> is refused <why>, and no session is issued | any session request body but exactly a 32-hex seed is invalid-seed, and issues nothing (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-1-a-session-for-every-game.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 2, second half: M1's seed outline (7 runs), the second half of the M1 split (see 01-03). DDD-R1 with C4: the session request is checked in order: not application/json is 415 json-required; the body is read under a 1 KB cap counted as it is read (413 payload-too-large, read no further, as the signing's cap is read); then it must be JSON with exactly { seed } and a seed of 32 lowercase hex characters, else 400 invalid-seed (its seed in capitals, one character short, no seed, its seed and a note, something that isn't a request at all). Each is logged sessions.rejected with its reason, never the seed. UNIT PROPERTY (scores-handler.spec.js): any JSON body other than exactly { seed: 32 lowercase hex } is 400 invalid-seed, issues no session, and leaves the store as it was. VARIANT S19 (any seed accepted) must fail the capitals and short rows; undo it. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"A request for a session with\" (the 7 rows run under their rendered titles); see them fail as distill/red-classification.md says, make them pass, then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 7 runs are green in-memory with RUN_PENDING=1 before the @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-05",
+          "name": "Only a session the table sealed can sign",
+          "criteria": [
+            "A signing whose session had its issue time, seed or seal changed, its seal cut short, was made up, or isn't an object at all is 400 invalid-session.",
+            "Nothing is saved, the table is left as it was, and the one log line, scores.rejected invalid-session, carries no session, token, seed, game id, initials or IP.",
+            "A unit property: a session with any one field changed is invalid-session, and the store is unchanged.",
+            "Variant S2 (any session verifies) fails all six rows."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A session the table didn't seal is refused: <carrying> | a session with any one field changed is invalid-session, and the table is unchanged (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 3, its first item. M2 has 16 runs (@sizing-review-needed), so it is split at DESIGN's own seams: a session's seal (check 9, here, 6 runs), one row per game (01-06, 5 runs) and a session's lifetime (01-07, 5 runs). Row 9 landed in 01-02 on the signer's shape check (01-01), so these rows may pass once enabled: confirm each, and make good any that doesn't (for example 'something that isn't a session at all', a string, must reach row 9 as invalid-session, not crash). The refusal is 400 invalid-session, logged scores.rejected invalid-session with nothing of the session, its token, the seed, the game id, the initials or the IP (the harness sends a client IP so the log check can show it is never written). UNIT PROPERTY (scores-handler.spec.js): a session with any one of its fields changed, or any value that isn't a session, is invalid-session, and the store is as it was. VARIANT S2 (any session verifies, check 9 removed) must fail all six rows; undo it. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"A session the table didn't seal\"; see each row fail as distill/red-classification.md says or confirm it passes, then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 6 runs are green in-memory with RUN_PENDING=1 before the @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-06",
+          "name": "One game, one row on the table",
+          "criteria": [
+            "A signing for a game whose row is on the table, with the same or another session, is 409 already-signed: its own key removed, and a reading taken meanwhile shows the row once.",
+            "If that removal fails, the answer is still 409, with one log line, scores.rejected already-signed with removed: false, and the key is left to pruning.",
+            "The ranking shows each game's first-signed key only; pruning removes a game's other keys first, then the lowest winners past 20, at most 5 deletes per signing (unit property).",
+            "A refused attempt doesn't use up its session; a game saved before a failed listing has signed; bursts of 2 to 5 never show two rows, and a signing sent ahead keeps its row.",
+            "Variants S5, S6 and S7 each fail the scenarios DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature | tests/unit/score-keys.spec.js | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A game has one row on the table: signing it again with <carrying> is refused | However many signings of one game arrive at once, nobody ever sees two rows for it | A refused attempt doesn't use up the session | A game saved just before the table couldn't be looked at has signed, though nobody was told | after any interleaving of signings, the rows answered are the first 10 winners per game; losers are pruned first, at most 5 deletes (unit) | a 409 whose own removal fails writes one line with removed: false (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/unit/score-keys.spec.js",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 3: 'one row' x2 with the ranking per game id and the 409 path, 'refused attempt', 'saved just before the table couldn't be looked at', then the property (4 scenarios, 5 runs). DDD-R4, Signing checks rows 17 and 18, ADR-004 as amended. After its write and its listing, a signing keeps its key only if the listing shows no other well-formed key with its game id; otherwise it removes its own key and answers 409 already-signed, logged scores.rejected already-signed; if that removal fails it is still 409 with one log line carrying removed: false, and the key is left to pruning (a loser, so it never shows). RANKING, one rule for every answer and for pruning: per game id the winner is the key with the earliest at, then arcade order; the winners in arcade order make the table's first 10 rows. PRUNING, on the 200 path only: a game's other keys (losers) first, whatever the count, then the lowest winners beyond 20; at most 5 deletes per signing, the 409 path's own removal included. A listing that fails after the write leaves the row saved (500 list-failed): the game has signed (ADR-008's saved-but-unconfirmed case), and its next signing is 409. On the emulator a listing taken during concurrent writes can come back short (Upstream findings 4), so two racing signings may both keep their keys locally: the property asserts what anyone is shown, never what the store holds; S10 checks the race on Netlify. UNIT: rewrite score-keys.spec.js's 'a tidy-up plans min(5, n - 20) keys ranked 11th or lower' for the new plan (the Retirement list names this spec under flip 1, but it breaks only here, with DDD-R4's plan), and add DISTILL's ranking item as a property: after any interleaving of signings, the rows answered are the first 10 winners, losers are pruned first, and no signing deletes more than 5 keys. In scores-handler.spec.js: a 409 whose own removal fails writes exactly one line, scores.rejected already-signed with removed: false (part of DISTILL's 'user's decisions' item). VARIANTS S5 (a game signs twice), S6 (the ranking ignores games) and S7 (a refused signing leaves its key behind) must each fail the scenarios DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE, one at a time: RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"A game has one row on the table\", \"A refused attempt doesn't use up the session\", \"saved just before the table couldn't be looked at\", then \"nobody ever sees two rows for it\"; see each fail as distill/red-classification.md says, make it pass, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 5 runs are green in-memory with RUN_PENDING=1 before their @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines (the ranking is on every browser signing's path): npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-07",
+          "name": "Sessions last two hours and never come from the future",
+          "criteria": [
+            "A signing whose session is more than 2 hours old is 400 session-expired; one issued more than 10,000 ms after now is 400 invalid-session, checked right after its token.",
+            "Within its 2 hours, a game with no row on the table signs, also after the owner deleted its row or pruning removed it.",
+            "Both roots pass clockAllowanceMs of 10,000; the age and the future are judged on the handler's own clock, and verify takes none.",
+            "A unit property: session-expired exactly past 2 hours, invalid-session exactly beyond 10 s ahead, the store unchanged; variants S3 and S4 each fail their row."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A session lasts 2 hours: <history>, then signed with a session issued <when> | a signing is session-expired exactly past 2 hours, and invalid-session exactly when issued more than 10 s ahead (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-06"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-2-one-row-per-game.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 3: the lifetime outline (5 runs), the last third of the M2 split (see 01-05). It comes after the one-row step, where DISTILL lists it before, so that its re-entry rows test what D7 and D16 accept on top of the per-game ranking: a row that left the table, deleted by the owner or pruned, signs again within its session's 2 hours. DDD-R2's lifetime, C8, Signing checks rows 9b and 10: right after the token verifies, a session issued more than clockAllowanceMs after now is 400 invalid-session; then one more than 2 hours old (now - issuedAt > 7,200,000) is 400 session-expired. Both use the handler's own now; verify takes no clock. Both roots pass clockAllowanceMs: 10,000 from the Netlify entry and from scripts/serve.mjs (the local server's lenient clock for test boards is 03-01's E6, not here). UNIT PROPERTY (scores-handler.spec.js, on an injected clock): for any issue time, a signing is session-expired exactly when its session is more than 2 hours old and invalid-session exactly when it was issued more than 10 s ahead of now, and the store is unchanged in both. VARIANTS S3 (sessions never expire) and S4 (a session from the future is accepted) must each fail their row of the outline; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"A session lasts 2 hours\" (5 rows, under their rendered titles); see them fail as distill/red-classification.md says or confirm they pass, make them pass, then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 5 runs are green in-memory with RUN_PENDING=1 before the @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-08",
+          "name": "Each game asks for its session once, as it starts",
+          "criteria": [
+            "Typed initials sign through the game's own session: 'Signing ALX…', then 'Signed ALX, #4.', the row marked as mine, and the signing carried the session the table gave that game.",
+            "A game start makes exactly one request to the table's server, POST /api/sessions, and its rows replace the table shown under the listing-time rule.",
+            "startSession rejects an answer without rows, without listedAt, or without a session for the seed it sent, and the game then treats the table as failed (unit property).",
+            "Guards bite: with the start held until the session arrives (not committed), M3's 'starts at once' x4 fail; variant B2 fails 'asks once'; undone, everything is green."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-3-the-game-asks-for-its-session.feature | tests/unit/table-client-session.spec.js",
+          "scenario_name": "Typed initials sign the table through the game's own session | Starting a game asks the table's server once, and its answer refreshes the table | startSession rejects any answer without rows, listedAt or a session for the seed it sent (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/platform/leaderboard.js",
+            "src/main.js",
+            "tests/unit/table-client-session.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-3-the-game-asks-for-its-session.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 4, first half. M3 is @sizing-review-needed (9 runs per engine with its guards; 4 pending), so it is split at DDD-R10's seam: the wiring at the start and the signing's session (here, 2 runs per engine), then the failure path and the client's wait (01-09). Both scenarios may pass once 01-02's wiring is in: confirm each in three engines. M3 is played with the keyboard against scripts/serve.mjs; other house-hunters' rows come through POST /__test/rows; the browser player can score only £0 or £50, so the table is arranged around £50. startSession (src/platform/leaderboard.js) rejects an answer without rows, without listedAt, or without a session for the seed it sent; main.js then calls tableFailed for it, and that game's pending session rejects too. UNIT PROPERTY (new tests/unit/table-client-session.spec.js, with a fake fetch and fake timers): for any answer missing one of those parts startSession rejects, and for any well-formed one it resolves with it. GUARDS BITE (DISTILL's 'Other DELIVER items', its slice 01 half, which is the same change as variant B3): hold the start until the session arrives, not committed; M3's 'The game starts at once while the table answers its session request' x4 must fail (and 6 more M3 runs, as DISTILL saw); undo. VARIANT B2 (two session requests per game start) must fail 'Starting a game asks the table's server once'; undo. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=chromium --project=firefox --project=webkit --grep \"through the game's own session|asks the table's server once\"; confirm each passes (01-02 built the wiring; review HIGH-1); the RED evidence for this step is the new unit property, written first, and the variants: apply B3 (start held) and B2 (two session requests per start) one at a time, see the scenarios DISTILL names fail, undo each; then delete the @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); both scenarios are green in three engines with RUN_PENDING=1 before their @pending is removed, and npx playwright test --project=chromium --project=firefox --project=webkit --grep \"through the game's own session|asks the table's server once\" is green after; the guards are green: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"The game starts at once while the table answers|Two house-hunters on one table\"; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-09",
+          "name": "A signing waits for its session, or fails unsent",
+          "criteria": [
+            "When a game's session request fails or never answers, its signing ends 'Couldn't confirm ALX's signing.' at once, is never sent, and no ALX row appears.",
+            "sign sends nothing until its pending session resolves; its own 5000 ms timeout starts when it is sent; if the session fails, it rejects at once, unsent (unit property, fake fetch and timers).",
+            "Variants B1 (sent without waiting) and B4 (sent though its session failed) each fail the scenarios DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-3-the-game-asks-for-its-session.feature | tests/unit/table-client-session.spec.js",
+          "scenario_name": "A game whose session request <trouble> plays as usual, and its signing can't be confirmed | a signing is sent only once its session arrives, its 5000 ms timeout starts then, and a failed session sends nothing (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/platform/leaderboard.js",
+            "src/main.js",
+            "tests/unit/table-client-session.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-3-the-game-asks-for-its-session.feature"
+          ],
+          "implementation_notes": "DISTILL's enable order, slice 01 step 4, second half: M3's trouble outline (2 runs per engine) and DISTILL's unit item 'the table client's wait for a late session' (Upstream findings 1a; DDD-R10 as clarified, the user, 2026-10-27). No game ends within the session's 5 s timeout (a game lasts 10 s or more), so in a browser the session has always settled by game over: the scenarios meet only 'failed' and 'timed out', and the wait itself is the unit test's. sign({ initials, score, session }) sends nothing until the pending session resolves, then sends, its own 5000 ms timeout starting at that moment; if the session rejects, sign rejects at once without sending, and main.js settles the signing as signingFailed ('Couldn't confirm ALX's signing.'). The pending shows at once ('Signing ALX…') and no frame waits. UNIT PROPERTY (tests/unit/table-client-session.spec.js, with a fake fetch and fake timers): for any delay of the session and of the answer, the signing's request is sent only after the session resolves, its timeout runs from that send, and a rejected session sends nothing and rejects at once. VARIANTS B1 (the signing is sent carrying no session, not waiting for one) and B4 (the signing is sent though its session failed) must each fail the scenarios DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=chromium --project=firefox --project=webkit --grep \"plays as usual, and its signing can't be confirmed\"; confirm both rows pass (01-02 built the client's wait; review HIGH-1; red-classification.md describes the build before DELIVER); the RED evidence for this step is the new unit property, written first, and variants B1 and B4, applied one at a time and undone; then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); both rows are green in three engines with RUN_PENDING=1 before the @pending is removed, and npx playwright test --project=chromium --project=firefox --project=webkit --grep \"plays as usual, and its signing can't be confirmed\" is green after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "01-10",
+          "name": "Smoke test steps S1 to S6b for slice 01",
+          "criteria": [
+            "scripts/smoke-leaderboard.mjs runs DEVOPS's S1, S2, S4, S4c, S4b, S5, S3, S6 (with 8c and 8d) and S6b, each with the pass rule and KPI the spec gives.",
+            "Every step stays within 10 requests per 60 s per host, in a window sliding across steps; a signing step runs a session phase, then a pair phase; only over-limit steps bypass it, with 61 s waits.",
+            "The first session request is the secret check: a 500 stops the run; a session sealed with the public TEST_SECRET that signs (200) fails the run.",
+            "Unit properties with a fake fetch and clock: no 60 s window outside an over-limit step holds 11 requests to one host; the write guard still decides every POST, sessions included."
+          ],
+          "test_file": "tests/unit/smoke-sessions.spec.js | tests/unit/smoke-write-guard.spec.js",
+          "scenario_name": "the limiter never lets an 11th request to one host into any 60 s window outside an over-limit step, across steps (unit) | a signing step asks for all its sessions before it sends its pairs (unit) | a 500 to the first session request stops the run, and a 200 for the public test secret fails it (unit) | a POST the guard refuses sends nothing, and one it allows is sent once, after the first GET (kept)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-03",
+            "01-04",
+            "01-05",
+            "01-06"
+          ],
+          "files_to_modify": [
+            "scripts/smoke-leaderboard.mjs",
+            "tests/unit/smoke-sessions.spec.js",
+            "tests/unit/smoke-write-guard.spec.js"
+          ],
+          "implementation_notes": "DEVOPS's 'Preview smoke test, extended' (its spec table, pacing and slice gates are the oracle), slice 01's steps: the gate of slice 01's preview (K25, K10, K14, K12, K20 items 1-3 and the test route), so it must exist before slice 01's pull request. Unchanged: the modes (preview run, burst run, production mode GET only, unpublished check), the write guard (a session request is a POST, so the guard keeps it off production), and the first-GET rule. PACING: one limiter, at most 10 requests per 60 s per host, in a window that slides from one step to the next; only the steps marked over-limit (8a, 8b, 8c, 8d, 9 and the burst run) bypass it, each with a 61 s wait before and after. A signing with a fresh session costs three requests, so a signing step runs a session phase (one session every 13 s), then a pair phase (a POST and a GET every 13 s). The secret check is the first session request: a 500 stops the run (the remedy is to set the secret and deploy). STEPS: S1 (the deploy's first GET, its cold-start time recorded apart); S2 (the first session for a fresh seed, which also proves the bundle); S4 (10 requests: the RCA's curl with no session; session A signed with its issue time changed, then signed, then signed again; session B for the same game, signed; GET /api/sessions; a malformed seed; a session sealed with tests/common/session-secret.js's TEST_SECRET and signed, whose 200 fails the run); S4c (its own step after a 61 s wait: a POST /__test/rows with a test-board cookie, 404 or 405 and no row); S4b (a session, then blocked initials: initials-not-allowed); S5 (a session phase of 30 fresh seeds, recorded as K25 samples, then a pair phase of 30 slice-01 signings with a GET ?table=, p95 under 1000 ms); S3 (after S5, 30 session requests, p95 under 1000 ms); S6 (steps 5, 8a, 8b and 9 as before, plus over-limit 8c, a session every 4 s for 120 s, and 8d, sessions and GETs alternating at 2 a second for 20 s: at most 18 accepted and a 429 on both paths, one counter, or DDD-R1 reopens); S6b (--production one GET; --permalink one GET). Slice 01's signings are { initials, score, session }. Make the run name the slice it checks (for example --slice 01), run that slice's gate steps and sign in its shape: 02-09 and 03-04 add theirs. The script imports netlify/scores/sessions.mjs and tests/common/session-secret.js (tests/common is importable by scripts, DEVOPS). It runs against a deploy only with the user's OK to push, outside this roadmap; N-05 (the guard matches Netlify's branch slug) is checked on the first burst run. UNIT (new tests/unit/smoke-sessions.spec.js, fake fetch and clock): the limiter never lets an 11th request to a host into any 60 s window outside an over-limit step, across steps; a signing step's sessions all precede its pairs; a 500 on the first session request stops the run; a 200 for the public test secret fails it; S4c passes only on 404 or 405 with no row. smoke-write-guard.spec.js stays green (touch it only if the client's shape changes). TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. Enables no scenario. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); node --check scripts/smoke-leaderboard.mjs passes; and the script run with no arguments prints its usage and exits 1 without a network request. No browser path changes."
+        },
+        {
+          "id": "01-11",
+          "name": "Slice 01's local edges and the owner's secret docs",
+          "criteria": [
+            ".env* is in .gitignore, and scripts/serve.mjs serves only index.html, src/** and the test fixture pages: any other path, or one with a dotfile segment, is 404.",
+            "The leaderboard's environments.yaml names SCORES_SESSION_SECRET under secrets and environment_variables, per deploy context, and its first deployment assumption no longer says there are no secrets.",
+            "README's Deploy section says how to set and rotate the secret (P for production, V for previews and branch deploys, canonical 32 bytes, never a repository value), and that a deleted row can return within 2 hours.",
+            "The moderation guide adds DEVOPS's three points: a deleted row can come back within its session's 2 hours; rotating the secret ends every session; a row's id is its game id.",
+            "A release note tells players to reload a page left open since before a release (D5, D12)."
+          ],
+          "test_file": "tests/unit/serve-edges.spec.js",
+          "scenario_name": "the local server answers 404 for any path outside its allow-list or with a dotfile segment, and serves no file (unit) | a signing whose body is still coming once it passes 1 KB is answered 413 there and then, and saves nothing (kept)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            ".gitignore",
+            "scripts/serve.mjs",
+            "tests/unit/serve-edges.spec.js",
+            "docs/feature/rightmove-invaders-leaderboard/environments.yaml",
+            "README.md",
+            "docs/feature/rightmove-invaders-leaderboard/feature-delta.md",
+            "docs/feature/rightmove-invaders-replay-verified-scores/release-note.md",
+            "docs/product/architecture/brief.md"
+          ],
+          "implementation_notes": "DISTILL's 'Other DELIVER items' first bullet (the platform review's PL-11), DEVOPS's 'For DELIVER' items 1 and 6, DoD 5's leaderboard environments.yaml, and DoD 6's slice 01 part, since slice 01 is the release that brings the secret. LOCAL EDGES: add .env* to .gitignore (DEVOPS: never keep P or V in a file under the repository; 'never committed' stays the owner's discipline, this is a guard). scripts/serve.mjs serves an allow-list: index.html, src/** and the test fixture pages the browsers load (tests/e2e/*/acceptance/fixtures/*.html: the sound feature's synth-host.html and this feature's replay-host.html, which 02-04's corpus check loads), and never a path with a segment starting with '.', so a local .env is never served; anything else is 404, as a missing file is today. The routes /api/scores, /api/sessions and POST /__test/rows are unchanged. UNIT PROPERTY (serve-edges.spec.js, against the started server): for any generated path outside the allow-list or with a dotfile segment, the answer is 404 and carries no file; the existing edges stay green. DOCS: docs/feature/rightmove-invaders-leaderboard/environments.yaml: secrets and environment_variables name SCORES_SESSION_SECRET (P for production, V for deploy previews and branch deploys, 32 random bytes in canonical base64), and the first deployment_assumptions entry stops saying 'no secrets'; drop the 'DEVOPS still owed' notes. README.md, Deploy: how to set the secret per deploy context and rotate it, from the feature delta's owner guide (P and V generated apart, never a value from the repository, set before the build that needs it, applied only by a new deploy, the rotation curl that must answer invalid-session), and point 3's 'no deleted row comes back' qualified: a deleted row's own signing can put it back within its session's 2 hours (D7, D16). The moderation guide is the leaderboard's 'Owner guide: deleting a row' in docs/feature/rightmove-invaders-leaderboard/feature-delta.md (DEVOPS names it): add its three points (a deleted row can come back within 2 hours of its session's issue, so look again after 2 hours and delete again; rotating the secret shuts every open session at once; a row's id, the key's last field, is now its game id). The release note, new at docs/feature/rightmove-invaders-replay-verified-scores/release-note.md: a page left open since before a release can't confirm its signing until it is reloaded (D5, D12); it applies to each of the three releases, and the orchestrator carries it to wherever the user publishes it (validation notes). What still gets through (D16) is written in 03-05, once it is true. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. The documents carry no test. Enables no scenario. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); git check-ignore -q .env succeeds; the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), so every browser page and fixture still loads through the allow-list. Slice 01 is then ready for its preview run, which needs the user's OK to push. THE BRIEF, SLICE 01's ROWS (architect's point 10, orchestrator's decision): each slice merges on its own, so the rows slice 01 ships (the session signer, the Score API's sessions and one row per game, the table client's startSession, the local server's routes, the token rule, the secret in Operability and Platform) turn from 'designed' to 'shipped' here, with this slice's step commits."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Slice 02: The table replays the game",
+      "description": "The function replays every signing. Enabling tasks E2-E5 come first, each a commit with npm test green (DDD-R15): seeded chance, one game per instance, the record and replay, the recorded games. Then flip 2 with £500,000, the replay's refusals, long games, and slice 02's smoke steps.",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "E2: every gameplay draw from the game's seed",
+          "criteria": [
+            "createChance(seed) is sfc32 over the seed's four 32-bit words, warmed up 12 draws: the same seed gives the same draws, all in [0, 1) (unit property).",
+            "startGame draws one seed, creates the game's chance, emits gameStarted { seed }, then starts the wave; every gameplay draw takes chance.next(); main.js asks the session for that seed.",
+            "erode(hit, r, chance) compares squared distances and decides all 49 cells of the 7 x 7 neighbourhood as Math.hypot did, for radii 2.2 and 2.8 (exhaustive unit check).",
+            "Particles live in src/game/particles.js; layering rule 9, the determinism scan, passes on the code and reports each forbidden form planted once.",
+            "Same rules, same look: the full npm test stays green, its unit properties and rules scenarios included.",
+            "Until E3, the module's game gets its seed source through applySeedSource(newSeed), exported by game.js beside applySettings and applyBestStore, called by main.js (128 bits from Math.random) and by tests/unit/support/fresh-game.js; game.js itself never calls Math.random."
+          ],
+          "test_file": "tests/unit/chance.spec.js | tests/unit/erosion.spec.js | tests/unit/layering.spec.js",
+          "scenario_name": "the same seed gives the same draws, all in [0, 1) (unit) | squared distances decide all 49 cells as Math.hypot did, for radii 2.2 and 2.8 (unit) | the determinism scan reports every forbidden form in src/game and src/theme, and passes on the code (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "src/game/chance.js",
+            "src/game/particles.js",
+            "src/game/shields.js",
+            "src/game/game.js",
+            "src/main.js",
+            "tests/unit/support/fresh-game.js",
+            "tests/unit/chance.spec.js",
+            "tests/unit/erosion.spec.js",
+            "tests/unit/layering.spec.js"
+          ],
+          "implementation_notes": "DDD-R15's first enabling task, E2 (DDD-R6, DDD-R13 rule 9, D13), a precursor commit that leaves npm test green and enables no scenario. src/game/chance.js (new, imports nothing): createChance(seed) is sfc32 over the 32-hex seed's four 32-bit words, warmed up 12 draws, with next() in [0, 1). src/game/game.js: startGame calls newSeed() once, then createChance(seed), emits gameStarted { seed }, and only then calls startWave(0), whose Dream Home timer is the game's first draw. Every gameplay draw takes chance.next(): enemy fire (3 draws), the Dream Home's timers, direction and bonus, and erosion through erode(hit, r, chance). A chance is never shared between two games. src/game/shields.js: erode(hit, r, chance) compares dx*dx + dy*dy against r*r and (r - 1.2) squared, in place of Math.hypot (line 43). src/game/particles.js (new): burst and updateParticles move out of game.js, keeping Math.random, Math.cos and Math.sin and writing to g.particles; nothing in gameplay reads them. THE SEED SOURCE until E3: rule 9 forbids Math.random in game.js from this commit, and createGame's newSeed option is E3's (02-02), so main.js and loadFreshGame hand the module's game its seed source, as applySettings hands it its settings (CLAUDE.md): main.js's newSeed (128 bits from Math.random, from 01-02), and, in tests/unit/support/fresh-game.js, one drawn from Math.random so that withDeterministicChance still fixes every unit game. main.js now starts the session for gameStarted's seed instead of drawing its own. 02-02 replaces the hand-over with createGame({ newSeed }). THE HAND-OVER IS applySeedSource(newSeed) (review LOW-2): game.js exports it beside applySettings and applyBestStore; startGame throws if no seed source was handed. DDD-R15's order (E2, then E3) is kept. LAYERING RULE 9, the determinism scan, in tests/unit/layering.spec.js: over src/game/ except particles.js, and src/theme/, every Math must be followed by '.' and one of floor, ceil, round, trunc, abs, min, max, sign or imul (so a bare Math, destructuring, aliasing, Math['random'] and globalThis.Math fail), and none of '**', Date, performance or crypto may appear; a text scan like the import scan, which can over-report but never miss; each form planted once is reported. theme.js's Math.min (neighbourhood) is allowed. UNIT: tests/unit/chance.spec.js (property: the same seed gives the same draws, all in [0, 1), and two different seeds give different sequences); tests/unit/erosion.spec.js (all 49 cells of the 7 x 7 neighbourhood, for radii 2.2 and 2.8: squared distances decide each as Math.hypot did; and erode with a stub chance). The browser drivers' choreography doesn't depend on the seed (C6); each page's seeded Math.random now picks the game's seed, so each game's random sequence differs from today's. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. The 49-cell check is an exhaustive loop over a closed domain, stronger than a sample: say so in its `// bypass:` comment. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), because every game's random sequence changes (DDD-R15)."
+        },
+        {
+          "id": "02-02",
+          "name": "E3: one game per instance, none reachable from the console",
+          "criteria": [
+            "createGame({ newSeed, particles = true }) returns one game per instance with DDD-R7's methods; its state, outbox, signings, notices, best store and chance live in its closure, and createGame draws nothing.",
+            "main.js creates the one browser game and exports nothing: the 2026-10-26 console line finds no game in play, and the deposit stays £0.",
+            "createRenderer(canvas, view) reads only { g, canPlayAgain, invaderX, invaderY }, which main.js builds; nothing drawn changes (unit: the renderer touches no other key).",
+            "loadFreshGame returns { ...module, ...createGame({ newSeed }) }: every unit, Tier B and in-memory harness passes unchanged through it; game.js's scaffold marker is gone.",
+            "Two games share no state, and a game made with particles: false makes no particles (unit property)."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-5-a-changed-deposit-never-reaches-the-table.feature | tests/unit/render-view.spec.js | tests/unit/game-instance.spec.js",
+          "scenario_name": "The console line of the 2026-10-26 forgery can't reach the game in play | the renderer reads only the read-only view main.js hands it (unit) | two games of createGame share no state, createGame draws nothing, and particles: false makes none (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "src/game/game.js",
+            "src/main.js",
+            "src/view/render.js",
+            "tests/unit/support/fresh-game.js",
+            "tests/unit/render-view.spec.js",
+            "tests/unit/game-instance.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-5-a-changed-deposit-never-reaches-the-table.feature"
+          ],
+          "implementation_notes": "DDD-R15's second enabling task, E3 (DDD-R7, ADR-013), a precursor commit that leaves npm test green. createGame({ newSeed, particles = true }) returns { g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot, canPlayAgain, invaderX, invaderY }. Today's module state (g, the outbox, onTheirWay, noticesShown, the best store) and the chance move into its closure, outside g, so g stays plain data and structuredClone(g) stays valid (typed-initials' closed-world check). The pure exports and constants stay module exports (PLAYER_SPEED, RESPAWN_TIME, houseCentreX, PW, IW, DW, SHOT_W, SHOT_H, entryStep, formationStepInterval, BANNER_TIME and the rest): the sound and level-backdrops drivers import them. newSeed is required; createGame draws nothing; particles: false makes no particles. src/main.js creates the one browser game with newSeed (128 bits from Math.random), hands the views and the loop that instance, builds the read-only view { g, canPlayAgain, invaderX, invaderY } for createRenderer(canvas, view), and exports nothing, so the console's import() of game.js finds no game in play (M5; DDD-R7, the user, 2026-10-27). E2's seed hand-over goes. src/view/render.js reads that view instead of importing g, canPlayAgain, invaderX and invaderY: nothing drawn changes (the canvas waiver D10; DoD 8 checks the look). tests/unit/support/fresh-game.js: loadFreshGame() returns { ...module, ...createGame({ newSeed }) } with newSeed drawn from Math.random, replacing the ?copy= import, so the unit specs, both Tier B harnesses (leaderboard and typed-initials) and level-backdrops' in-memory game pass unchanged through it (DDD-R7's merge; the Retirement list's E3 item). Delete game.js's `export const __SCAFFOLD__ = true` and its scaffold comment. UNIT: tests/unit/render-view.spec.js (the renderer, over tests/unit/support/fake-canvas.js, reads only g, canPlayAgain, invaderX and invaderY of the view it is handed: part of DISTILL's 'user's decisions' item); tests/unit/game-instance.spec.js (property: two games made by createGame share no state; createGame draws nothing; particles: false makes no particles). BY HAND, not committed (as level-backdrops' 01-05 did): load the game in Chromium, Firefox and WebKit, play through a wave with particles, and see no page or console error. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=chromium --project=firefox --project=webkit --grep \"The console line of the 2026-10-26 forgery\"; see it fail as distill/red-classification.md says (the module exports the game in play), make it pass, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the console scenario is green in three engines with RUN_PENDING=1 before its @pending is removed, and npx playwright test --project=chromium --project=firefox --project=webkit --grep \"The console line of the 2026-10-26 forgery\" is green after; the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173). SEED SOURCE (review LOW-2): 02-01's applySeedSource is removed here; createGame's required newSeed replaces it in main.js and tests/unit/support/fresh-game.js."
+        },
+        {
+          "id": "02-03",
+          "name": "E4: the record, the replay and the amended layering rules",
+          "criteria": [
+            "update reads the three controls once a step through heldControls(keys), which movePlayer uses, and records them; initialsEntered carries { initials, score, signing, record } in DDD-R5's encoding.",
+            "readRecord round-trips every recorder output and returns null for each broken rule of the reader (unit property).",
+            "replay({ seed, record }) never throws on a readable record and never runs past MAX_GAME_STEPS; every game recorded in Node, and games 1 and 2 of one instance, replay to their own game over and deposit.",
+            "Rule 5 lets netlify/** import record.js and replay.js, rule 8 keeps chance.js and record.js importless, and CLAUDE.md states both rules and the determinism scan.",
+            "grep -rn __SCAFFOLD__ src netlify finds nothing."
+          ],
+          "test_file": "tests/unit/record.spec.js | tests/unit/replay.spec.js | tests/unit/layering.spec.js",
+          "scenario_name": "readRecord reads back every record the recorder writes, and refuses each broken rule (unit) | any readable record replays without throwing, and never past MAX_GAME_STEPS (unit) | every game recorded in Node, and games 1 and 2 of one instance, replay to their own game over and deposit (unit) | src and netlify keep the nine layering rules, the determinism scan and the token rule (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "src/game/record.js",
+            "src/game/replay.js",
+            "src/game/game.js",
+            "tests/unit/record.spec.js",
+            "tests/unit/replay.spec.js",
+            "tests/unit/layering.spec.js",
+            "CLAUDE.md"
+          ],
+          "implementation_notes": "DDD-R15's third enabling task, E4 (DDD-R5, DDD-R8, DDD-R9, DDD-R13), a precursor commit that leaves npm test green, and the last scaffold removal. src/game/record.js: createRecorder() and readRecord(record) replace their scaffolds (keep RULES_VERSION 1, MAX_GAME_STEPS 432,000 and CONTROL). A record is { rules: RULES_VERSION, steps, keys }; keys holds one entry per change of the held controls: the step delta in lowercase base 36, then one capital A-H for the three bits (left 1, right 2, fire 4). The first entry is at step 0, every later delta is at least 1, every change comes before steps, and steps is a safe integer of at least 1. readRecord doesn't bound steps by MAX_GAME_STEPS: that is the signing's row 13 (C3). It returns { rules, steps, changes } or null. src/game/game.js: step k is the k-th update call after startGame; in every recorded call, whatever the state (play, dead or clear), update reads the three controls once through heldControls(keys), which movePlayer uses too, and records a change; the call that ends the game is the last recorded one, so steps is the number of recorded calls; initialsEntered carries { initials, score, signing, record }; the record stays in the instance until the next game starts; update is called only with STEP. main.js doesn't send the record yet: slice 01's envelope refuses it until flip 2 (02-05). src/game/replay.js: replay({ seed, record }) reads the record through readRecord, creates createGame({ newSeed: () => seed, particles: false }), presses Enter on the title, runs one update(STEP, controls) per step, draining the events every step, and stops at game over, at record.steps or at MAX_GAME_STEPS, whichever comes first, returning { over, steps, deposit }: pure, synchronous and bounded for every caller (DDD-R9 as the user decided, 2026-10-27). LAYERING (tests/unit/layering.spec.js; DISTILL's rule-8 half of its scan item): rule 5 becomes 'netlify/** imports from src/ only src/game/high-scores.js, src/game/record.js and src/game/replay.js'; rule 8: game/chance.js and game/record.js import nothing; each broken once. CLAUDE.md (DoD 5): its server-boundary rules (netlify/** may import high-scores.js, record.js and replay.js from src/), rule 8, the determinism scan, and the paradigm paragraph's 'one state object' becoming createGame's one game per instance, created in main.js. UNIT: tests/unit/record.spec.js (property: readRecord reads back every record the recorder writes; a record with each of the reader's rules broken gives null); tests/unit/replay.spec.js (properties: any record readRecord accepts replays without throwing; a record whose steps exceed MAX_GAME_STEPS never runs past it; every game played in Node by tests/common/played-games.js's players replays to game over exactly at its steps, with its deposit (E4's acceptance); games 1 and 2 of one instance replay as fresh games do (DDD-R6)). tests/common/played-games.js already checks each record's steps as it plays. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. Enables no scenario. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); grep -rn __SCAFFOLD__ src netlify finds nothing; the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173)."
+        },
+        {
+          "id": "02-04",
+          "name": "E5: the recorded games, played back in every browser",
+          "criteria": [
+            "node scripts/record-corpus.mjs writes at least 6 games, from about a minute to one of 15 minutes or more, under 300 KB in all, each { seed, record, deposit, steps } only.",
+            "Every recorded game plays back in Chromium, Firefox and WebKit to game over at its recorded step, with its recorded deposit, the production replay loaded into the host page.",
+            "Run again on the same RULES_VERSION, the script refuses to overwrite; the check itself never records."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-6-the-same-game-everywhere.feature",
+          "scenario_name": "Every recorded game plays back as it was recorded, in this browser",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "tests/fixtures/recorded-games/game-01-about-1-minute.json",
+            "tests/fixtures/recorded-games/game-02-about-3-minutes.json",
+            "tests/fixtures/recorded-games/game-03-about-6-minutes.json",
+            "tests/fixtures/recorded-games/game-04-about-9-minutes.json",
+            "tests/fixtures/recorded-games/game-05-about-13-minutes.json",
+            "tests/fixtures/recorded-games/game-06-15-minutes-or-more.json",
+            "tests/common/recorded-games.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-6-the-same-game-everywhere.feature"
+          ],
+          "implementation_notes": "DDD-R15's fourth enabling task, E5 (DDD-R12, C11, K21). Run node scripts/record-corpus.mjs once (DISTILL wrote it, with tests/common/recorded-games.js): it plays seeds in a fixed order in Node until each of its six bands (about 1, 3, 6, 9, 13 and 15 or more minutes) has a game, and writes tests/fixtures/recorded-games/game-0N-*.json with { seed, record, deposit, steps } and nothing else (no session, token or time). Commit them, and check the total is under 300 KB. If a band finds no seed within its tries, raise TRIES in tests/common/recorded-games.js, never the bands' bounds (K21 asks for at least 6 games, from about a minute to one of 15 minutes or more); otherwise leave that file alone. A second run must refuse to overwrite games recorded on RULES_VERSION 1. ENABLE M6's browser scenario only: the production replay loaded into fixtures/replay-host.html through the local server (a Mandate 1 deviation the ATDD policy records), in each engine. M6's two @server scenarios sign through the table with records, which slice 01's envelope refuses until flip 2, so they are enabled in 02-06, though DISTILL's handoff lists all of M6 after E5 (validation notes); for the same reason the build gate's wall time is measured in 02-06. EXEMPT FROM PARADIGM: this step adds recorded data and enables a browser scenario, and changes no unit behaviour. Compensate with a property-based test at unit level on the adjacent slot: replay.spec.js's property that every game recorded in Node replays to its own game over and deposit (02-03). ENABLE: RUN_PENDING=1 npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Every recorded game plays back as it was recorded\"; see it fail as distill/red-classification.md says (no recorded games) before recording, then pass, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the scenario is green in three engines with RUN_PENDING=1 before its @pending is removed, and npx playwright test --project=chromium --project=firefox --project=webkit --grep \"Every recorded game plays back as it was recorded\" is green after; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), as DDD-R15 asks of every enabling commit."
+        },
+        {
+          "id": "02-05",
+          "name": "The table replays every signing: flip 2 and £500,000",
+          "criteria": [
+            "A signing is exactly { initials, score, session, record } under a 128 KB cap; the function replays it and saves the deposit only when the replay ends at game over at record.steps, at the claimed deposit; else replay-mismatch.",
+            "MAX_PLAUSIBLE_SCORE is 500,000, checked on the claim before any replay; every line that replayed carries steps and replayMs, and no other line does.",
+            "The browser sends its game's record; under TABLE_PROTOCOL SESSION_AND_RECORD the leaderboard's and typed-initials' suites stay green, every signing replayed.",
+            "Flip 2's retirements: leaderboard M2's £250,000 and 'stretched past 1 KB' examples deleted, £250,050 now £500,050; M8's outline at £500,000 and £500,050; the 1 KB unit tests at 128 KB.",
+            "The log-leak spec signs with records and finds no record, seed, game id, token or session in any line; variants S8, S14, S15 and S16 each fail their scenarios."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature | tests/unit/scores-log-leak.spec.js | tests/unit/scores-handler.spec.js",
+          "scenario_name": "An honest game's deposit is the deposit the table saves | A deposit the game didn't play to is refused: <claimed> for a game played to <played> | The ceiling is checked on the claim, before any replay: <claimed> for a game played to £1,250 | whatever part of the store fails, every request is answered and the console says nothing about the player, its record included (unit) | a POST that runs past 128 KB answers 413 payload-too-large and saves nothing (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "src/game/high-scores.js",
+            "src/main.js",
+            "src/platform/leaderboard.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/domain-types.js",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-2-signing-the-table.feature",
+            "tests/e2e/rightmove-invaders-leaderboard/acceptance/milestone-8-signing-rules.feature",
+            "tests/unit/scores-handler.spec.js",
+            "tests/unit/scores-log-leak.spec.js",
+            "tests/unit/serve-edges.spec.js",
+            "tests/unit/scores-entry.spec.js",
+            "tests/unit/high-scores.spec.js",
+            "tests/unit/malformed-answers.spec.js",
+            "tests/unit/table-client-session.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature",
+            "scripts/serve.mjs"
+          ],
+          "implementation_notes": "US-03's first value step, with flip 2 (Retirement list) and the ceiling (DDD-R16, D14), in one commit, because the ceiling moves only with the replay. DISTILL's enable order, slice 02 step 2, M4 in file order; M4 has 16 runs (@sizing-review-needed), so it is split at the seam between what is claimed (here: honest, didn't play to, ceiling: 3 scenarios, 6 runs), where the replay ends (02-06) and the record's shape (02-07). THE FUNCTION (DDD-R3, DDD-R9, Signing checks for slice 02): row 4, a 128 KB cap (131,072 bytes) counted as read (C10: the cap moves here, not with US-04, because under SESSION_AND_RECORD every server signing carries a real played record that can pass 1 KB); row 7, exactly { initials, score, session, record }; row 11, the record an object naming its rules version as a safe integer, else invalid-record; row 12b, readRecord, else invalid-record (02-07 enables their scenarios); row 15, the claim at most MAX_PLAUSIBLE_SCORE, else implausible-score, never replayed; row 16, replay({ seed: session.seed, record }) must be over exactly at record.steps with the claimed deposit, else 400 replay-mismatch; then the write and its listing. Row 12 (rules-changed) is 03-03's, row 13 (game-too-long) 02-08's, row 14 (too-fast) 03-01's; until 03-03 a record of other rules is replayed on today's rules and refused replay-mismatch (US-06's 'before'). Every line that replayed carries steps and replayMs (K22), no other line carries either, and no line carries the record, the seed, the game id, the session or its token (DDD-R14). The function imports replay.js and record.js (rule 5, amended in 02-03). src/game/high-scores.js: MAX_PLAUSIBLE_SCORE = 500_000, so makesTheTable and the function move together. THE BROWSER: main.js hands sign the record initialsEntered carries, and src/platform/leaderboard.js sends { initials, score, session, record }. FLIP 2 (Retirement list): TABLE_PROTOCOL = TableProtocol.SESSION_AND_RECORD in the leaderboard's steps/domain-types.js. Leaderboard M2 (milestone-2-signing-the-table.feature): delete the example 'FAB with £250,000' (line 34) and, with the cap, 'the signature FAB with £1,000 stretched past 1 KB | as too long' (line 48; 'stretched to 1 KB' stays: it still fits); change 'the signature FAB with £250,050' (line 62) to '£500,050'. Leaderboard M8 (milestone-8-signing-rules.feature): the outline's '£250,000' and '£250,050' (lines 31-32) become '£500,000' and '£500,050'. On DISTILL's throwaway build exactly these 5 in-memory runs failed at the flip, and every other passed. UNIT: scores-handler.spec.js's 1 KB test and serve-edges.spec.js's 1 KB test move to 128 KB, and their signings carry records; scores-log-leak.spec.js signs with records, and its leak list gains the record (the second half of DISTILL's log-leak item); scores-entry.spec.js, high-scores.spec.js, malformed-answers.spec.js and table-client-session.spec.js are listed only in case the envelope, the ceiling or sign's argument breaks them, kept property-based. VARIANTS: S8 (the replayed deposit isn't compared with the claim), S14 (the ceiling checked after the replay), S15 (the seed in the log line) and S16 (no steps or replayMs on a line that replayed) must each fail the scenarios DISTILL names; undo each. The DEVOPS log signal follows: after slice 02's release, pages loaded during slice 01 sign without a record and are refused invalid-signature until reloaded (the release note, 01-11). TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE, one at a time: RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"An honest game's deposit is the deposit the table saves\", \"A deposit the game didn't play to is refused\" and \"The ceiling is checked on the claim\"; see each fail as distill/red-classification.md says, make it pass, then delete its @pending. Change no step, driver or scenario text beyond the retirements above; if a contract the drivers assume proves wrong, stop and report. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 6 runs are green in-memory with RUN_PENDING=1 before their @pending is removed and without it after; the leaderboard's walking skeleton is green in three engines, its signing now replayed: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), with the leaderboard's and typed-initials' suites under SESSION_AND_RECORD. SERVE.MJS (review LOW-4): only its comment that names the 1 KB cap (about line 75) is brought up to date; no code change, since the handler's cap is the read limit."
+        },
+        {
+          "id": "02-06",
+          "name": "Records that end elsewhere are refused; every recorded game signs",
+          "criteria": [
+            "A made-up record, or one that stops a step before or goes on a step after its game over, is refused replay-mismatch after a replay, and the table is unchanged.",
+            "Every recorded game signs through the table at its recorded deposit, replayed to its last step; one changed to end on another deposit or moment is refused alone, as not the game it claims.",
+            "In the browser, a deposit changed on its way to the table is refused: 'Couldn't confirm HAX's signing.', no row marked as mine, no HAX row.",
+            "npm run build's wall time, with the corpus and the game supply in the build gate, is measured and recorded in the CI outline's budget row (threshold: half as much again).",
+            "Variant S9 (game over at the record's last step not required) fails the scenarios DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature | tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-6-the-same-game-everywhere.feature | tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-5-a-changed-deposit-never-reaches-the-table.feature",
+          "scenario_name": "A record made up by hand is refused, whatever it claims | A record that <twist> is refused | The table saves every recorded game at its recorded deposit, having played it back to its last step | A recorded game that now ends <how> is refused by the table, by name | A deposit changed on its way to the table is refused, and the game can't confirm the signing",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-04",
+            "02-05"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-6-the-same-game-everywhere.feature",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-5-a-changed-deposit-never-reaches-the-table.feature",
+            "docs/feature/rightmove-invaders-replay-verified-scores/feature-delta.md"
+          ],
+          "implementation_notes": "The second part of the M4 split (see 02-05): where the replay ends (row 16's game-over half), with the same check seen through M6's @server rows (the recorded games signed through the table, after E5's corpus) and M5's browser forgery, then DISTILL's 'record the build gate's wall time'. 6 in-memory runs and 1 browser run per engine. Row 16 already compares the game-over step (02-05), so these may pass once enabled: confirm each. A made-up record of 30 seconds standing still claims £249,950 and replays to £0; a record one step short doesn't reach game over at its steps; one a step long reaches game over before its steps; each is 400 replay-mismatch after a replay (its line carries steps and replayMs). M6: each recorded game signs with a session issued as long before as it lasted (the clock check of slice 03 then lets it through); the changed one (its deposit moved £50, or its game over a step later) is refused alone. M5: the page sends £249,950 for a £50 game; the function replays it to £50 and refuses it, and the game shows the shared refusal path (D5). WALL TIME (DISTILL, slice 02 step 1; the platform review's PL-10): measure npm run build now that the corpus (M6 in Node) and the game supply (every server signing played in Node since flip 2) run in the build gate, and record it in this feature delta's DEVOPS 'CI/CD pipeline outline', row 'Test gate wall time', with its threshold of half as much again; past it, later steps bound the game supply's search or the properties' runs before merging. VARIANT S9 (game over at the record's last step isn't required) must fail 'A record that stops a step before / goes on a step after'; undo it. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. No new unit test is expected: row 16 is 02-05's. ENABLE, one at a time: in-memory, RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"A record made up by hand\", \"A record that \", \"The table saves every recorded game\" and \"A recorded game that now ends\"; in the browser, RUN_PENDING=1 npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A deposit changed on its way to the table\"; see each fail as distill/red-classification.md says or confirm it passes, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy) and its wall time is recorded; the 6 in-memory runs are green with RUN_PENDING=1 before their @pending is removed and without it after; npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A deposit changed on its way to the table\" is green after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "02-07",
+          "name": "A record that isn't a record is refused unplayed",
+          "criteria": [
+            "A record whose keys aren't text, name an unknown key, change twice at one step, start late, change at or after its end, name no rules or have no length is 400 invalid-record.",
+            "Each is refused before any replay: its one log line carries no steps or replayMs, and the table is unchanged.",
+            "A unit property: any record readRecord refuses is invalid-record, never replayed, with the store unchanged.",
+            "Variants R1 to R4 on readRecord each fail the row DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A record whose <fault> is refused before any replay | any record readRecord refuses is invalid-record, never replayed, and the table is unchanged (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-05"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "src/game/record.js",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-4-the-table-replays-the-game.feature"
+          ],
+          "implementation_notes": "The last part of the M4 split (see 02-05): the record's shape, Signing checks rows 11 and 12b (DDD-R5, C3, C9), 7 runs. Both rows landed with flip 2 (the replay must never meet a record readRecord refuses), so the rows may pass once enabled: confirm each, and make good any that doesn't, in readRecord or the handler. The faults: keys that aren't text; a letter outside A-H; two changes at one step; a first change after step 0; a change at or after steps; no rules; a length of 0. Each is 400 invalid-record, logged scores.rejected invalid-record without steps or replayMs ('never replayed'). UNIT PROPERTY (scores-handler.spec.js): any record readRecord refuses is invalid-record, never replayed, and the store is as it was. VARIANTS R1 (two changes at one step accepted), R2 (a late first change accepted), R3 (a change at the record's last step accepted) and R4 (no rules version needed) must each fail the row DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"A record whose\" (7 rows, under their rendered titles); see them fail as distill/red-classification.md says or confirm they pass, then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 7 runs are green in-memory with RUN_PENDING=1 before the @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "02-08",
+          "name": "Long games sign; longer or larger ones are refused",
+          "criteria": [
+            "The longest recorded game (15 minutes or more) signs PRI at #1 with its deposit, replayed, its log line carrying steps and replayMs.",
+            "A record of 432,001 steps is 400 game-too-long without a replay (row 13); one of exactly 432,000 steps is read and replayed.",
+            "The largest record a human could make in an hour (about 119 KB) is read and replayed; a body of exactly 128 KB is saved, and one byte more is 413.",
+            "A 10 MB body is refused 413 having read no more than the cap and the piece that crossed it; a unit property shows any record over MAX_GAME_STEPS is game-too-long, unplayed.",
+            "Variants S11 (no hour limit) and S20 (the cap stays 1 KB) each fail the scenarios DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-7-long-games.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "The longest recorded game signs, and is saved with its deposit | A record of <length> of standing still is <what happens> | The largest record a human could make in an hour is read and played back, not refused as too long | A signing of <size> is <what happens> | The table stops reading a signing soon after its limit | any record longer than MAX_GAME_STEPS is game-too-long, never replayed (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-04",
+            "02-05"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-7-long-games.feature"
+          ],
+          "implementation_notes": "US-04 (D9, D20, DDD-R3, DDD-R5, Signing checks rows 4 and 13). DISTILL's enable order, slice 02 step 3: M7 in file order, 5 scenarios, 7 runs; the 128 KB cap is already in (02-05). Row 13: record.steps <= MAX_GAME_STEPS, else 400 game-too-long, logged without steps or replayMs, before the clock (row 14, slice 03) and before any replay. A record of exactly 432,000 steps of standing still is read and replayed (its game ends within minutes, so it is refused replay-mismatch, after a replay). The largest human record (60 minutes at 15 changes a second, spaced to need the most characters, about 119 KB) fits the cap and is read and replayed (refused replay-mismatch). 'Exactly 128 KB' is a padded honest signing, saved; one byte more is 413 payload-too-large. The 10 MB body arrives in 64 KB pieces: the table reads no more than the cap and the piece that crossed it (US-04 AC 3 as clarified). The longest recorded game signs with a session issued as long before as it lasted. No local scenario plays back an honest 60-minute game, since none exists: K22's 60-minute figure is S7's on a preview (02-09), and US-04's 'not yet verifiable' line stays open. UNIT PROPERTY (scores-handler.spec.js): any record whose steps exceed MAX_GAME_STEPS is game-too-long, never replayed, and the store is unchanged. VARIANTS S11 (no hour limit, row 13 removed) and S20 (the signing's cap stays 1 KB) must each fail the scenarios DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE, one at a time: RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"The longest recorded game signs\", \"of standing still is\", \"The largest record a human could make\", \"A signing of \" and \"The table stops reading a signing soon after its limit\"; see each fail as distill/red-classification.md says or confirm it passes, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 7 runs are green in-memory with RUN_PENDING=1 before their @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "02-09",
+          "name": "Smoke test steps S7 to S10 for slice 02",
+          "criteria": [
+            "The script runs S7 (the longest recorded game, then a 60-minute worst-spacing body), S8, S9, S9b, S9c and the burst run's S10, each with DEVOPS's pass rule and KPI.",
+            "Its records are made in Node on the real rules: scripted games of at most 30 s, corpus-bot games of 9 to 11 minutes, and the recorded corpus.",
+            "From slice 02 every signing carries its game's record, with one session per signing and per seed, within 01-10's two-phase pacing and over-limit marks.",
+            "Unit properties: every game the script makes replays to its own deposit before it is signed, and no 60 s window outside an over-limit step holds 11 requests to one host."
+          ],
+          "test_file": "tests/unit/smoke-sessions.spec.js",
+          "scenario_name": "every game the smoke test makes in Node replays to its own deposit and length before it is signed (unit) | the 7 refusals of S9 share one session and are each refused for their own reason (unit) | the limiter never lets an 11th request to one host into any 60 s window outside an over-limit step, across steps (kept)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-10",
+            "02-06",
+            "02-07",
+            "02-08"
+          ],
+          "files_to_modify": [
+            "scripts/smoke-leaderboard.mjs",
+            "tests/unit/smoke-sessions.spec.js",
+            "docs/product/architecture/brief.md"
+          ],
+          "implementation_notes": "DEVOPS's smoke spec, slice 02's steps: the gate of slice 02's preview (K22 S7, K10 under D21 S8, K11 S10, K20 items 3, 5-8, 10 and 11, K12 S9, K21). RECORDS MADE IN NODE: the script imports src/game/game.js, record.js and replay.js (as it imports high-scores.js), and tests/common/played-games.js and recorded-games.js (DEVOPS): scripted games (stand still and hold fire) from candidate seeds played in milliseconds, keeping those whose game lasts at most 30 s; 10-minute games from the corpus bot (seeds whose game lasts 9 to 11 minutes); long games from the recorded corpus. One session per signing, for that signing's own seed (one game, one row); a refused attempt doesn't use a session up. STEPS: S7, the corpus's longest game (15 minutes or more) signed with a session for its seed (200 within 5 s on the client; the owner reads its replayMs, scaled to 60 minutes under 1 s), then a generated 60-minute body of the worst spacing (about 119 KB), its time recorded (refused replay-mismatch; it measures upload and parsing); S8, a session phase for 30 bot seeds, then a pair phase: each POST signs its 10-minute game, then a GET (p95 of POST + GET under 1,250 ms; the owner reads the 30 replayMs lines, p95 under 165 ms, D21); S9, one session then 7 refused signings with it (a claim that isn't the replayed deposit, a record stopping before game over, one running past it, a malformed record, 432,001 steps, 128 KB + 1 byte, £500,050: replay-mismatch x3, invalid-record, game-too-long, 413, implausible-score; nothing kept); S9b after a 61 s wait (S4b again, and a session signed with the public test secret sent with a record {}: invalid-session, and an invalid-record fails the run); S9c its own step after a 61 s wait (a 7 MB body: Netlify's own status recorded, no line of ours); S10 in the burst run, on a throwaway preview without the rate-limit rule, over-limit with 61 s waits (20 sessions for 20 scripted games with distinct deposits, then the 20 signings at once and a GET after 61 s: all 200, each in the true top 10 finds its id, the GET equals the true top 10; then 3 sessions for one game and its 3 signings at once: at most one 200, the others 409 or 503, at most one row). With --slice 02 the run takes slice 02's gate and signs { initials, score, session, record }. It runs against a deploy only with the user's OK, outside this roadmap. UNIT (tests/unit/smoke-sessions.spec.js, fake fetch and clock): every game the script makes replays in Node to its own deposit and length before it is signed; S9's seven refusals share one session and expect their own reasons; the limiter property from 01-10 stays green. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. Enables no scenario. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy), within the wall-time budget recorded in 02-06; node --check scripts/smoke-leaderboard.mjs passes; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173). Slice 02 is then ready for its preview run, which needs the user's OK to push. DEPS (review LOW-6): 02-06, 02-07 and 02-08 are gate-ordering dependencies (the slice's preview runs once its code is complete), not code ones. THE BRIEF, SLICE 02's ROWS (architect's point 10): Chance, Particles, Record, Replay, Shields, Rules and state (createGame), Rendering (the read-only view), the Score API's replay and the 128 KB cap, rules 5, 8 and 9, and the £500,000 ceiling turn from 'designed' to 'shipped' here, with this slice's step commits."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Slice 03: No faster than the clock",
+      "description": "The clock check, with the local server's lenient clock for the fake-clock browser tests (E6); honest games never too fast; records of other rules refused unplayed; slice 03's smoke steps; and the feature's close-out: shipped markers, what still gets through, no @pending left.",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "E6 and the clock check: never faster than played",
+          "criteria": [
+            "A signing whose record lasted longer than the time since its session plus 10,000 ms is 400 too-fast, never replayed, compared in integers: steps x 1000 > (now - issuedAt + allowance) x 120.",
+            "Signed as long after its session as it lasted, less 10 s, a game is saved; less 11 s, it is refused; a unit check covers every step count up to 432,000 (C2).",
+            "Locally only, a request with test-clock=lenient and a test-board cookie skips the check; the function ignores both cookies, and every browser signing stays green.",
+            "Variants S12, S13 and the function honouring the lenient cookie each fail the scenarios DISTILL names."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-8-no-faster-than-the-clock.feature | tests/unit/clock-check.spec.js",
+          "scenario_name": "A game signed sooner than it lasted is refused, even when the request asks for the local server's lenient clock | A 20-minute game signed a minute after its session is refused | Signed as long after its session as the game lasted, less <margin>, a game is <what happens> | the clock check refuses exactly when steps x 1000 > (elapsed + allowance) x 120, over every step count up to 432,000 (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-05"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "scripts/serve.mjs",
+            "tests/unit/clock-check.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-8-no-faster-than-the-clock.feature"
+          ],
+          "implementation_notes": "E6 and US-05's first value step (D8, DDD-R11, C2, Signing checks row 14). DISTILL's enable order, slice 03 step 1: the lenient clock first, so every browser signing stays green, with M8's 'even when the request asks for the local server's lenient clock', then M8's other refusing @server scenarios. M8 is @sizing-review-needed (7 pending runs), so it is split at the seam between what the check refuses (here: 3 scenarios, 4 runs) and what it must never refuse (03-02). THE FUNCTION: row 14, after row 13 and before row 15: too-fast when steps * 1000 > (now() - issuedAt + clockAllowanceMs) * 120, all integers, so the boundary is exact (in floating point, steps * STEP * 1000 rounds up for 787 step counts up to 432,000); 400 too-fast, logged scores.rejected too-fast without steps or replayMs. The Netlify entry passes clockAllowanceMs 10,000 and nothing else: the function has no test switch. E6, scripts/serve.mjs: a request carrying the cookie test-clock=lenient together with a test-board cookie skips the check (for example through the allowance this root passes for that request); any other request gets 10,000 ms. The browser drivers have carried the lenient cookie on every page since DISTILL (the leaderboard's skeleton page included); M8's real-time outline sends none. The in-memory harness issues each played game's session as long before as it lasted, plus a second. UNIT (tests/unit/clock-check.spec.js; DISTILL's 'not caught by a scenario' row): over every step count from 1 to MAX_GAME_STEPS, the check refuses exactly when steps * 1000 > (elapsed + allowance) * 120, so a game signed exactly its own length less the allowance after its session passes; an exhaustive loop over a closed domain, stronger than a sample (say so in its `// bypass:` comment). VARIANTS S12 (no clock check), S13 (an 11 s allowance) and the function honouring test-clock=lenient must each fail the scenarios DISTILL names; undo each. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE, one at a time: RUN_PENDING=1 npx playwright test --project=in-memory --grep with \"even when the request asks for the local server's lenient clock\", \"A 20-minute game signed a minute after\" and \"Signed as long after its session as the game lasted\"; see each fail as distill/red-classification.md says, make it pass, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 4 runs are green in-memory with RUN_PENDING=1 before their @pending is removed and without it after; the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173), every fake-clock browser signing passing through the lenient clock and the real-time outline without it."
+        },
+        {
+          "id": "03-02",
+          "name": "An honest game is never too fast",
+          "criteria": [
+            "An honest game signed a second after its game over, given its session 4 s after it started, or paused for 10 minutes, is saved.",
+            "M8's real-time outline, a computer an hour fast or slow, stays green in three engines: 6 runs of about 30 to 50 s each in every npm test.",
+            "Guards bite: with the allowance set to 0 (not committed), the real-time outline fails; undone, it passes."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-8-no-faster-than-the-clock.feature",
+          "scenario_name": "An honest game is never too fast: <pace>",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-8-no-faster-than-the-clock.feature"
+          ],
+          "implementation_notes": "US-05's second value step (D8, K23): the second half of the M8 split (see 03-01), 3 runs, plus DISTILL's guard items for the clock. The three paces should pass once enabled, since the session is the server's and the check reads no time of the browser's: confirm each; netlify/functions/scores.mjs is listed only in case one is refused. GUARD: M8's 'The browser's clock plays no part: a computer <error>' (not @pending) plays a whole game in real time, about 30 to 50 s per run, 6 runs in every npm test (DISTILL's 'Other DELIVER items'); it must stay green in three engines. GUARDS BITE (DISTILL's 'Other DELIVER items', its slice 03 half, and its 'not caught by a scenario' row for the browser's clock): set the clock check's allowance to 0, not committed; the real-time outline must fail (the session is issued after the game starts, so its game outlasts the time since its session); undo. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. No new unit test is expected: 03-01's exhaustive check covers the boundary. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"An honest game is never too fast\" (3 rows); see them pass (or fail and fix), then delete the outline's @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the 3 runs are green in-memory with RUN_PENDING=1 before the @pending is removed and without it after; npx playwright test --project=chromium --project=firefox --project=webkit --grep \"The browser's clock plays no part\" is green; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "03-03",
+          "name": "A record from other rules is refused unplayed",
+          "criteria": [
+            "A record naming a rules version other than RULES_VERSION is 400 rules-changed, whatever the rest of it is, before readRecord reads the rest and before any replay.",
+            "Its one log line, scores.rejected rules-changed, carries no steps or replayMs, and the table is unchanged (unit property over records of other rules, well formed or not).",
+            "Variant S10 (the rules version isn't checked) fails M9.",
+            "By hand, not committed: a page loaded before a RULES_VERSION bump can't confirm its signing; after a reload, its next game signs."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-9-yesterdays-rules.feature | tests/unit/scores-handler.spec.js",
+          "scenario_name": "A record from other rules is refused without being replayed | a record of other rules is rules-changed whatever the rest of it is, never replayed (unit)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-05"
+          ],
+          "files_to_modify": [
+            "netlify/functions/scores.mjs",
+            "tests/unit/scores-handler.spec.js",
+            "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/milestone-9-yesterdays-rules.feature"
+          ],
+          "implementation_notes": "US-06 (D10, DDD-R12, Signing checks row 12). DISTILL's enable order, slice 03 step 2: M9, 1 run. Row 12 sits between row 11 (the record names its rules as a safe integer) and row 12b (readRecord): record.rules other than RULES_VERSION is 400 rules-changed, logged scores.rejected rules-changed without steps or replayMs, whatever the rest of the record is: malformed, over an hour or faster than the clock (the user, 2026-10-27). M6's recorded games, on RULES_VERSION 1, still replay; after a future bump they would be refused as rules-changed until re-recorded, which is how the corpus check catches a bump without a new recording. UNIT PROPERTY (scores-handler.spec.js; the last part of DISTILL's 'user's decisions' item): for any safe-integer rules other than RULES_VERSION and any rest of the record, the answer is rules-changed, never replayed, and the store is unchanged. VARIANT S10 (row 12 removed) must fail M9; undo it. BY HAND, not committed (US-06's After; M9's header names it DELIVER's): with npm start, open the page, then raise RULES_VERSION in src/game/record.js and restart the server; the open page keeps the modules it loaded, so its next game's signing shows 'Couldn't confirm' and the server logs rules-changed; reload, and a new game signs; revert the change. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. ENABLE: RUN_PENDING=1 npx playwright test --project=in-memory --grep \"A record from other rules is refused without being replayed\"; see it fail as distill/red-classification.md says, make it pass, then delete its @pending. Change no step, driver or scenario text. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the run is green in-memory with RUN_PENDING=1 before its @pending is removed and without it after; and the leaderboard's walking skeleton is green in three engines: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"."
+        },
+        {
+          "id": "03-04",
+          "name": "Smoke test steps S11 to S13 for slice 03",
+          "criteria": [
+            "The script runs S11 (too-fast; the lenient cookies ignored; the test route 404 or 405; then 200 after waiting the game's length), S12 (rules-changed, unplayed) and S13 (K10 with the clock on).",
+            "From slice 03 every signing waits at least its own game's length after its session, the scheduler using each game's own length, within 01-10's pacing.",
+            "A unit property with a fake clock: no signing is sent sooner after its session than its game lasted."
+          ],
+          "test_file": "tests/unit/smoke-sessions.spec.js",
+          "scenario_name": "no signing is sent sooner after its session than its game lasted, whatever the games' lengths (unit) | the limiter never lets an 11th request to one host into any 60 s window outside an over-limit step, across steps (kept)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "02-09",
+            "03-01",
+            "03-03"
+          ],
+          "files_to_modify": [
+            "scripts/smoke-leaderboard.mjs",
+            "tests/unit/smoke-sessions.spec.js"
+          ],
+          "implementation_notes": "DEVOPS's smoke spec, slice 03's steps: the gate of slice 03's preview (K20 item 9 S11, K23 S12, K10 under D21 S13). S11: a scripted game of about 30 s signed straight after a fresh session (too-fast); the same sent with the cookies test-clock=lenient; test-board=x (too-fast: the function ignores the local server's switches); a POST /__test/rows with a test-board cookie (404 or 405, no row written); then the same game under a new session, signed after waiting its length (200). S12: a record of another RULES_VERSION (rules-changed, never replayed). S13: K10 with the clock check on: a session phase for 30 bot games (about 6.5 minutes), then the pair phase once each game's own length has passed since its session (as S8: p95 of POST + GET under 1,250 ms, replayMs p95 under 165 ms). SCHEDULER (D8): once slice 03 has landed, every signing step waits at least its own game's length after its session, using each game's own length; S7's re-run after slice 03 refuses the 60-minute body as too-fast unless its session was asked 60 minutes earlier (DESIGN Open questions 2: the K22 re-run waits the hour). With --slice 03 the run takes slice 03's gate. It runs against a deploy only with the user's OK, outside this roadmap. UNIT (tests/unit/smoke-sessions.spec.js, fake clock): for any set of games and lengths, no signing is sent sooner after its session than its game lasted, and the limiter property stays green. TEST PARADIGM (mandatory): unit tests for this step are property-based with fast-check (seed 20261023 unless FC_SEED is set), asserting state deltas with `tests/common/state-delta.js` over a declared universe where the step changes state. Single-example unit tests are fallback only, with a `// bypass:` comment saying why. Integration and E2E scenarios stay single-example. Unit specs import ./support/seed.js. Enables no scenario. DONE WHEN: npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); and node --check scripts/smoke-leaderboard.mjs passes. No browser path changes. DEFERRED (review LOW-5): S7's re-run after slice 03, K22 with each session asked at least the game's length ahead (an hour for the 60-minute body), is a release-check run on a preview by the owner (DEVOPS, Open questions 2); the script supports it through the scheduler's per-game wait, and the step's units cover that wait. DEPS (review LOW-6): 02-09 is a gate-ordering dependency, not a code one."
+        },
+        {
+          "id": "03-05",
+          "name": "Close-out: shipped markers, what gets through, no @pending",
+          "criteria": [
+            "The brief's 'designed, not yet built' rows, its layering rules 8 and 9, and ADR-012's and ADR-013's status lines say shipped.",
+            "README and the moderation guide say what still gets through (D16): a program that plays well, held to the rules, its length in real time, one row per game, 2 hours, the rate limit and £500,000.",
+            "README's acceptance-suite list and file table name this feature's suite and its new modules and scripts.",
+            "No @pending is left in this feature's acceptance files; npx bddgen export --unused-steps lists none; npm run build and the full npm test are green.",
+            "package.json's only runtime dependency is still @netlify/blobs, and the browser loads no new runtime dependency (DoD 7)."
+          ],
+          "test_file": "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/ | tests/unit/layering.spec.js",
+          "scenario_name": "every scenario of this feature runs, none @pending (kept) | src and netlify keep the nine layering rules, the determinism scan and the token rule (kept)",
+          "agent": "nw-software-crafter",
+          "deps": [
+            "01-07",
+            "01-08",
+            "01-09",
+            "01-11",
+            "03-02",
+            "03-04"
+          ],
+          "files_to_modify": [
+            "docs/product/architecture/brief.md",
+            "docs/product/architecture/adr-012-the-table-replays-every-game.md",
+            "docs/product/architecture/adr-013-deterministic-rules-one-game-per-instance.md",
+            "README.md",
+            "docs/feature/rightmove-invaders-leaderboard/feature-delta.md"
+          ],
+          "implementation_notes": "The feature's close-out: DoD 2, DoD 5's brief, DoD 6's last part and DoD 7. THE BRIEF (docs/product/architecture/brief.md): every 'designed', 'Designed (ADR-012/ADR-013), not built' and 'not yet built' marker this feature placed (the component rows for chance.js, particles.js, record.js, replay.js and sessions.mjs, the Shields, Score API, client and local-server rows' replay-verified notes, layering rules 5, 8 and 9, the Accepted-risk note, the ADR list and the Platform and Delivery lines on the secret) says shipped, with this feature's commits, and its 'Last updated' line names this DELIVER. ADR-012's and ADR-013's status lines drop 'Not yet built'. (The markers flip once, here, rather than per slice: validation notes.) WHAT STILL GETS THROUGH (D16, ADR-012): README (How it's built, or Deploy) and the moderation guide (the leaderboard's 'Owner guide: deleting a row', in docs/feature/rightmove-invaders-leaderboard/feature-delta.md) say it plainly: a program that plays well, in real time or searching offline for the best inputs and seeds, is still held to the rules of the game, its own length in real time (D8), one row per game (D7), its session's 2 hours (D18), the rate limit per IP and hostname, and £500,000; the owner still deletes rows by hand, and rotating the secret ends every session. README: the acceptance-suite paragraph names rightmove-invaders-replay-verified-scores, and the file table gains src/game/chance.js, particles.js, record.js, replay.js, netlify/scores/sessions.mjs and scripts/record-corpus.mjs, with game.js's and leaderboard.js's lines brought up to date (one game per instance; sessions). FINAL CHECKS: grep -rn '@pending' tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/ finds nothing; npx bddgen export --unused-steps lists none; npm run build stays within the wall-time budget recorded in 02-06; package.json's dependencies are still @netlify/blobs alone and the browser still loads only index.html and src/ (DoD 7). DoD 4, 8 and 9 (the secret in Netlify, the preview runs, the manual check on the preview, the PO's check, K23's and K24's baselines and the merge) need the user's OK or the owner's hands, and are not in this roadmap. EXEMPT FROM PARADIGM: this step edits documents and runs repository-wide checks, with no behaviour to state as a property. Compensate with a property-based test at unit level on the adjacent slot: layering.spec.js's generated-source properties for the import scan, the determinism scan and the token rule, which must stay green. DONE WHEN: the criteria above hold; npm run build is green (bddgen, the unit and in-memory projects, then the dist copy); the leaderboard's walking skeleton is green in three engines, its signing verified by replay: npx playwright test --project=chromium --project=firefox --project=webkit --grep \"A house-hunter signs the high-score table and another house-hunter sees it\"; and the full npm test is green (about 27 minutes; PORT=4185 CI=1 npm test if a server already holds port 4173). Not in this roadmap, because each needs the user's OK: pushing, the pull requests, the preview runs and the merge. BUILD-GATE BUDGET (review LOW-7): measure npm run build again and record the figure beside 02-06's in the feature delta's CI/CD outline budget row; past half as much again as 02-06's, bound the game supply's search or the properties' runs. THE BRIEF (architect's point 10): slices 01 and 02 flipped their own rows in 01-11 and 02-09; here, slice 03's (the clock check, rules-changed, E6) and the header's 'designed, not yet built' notes."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "src/",
+      "netlify/",
+      "scripts/"
+    ],
+    "test_directories": [
+      "tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/",
+      "tests/e2e/rightmove-invaders-leaderboard/acceptance/",
+      "tests/unit/",
+      "tests/common/",
+      "tests/fixtures/recorded-games/"
+    ],
+    "excluded_patterns": [
+      "node_modules/**",
+      "dist/**",
+      ".features-gen/**",
+      "test-results/**",
+      "playwright-report/**"
+    ],
+    "other_files": [
+      "README.md",
+      "CLAUDE.md",
+      ".gitignore",
+      "docs/product/architecture/brief.md",
+      "docs/product/architecture/adr-012-the-table-replays-every-game.md",
+      "docs/product/architecture/adr-013-deterministic-rules-one-game-per-instance.md",
+      "docs/feature/rightmove-invaders-leaderboard/environments.yaml",
+      "docs/feature/rightmove-invaders-leaderboard/feature-delta.md",
+      "docs/feature/rightmove-invaders-replay-verified-scores/feature-delta.md",
+      "docs/feature/rightmove-invaders-replay-verified-scores/deliver/release-note.md"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (conditionally_approved, 0 blockers, 1 high, 9 low; conditions applied)",
+    "approved_at": "2026-10-27T10:30:00Z",
+    "notes": "Filled in by nw-solution-architect from DISTILL's DELIVER handoff (enable order, Retirement list, 'Unit tests that are DELIVER's', 'Other DELIVER items'), DESIGN's Signing checks, DDD-R1 to R17 and component decomposition, and DEVOPS's 'For DELIVER' list and smoke spec S1-S13. 25 steps: the skeleton's 6/9/4 became 11/9/5. RUNS ENABLED PER STEP (DISTILL's count: an in-memory run once, a browser run once per engine): 01-01 0, 01-02 1, 01-03 5, 01-04 7, 01-05 6, 01-06 5, 01-07 5, 01-08 2 (browser), 01-09 2 (browser), 01-10 0, 01-11 0, slice 01 = 33 (skeleton 1, M1 12, M2 16, M3 4); 02-01 0, 02-02 1 (browser), 02-03 0, 02-04 1 (browser), 02-05 6, 02-06 7 (6 in-memory + 1 browser), 02-07 7, 02-08 7, 02-09 0, slice 02 = 29 (M4 16, M5 2, M6 4, M7 7); 03-01 4, 03-02 3, 03-03 1, 03-04 0, 03-05 0, slice 03 = 8 (M8 7, M9 1). TOTAL 70 runs (63 in-memory + 7 browser), 37 scenarios, each in exactly one step. No step enables 8 or more runs in one project (the most is 7). The 7 guard runs (M3 x5, M8 x2) are not @pending; 01-02, 01-08, 03-01 and 03-02 keep them green. scenario_name gives the exact Gherkin titles first (outlines with their placeholders), then the unit tests the step adds or keeps, marked (unit) or (kept). SPLITS: M1 (12 runs) at the seam between what the table answers and what the body must be: 01-03 (5), 01-04 (7). M2 (16) at check 9, one row per game and the lifetime: 01-05 (6), 01-06 (5), 01-07 (5); the lifetime comes after one-row, where DISTILL lists it before, so that its re-entry rows test what D7 accepts. M3 at DDD-R10's seam: the wiring in 01-08, the failure path and the client's wait in 01-09. M4 (16) at what is claimed, where the replay ends and the record's shape: 02-05 (honest, didn't play to, the ceiling: flip 2's own changes), 02-06 (made up, twist, with M6's server rows and M5's changed deposit), 02-07 (faults). M8 (7) at refusing versus never refusing: 03-01 (4), 03-02 (3). DISTILL's step 1 is split: the token rule and the session signer are precursor 01-01, so the walking-skeleton step 01-02 carries flip 1, E1, serve.mjs, startSession, the main.js wiring and the retirements in one commit. ITEMS SPLIT INTO DISJOINT PARTS (each part in exactly one step's criteria): the smoke extension by slice (01-10 S1-S6b, 02-09 S7-S10, 03-04 S11-S13), because each slice's preview gate runs before the next slice's code exists; show-the-guards-bite (01-08 and 03-02, as DISTILL dates them); the test-the-tests variants, each in the step whose code it breaks (S1 01-02; S17, S18, S21 01-03; S19 01-04; S2 01-05; S5, S6, S7 01-06; S3, S4 01-07; B2, B3 01-08; B1, B4 01-09; S8, S14, S15, S16 02-05; S9 02-06; R1-R4 02-07; S11, S20 02-08; S12, S13 and the lenient-cookie variant 03-01; S10 03-03); DISTILL's 'user's decisions' unit item (port views, handler parts and no newId 01-02; removed: false 01-06; the renderer's view 02-02; rules-changed whatever the rest 03-03); the log-leak extension (seed, game id and token at flip 1 in 01-02; the record at flip 2 in 02-05, both forced by the flips); the layering rules (9 in E2, 02-01; 5 and 8 in E4, 02-03); DoD 5 by document (the leaderboard's environments.yaml 01-11, CLAUDE.md 02-03, the brief and the ADR status lines 03-05); DoD 6 (README's secret setup and rotation, the moderation guide's three DEVOPS additions and the release note in 01-11, since slice 01 releases the secret; README's and the guide's 'what still gets through' (D16) in 03-05). Single-step items: the token rule and the signer with readSessionSecret 01-01; the Netlify entry's tests 01-02; no test route in the function 01-03; the ranking and prune plan 01-06; the client's wait 01-09; .env* and the allow-list 01-11; chance and the 49-cell check 02-01; readRecord, the replay's bounds and games 1 and 2 02-03; grep __SCAFFOLD__ 02-03 (the last scaffold removed); the build gate's wall time 02-06; the clock check over every step count 03-01; M8's real-time cost 03-02. FOR THE ORCHESTRATOR (ambiguities and contradictions found): (1) DISTILL's handoff enables all of M6 after E5, but M6's two @server scenarios sign with records, which slice 01's envelope refuses until flip 2: they are enabled in 02-06, and only M6's browser scenario in 02-04. (2) For the same reason the build gate's wall time 'after E5' would measure neither the corpus nor the game supply (both run in the build gate only from flip 2): it is recorded in 02-06. (3) The Retirement list puts score-keys.spec.js under flip 1, but it breaks only with DDD-R4's prune plan (01-06); serve-edges' and scores-handler's 1 KB tests move to 128 KB at flip 2. (4) The 128 KB cap lands at flip 2 (02-05), not with US-04: under SESSION_AND_RECORD every server signing carries a real played record that can pass 1 KB; the 'stretched past 1 KB' retirement moves with it. (5) The Retirement list dates the layering rules 'at flip 2 (E4, E2)', while DISCUSS's E2 acceptance line (the determinism scan passes) puts rule 9 in E2, and DDD-R15 puts DDD-R13's rules 5 and 8 in E4: the roadmap follows that, both before flip 2 (citation corrected after the review, LOW-1). (6) E2's seed source: rule 9 forbids Math.random in game.js from E2, but createGame's newSeed is E3's; 02-01 has main.js and fresh-game.js hand the module its seed source, as applySettings is handed, and 02-02 removes it; swapping E2 and E3 would avoid that, but changes DDD-R15's order, so the order is kept and the hand-over is applySeedSource (review LOW-2). (7) In slice 01 main.js draws each game's seed itself (the game has none until E2), so a session binds a seed the game doesn't yet play with: consistent with D2 and DDD-R7, but not written anywhere. (8) The moderation guide lives in the leaderboard's closed feature delta ('Owner guide: deleting a row'); DEVOPS points there, but that delta is kept as its feature's record: confirm editing it, or move the guide. (9) The release note has no home or convention: drafted at deliver/release-note.md in 01-11; where it is published, and that it must reach players at each slice's release (D12 at slice 01; invalid-signature for pages loaded during slice 01, at slice 02), is the user's call. (10) The brief's markers flip once, at 03-05, so main's brief lags behind each slice merge; flipping each slice's rows in its last step is the alternative. (11) The smoke spec doesn't say how a run picks a slice's shape: after slice 02, slice 01's signing steps would send bodies the function refuses; the roadmap has the run name its slice. (12) US-04's 'not yet verifiable' 60-minute honest game has no step (D9 unchanged; it needs a bot that survives 60 minutes). (13) DoD 4, 8 and 9 (the owner's secret, the preview runs and their slice gates, the manual check on the preview, the PO's check, K23/K24 baselines, the merge) and N-05 need the user's OK or the owner's hands, so no step owns them. ORCHESTRATOR, after the review: ran des-roadmap validate (exit 0, VALID: 3 phases, 25 steps), des-verify-integrity --roadmap-only (exit 0) and the roadmap quality gate (clean: 25 steps over 14 production files, ratio 1.79); an independent count found all 37 @pending scenarios mapped once, 70 runs. Applied: HIGH-1 (01-02 states which M3 runs it makes green; 01-08 and 01-09 confirm green, and their RED evidence is the unit property plus variants B1 to B4), LOW-1 (citation), LOW-2 (applySeedSource named in 02-01, removed in 02-02; DDD-R15's order kept), LOW-3 (01-02, serve-edges' 1 KB test), LOW-4 (02-05 lists scripts/serve.mjs for its comment), LOW-5 (03-04 records S7's re-run after slice 03 as a deferred owner's release-check run), LOW-6 (gate-ordering deps labelled in 02-09 and 03-04), LOW-7 (03-05 records the build-gate figure again), LOW-8 (the DISTILL contract line in the feature delta no longer lists newId for handleScores). Not applied: LOW-9, accepted: until 02-06 the corpus is replayed in the three browsers (02-04) but not yet signed through the table in Node; a direct Node replay would duplicate M6's server scenario, which DISTILL's review rejected. Also from the architect's points: 9, the release note moves to docs/feature/rightmove-invaders-replay-verified-scores/release-note.md, outside deliver/, so finalize's clean-up keeps it; 10, the brief's markers flip per slice (01-11, 02-09, 03-05), because each slice merges on its own. Point 8 (the moderation guide in the leaderboard's feature delta) is DoD 6's, which the user approved."
+  }
+}

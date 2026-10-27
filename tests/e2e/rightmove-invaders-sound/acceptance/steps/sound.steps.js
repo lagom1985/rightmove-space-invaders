@@ -37,12 +37,16 @@ When('I switch to another window', ({ game }) => game.switchWindow());
 When("I hide the game's tab", ({ game }) => game.hideTab());
 When('the formation marches {int} steps', ({ game }, steps) => game.expectMarched(steps));
 When('{int} shots start at the same moment', ({ game }, shots) => game.burst(Sound.SHOT, shots));
+// Enter isn't a {key} phrase: "I press Enter" is the leaderboard's step.
+When('a script on the page presses Enter', ({ game }) => game.pressAsAScript(Key.ENTER));
+When('a script on the page presses {key}', ({ game }, key) => game.pressAsAScript(key));
 
 // ---- observing ----
 Then('the game has made no sound', ({ game }) => game.expectNoSoundYet());
 Then('the game stays silent', ({ game }) => game.expectSilentSinceLastPress());
 Then('all sound stops at once', ({ game }) => game.expectAllSoundStopped());
 Then('I hear {sound}', ({ game }, sound) => game.expectHeard(sound));
+Then("I don't hear {sound}", ({ game }, sound) => game.expectNotHeard(sound));
 Then('I hear {sound} within one frame', ({ game }, sound) => game.expectHeardWithinOneFrame(sound));
 Then('I hear a hit on a hurdle worth {pounds}', ({ game }, value) => game.expectHeard(Sound.HURDLE_HIT, { value }));
 Then('I hear {int} shots', ({ game }, shots) => game.expectHeardCount(Sound.SHOT, shots));

@@ -6,6 +6,9 @@ const isShortcut = e => e.metaKey || e.ctrlKey;
 const isChord = e => isShortcut(e) || e.altKey;
 // One code point (a letter, a digit, /, ', é, å…), not a key name such as Enter, F5 or Dead.
 const isOneCharacter = key => [...key].length === 1;
+// A key event dispatched by a script on the page, such as an autopilot pasted in the console (isTrusted false): no person
+// pressed it, so it never plays (ADR-009, 2026-10-27).
+const isScripted = e => !e.isTrusted;
 
 // The default policy (DDD-T8), the same on every screen: true when the game keeps the keydown from the browser, so
 // Space and the arrows don't scroll the page, / and ' don't open Firefox's quick find and Backspace doesn't leave the
@@ -21,9 +24,11 @@ export function preventsDefault(keydown) {
 
 // Keyboard state for a fixed-step game loop, on two channels (ADR-009).
 // - Positions (e.code), for the game keys: a tap shorter than one frame (keydown and keyup both before the next simulation
-//   step) stays held until a step has seen it; otherwise quick taps of Space or an arrow would be lost.
+//   step) stays held until a step has seen it; otherwise quick taps of Space or an arrow would be lost. Only a person's
+//   keys count: a script's keydowns and keyups are left out, so a script can't move, fire, start or pause.
 // - Typed presses (e.key), for the initials: every keydown in the order it arrived, so two presses of one key within a
-//   frame are two letters. A held key's repeats and chords are left out.
+//   frame are two letters. A held key's repeats and chords are left out. A script's keydowns type: initials are all they
+//   can enter, and the tests stand in for other layouts with them (DDD-T11).
 export function createKeyboard(target = window) {
   const held = new Set(), pressed = new Set(), unseen = new Set(), releaseAfterStep = new Set();
   const typed = [];
@@ -31,11 +36,12 @@ export function createKeyboard(target = window) {
   target.addEventListener('keydown', e => {
     if (preventsDefault(e)) e.preventDefault();
     if (!e.repeat && !isChord(e)) typed.push({ key: e.key });
-    if (isShortcut(e)) return;                        // the positions leave browser shortcuts alone
+    if (isScripted(e) || isShortcut(e)) return;       // the positions leave a script's keys and browser shortcuts alone
     if (!e.repeat) { pressed.add(e.code); unseen.add(e.code); }
     held.add(e.code);
   });
   target.addEventListener('keyup', e => {
+    if (isScripted(e)) return;                        // nor can a script release a key a person holds
     if (unseen.has(e.code)) releaseAfterStep.add(e.code); else held.delete(e.code);
   });
 

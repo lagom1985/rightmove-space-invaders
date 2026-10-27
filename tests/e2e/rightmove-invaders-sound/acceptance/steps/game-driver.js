@@ -7,7 +7,8 @@ import { Sound, Key, Screen, Setting, AudioState, Announcement } from './domain-
 // Drives the real game page with real key presses (see docs/architecture/atdd-infrastructure-policy.md):
 // - game time is Playwright's fake clock; Math.random is seeded, so every run plays the same game;
 // - sound is observed through the read-only handle window.makeTheRightMove.audio (ADR-003):
-//   "I hear X" means "the synth started X", not that it reached the speakers.
+//   "I hear X" means "the synth started X", not that it reached the speakers;
+// - a script's key presses, the one exception, are synthetic key events dispatched on the window (pressAsAScript).
 // The cursor is a journal sequence number (seq), never an array index: the journal keeps only the
 // last 100 entries, so its length stops growing.
 
@@ -16,6 +17,11 @@ const FRAME_MS = 17;                      // one display frame at 60 Hz
 const SHOT_FLIGHT_MS = 1000;              // a shot reaches the formation and resolves within this
 const SEED = 20261023;
 const SYNTH_HOST = '/tests/e2e/rightmove-invaders-sound/acceptance/fixtures/synth-host.html';
+// The key a US keyboard reports with each code: a script's synthetic key event carries both, as a person's does.
+const KEY_OF = {
+  [Key.ENTER]: 'Enter', [Key.SPACE]: ' ', [Key.M]: 'm', [Key.N]: 'n', [Key.P]: 'p', [Key.ESCAPE]: 'Escape',
+  [Key.LEFT]: 'ArrowLeft', [Key.RIGHT]: 'ArrowRight',
+};
 const AUDIO_WARNING = /audio|AudioContext/i;
 
 export class GameDriver {
@@ -90,6 +96,16 @@ export class GameDriver {
   async press(key) {
     await this.markNow();
     await this.page.keyboard.press(key);
+    await this.wait(FRAME_MS);
+  }
+
+  // A key pressed by a script on the page, as an autopilot pasted in the devtools console presses it: a keydown and its
+  // keyup dispatched on the window, so isTrusted is false (ADR-009, 2026-10-27). Playwright's presses are trusted.
+  async pressAsAScript(code) {
+    await this.markNow();
+    await this.page.evaluate(({ key, code }) => {
+      for (const type of ['keydown', 'keyup']) window.dispatchEvent(new KeyboardEvent(type, { key, code, bubbles: true }));
+    }, { key: KEY_OF[code], code });
     await this.wait(FRAME_MS);
   }
 
@@ -188,6 +204,12 @@ export class GameDriver {
     await this.waitUntilHeard(sound);
     const match = detail ? expect.objectContaining({ sound, detail: expect.objectContaining(detail) }) : expect.objectContaining({ sound });
     expect(await this.heard(sound), `expected to hear ${sound}`).toContainEqual(match);
+  }
+
+  // A sound starts in the frame its moment happens (K5), so one not heard after a shot's whole flight was never started.
+  async expectNotHeard(sound) {
+    await this.wait(SHOT_FLIGHT_MS);
+    expect(await this.heard(sound), `heard ${sound}`).toEqual([]);
   }
 
   async expectHeardWithinOneFrame(sound) {

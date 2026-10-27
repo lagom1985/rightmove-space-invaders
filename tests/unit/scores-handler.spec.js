@@ -5,6 +5,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
+import { readRecord } from '../../src/game/record.js';
 import { createTablePort, decodeKey, encodeKey, handleScores, handleSessions } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
@@ -407,4 +408,60 @@ test('a signing is session-expired exactly past 2 hours, and invalid-session exa
       expected: refused ? {} : { 'table.keys': setTo([...before['table.keys'], ownRow].sort()) },
     });
   }), { numRuns: 40, examples: [[[], 'FAB', scriptedGames(1)[0], -LIFETIME_MS - 1], [[], 'FAB', scriptedGames(1)[0], CLOCK_ALLOWANCE_MS + 1]] });
+});
+
+// Only a record readRecord reads is ever replayed (DDD-R5, Signing checks rows 11 and 12b): an otherwise good signing,
+// its session sealed and its claim the deposit its game played to, carrying any record readRecord refuses (any JSON
+// value at all, or the game's own record with one rule of the reader broken: M4's seven faults, then the DELIVER
+// clarification's three, a field beside rules, steps and keys, an entry that changes nothing, a delta with a leading
+// zero) is 400 invalid-record, never kept. Its one log line is scores.rejected invalid-record, with no replay's steps
+// or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each fault is a breaker:
+// (record, changes) -> what is no longer a record; the clarification's three are also run as examples, whatever the
+// seed.
+const RECORD_LETTERS = 'ABCDEFGH';
+const RECORD_FIELDS = ['rules', 'steps', 'keys'];
+const inserted = (keys, index, text) => `${keys.slice(0, index)}${text}${keys.slice(index)}`;
+const entryEnds = keys => [...keys].flatMap((character, index) => (RECORD_LETTERS.includes(character) ? [index + 1] : []));
+const otherControls = (controls, by) => RECORD_LETTERS[(controls + by) % 8];
+const aFieldBeside = (field, value) => record => withField(record, field, value);
+const anEntryChangingNothing = (which, gap) => (record, changes) => {
+  const entry = which % changes.length;
+  return { ...record, steps: record.steps + gap, keys: inserted(record.keys, entryEnds(record.keys)[entry], `${gap.toString(36)}${RECORD_LETTERS[changes[entry][1]]}`) };
+};
+const aLeadingZero = (which, zeros) => (record, changes) =>
+  ({ ...record, keys: inserted(record.keys, [0, ...entryEnds(record.keys)][which % changes.length], '0'.repeat(zeros)) });
+const notARecord = fc.oneof(
+  fc.jsonValue({ maxDepth: 2 }).filter(value => readRecord(value) === null).map(value => () => value),
+  fc.constantFrom(12345, null, ['0A'], { keys: '0A' }).map(keys => record => ({ ...record, keys })),
+  fc.constantFrom(...'IJXZ').map(letter => record => ({ ...record, keys: `0${letter}${record.keys.slice(2)}` })),
+  fc.integer({ min: 1, max: 7 }).map(by => (record, changes) => ({ ...record, keys: inserted(record.keys, 2, `0${otherControls(changes[0][1], by)}`) })),
+  fc.integer({ min: 1, max: 5000 }).map(late => record => ({ ...record, steps: record.steps + late, keys: `${late.toString(36)}${record.keys.slice(1)}` })),
+  fc.tuple(fc.nat({ max: 5000 }), fc.integer({ min: 1, max: 7 })).map(([after, by]) => (record, changes) => {
+    const [lastStep, lastControls] = changes.at(-1);
+    return { ...record, keys: `${record.keys}${(record.steps - lastStep + after).toString(36)}${otherControls(lastControls, by)}` };
+  }),
+  fc.constantFrom(undefined, null, '1', 1.5).map(rules => record => (rules === undefined ? withoutField(record, 'rules') : { ...record, rules })),
+  fc.constantFrom(undefined, 0, -1, 0.5, '12').map(steps => record => (steps === undefined ? withoutField(record, 'steps') : { ...record, steps })),
+  fc.tuple(fc.string({ maxLength: 8 }).filter(field => !RECORD_FIELDS.includes(field)), fc.jsonValue({ maxDepth: 1 })).map(([field, value]) => aFieldBeside(field, value)),
+  fc.tuple(fc.nat(), fc.integer({ min: 1, max: 5000 })).map(([which, gap]) => anEntryChangingNothing(which, gap)),
+  fc.tuple(fc.nat(), fc.integer({ min: 1, max: 3 })).map(([which, zeros]) => aLeadingZero(which, zeros)),
+);
+const CLARIFIED = [aFieldBeside('note', 'a fair game'), anEntryChangingNothing(0, 1), aLeadingZero(1, 1)];
+
+test('any record readRecord refuses is invalid-record, never replayed, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, initials, played, notARecord, async (rows, who, game, breaking) => {
+    const record = breaking(game.record, readRecord(game.record).changes);
+    expect(readRecord(record), `arranging: readRecord refuses ${JSON.stringify(record)}`).toBeNull();
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+    const response = await handleScores(signing({ ...signingOf(who, game), record }), createTablePort(store), options);
+    expect(response.status).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'invalid-record' });
+    expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'invalid-record', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 60, examples: CLARIFIED.map(breaking => [[], 'FAB', scriptedGames(1)[0], breaking]) });
 });

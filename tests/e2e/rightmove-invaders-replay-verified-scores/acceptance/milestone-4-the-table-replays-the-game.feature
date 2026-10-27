@@ -53,7 +53,7 @@ Feature: The table saves only the deposit it replays
       | stops a step before its game over  |
       | goes on a step after its game over |
 
-  @pending @US-03 @DDD-R5 @DDD-R14 @server @real-io @error @kpi-K20
+  @US-03 @DDD-R5 @DDD-R14 @server @real-io @error @kpi-K20
   Scenario Outline: A record whose <fault> is refused before any replay
     Given the high-score table holds KIM with £2,000
     When Alex's game signs ALX with £1,250, carrying its session and a record whose <fault>

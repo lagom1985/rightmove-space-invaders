@@ -20,10 +20,11 @@ const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
 const controls = fc.integer({ min: 0, max: 7 });
 
 // ---- any readable record ----
-// Records written by hand rather than by the recorder, so they reach what the recorder never writes: deltas with leading
-// zeros, the same controls twice in a row, another rules version, and steps from just past the last change to the
-// largest safe integer, the hour's bound on either side included.
-const entry = fc.record({ gap: fc.oneof(fc.integer({ min: 1, max: 40 }), fc.integer({ min: 41, max: 6000 })), controls, zeros: fc.nat({ max: 2 }) });
+// Records written by hand rather than by the recorder, so they reach what the recorder never writes: another rules
+// version, and steps from just past the last change to the largest safe integer, the hour's bound on either side
+// included. Every later entry moves the controls held by 1 to 7 round the eight, so each changes them, and no delta has
+// a leading zero, as readRecord requires (clarified in DELIVER, 2026-10-27).
+const entry = fc.record({ gap: fc.oneof(fc.integer({ min: 1, max: 40 }), fc.integer({ min: 41, max: 6000 })), by: fc.integer({ min: 1, max: 7 }) });
 const length = fc.oneof(
   fc.integer({ min: 1, max: 6000 }),
   fc.integer({ min: MAX_GAME_STEPS - 2, max: MAX_GAME_STEPS + 2 }),
@@ -31,14 +32,14 @@ const length = fc.oneof(
 );
 const readableRecord = fc.record({
   rules: fc.oneof(fc.constant(RULES_VERSION), fc.maxSafeInteger()),
-  first: fc.record({ controls, zeros: fc.nat({ max: 2 }) }),
+  first: controls,
   later: fc.array(entry, { maxLength: 20 }),
   steps: length,
 }).map(({ rules, first, later, steps }) => {
-  const written = [{ gap: 0, ...first }, ...later];
+  let held = first;
+  const entries = later.map(({ gap, by }) => { held = (held + by) % 8; return `${gap.toString(36)}${LETTERS[held]}`; });
   const lastChange = later.reduce((step, { gap }) => step + gap, 0);
-  const keys = written.map(({ gap, controls: held, zeros }) => `${'0'.repeat(zeros)}${gap.toString(36)}${LETTERS[held]}`).join('');
-  return { rules, steps: Math.max(steps, lastChange + 1), keys };
+  return { rules, steps: Math.max(steps, lastChange + 1), keys: `0${LETTERS[first]}${entries.join('')}` };
 });
 
 test('any record readRecord accepts replays without throwing, and never past record.steps or MAX_GAME_STEPS', () => {

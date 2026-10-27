@@ -16,7 +16,7 @@ They ship no value on their own, so they are no slice; the carpaccio hard gate d
 - The signing carries its record and its claimed deposit. The function replays the record from the session's seed, and refuses it when the replay doesn't end at game over exactly at the record's last step, or ends at another deposit (D1).
 - A malformed record is refused before any replay.
 - The ceiling rises to £500,000, in the same change that makes the function replay (D14), and is checked on the claim before any replay.
-- A record of up to 60 minutes of game time fits the request and is verified; a longer one is refused without replay (D9). The body cap grows to fit it.
+- A record of up to 60 minutes of game time fits the request and is read and replayed; an honest one is verified and saved up to the longest recorded game (at least 15 minutes); a longer one is refused without replay (D9; US-04 AC 1; clarified in DISTILL, 2026-10-27). The body cap grows to fit it.
 - The forgery catalogue's entries 5–8, 10 and 11 (K20), and the honest games of the acceptance suite, replayed (K21).
 
 ## OUT of scope
@@ -25,14 +25,14 @@ They ship no value on their own, so they are no slice; the carpaccio hard gate d
 
 ## Learning hypothesis
 - **Disproves** "the replay is the same game everywhere, and cheap" if a corpus game replays to another deposit or step in any of Chromium, Firefox or WebKit than in Node, if a game played with the keyboard in a browser scenario replays on the function to another deposit than the browser showed (K21), if the corpus's longest game, scaled to 60 minutes, replays in over 1 s on a preview (K22), or if the signing path misses its budget (D21).
-- **Confirms** that the RCA's two forgeries, by `curl` and by console, are both refused, with no change an honest player can see.
+- **Confirms** that the RCA's `curl` forgery is refused, that the console line reaches no game in play (DDD-R7), so the deposit stays as played, and that a deposit changed on its way to the table is refused as `replay-mismatch`, with no change an honest player can see (clarified in DISTILL, 2026-10-27).
 
 ## Acceptance criteria
 See US-03 and US-04 in [feature-delta.md](../feature-delta.md#wave-discuss--ref-user-stories).
 
 ## Production data and dogfood
 - The deploy preview's real function, Blobs and secret, with games played in real browsers.
-- Dogfood the same day: the deliverer plays and signs in Chrome, Firefox and Safari, and every signing is saved with the deposit shown. The deliverer then repeats the RCA's console forgery (Vector B) on the preview and sees "Couldn't confirm", with `replay-mismatch` in the log. Finally the smoke test signs the corpus's longest game and records K22.
+- Dogfood the same day: the deliverer plays and signs in Chrome, Firefox and Safari, and every signing is saved with the deposit shown. The deliverer then runs the RCA's console line (Vector B) on the preview and sees it reach no game in play; then changes the deposit the page sends, with the browser's own tools, and sees "Couldn't confirm", with `replay-mismatch` in the log (clarified in DISTILL, 2026-10-27). Finally the smoke test signs the corpus's longest game and records K22.
 
 ## Dependencies
 - Slice 01 (the session that binds the seed).

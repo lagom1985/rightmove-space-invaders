@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import {
-  Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS,
+  Message, SigningStatus, SigningTrouble, START, OTHER_HOUSE_HUNTERS, TABLE_PROTOCOL, TableProtocol,
 } from './domain-types.js';
 
 // Drives the real game page with real key presses, against the real high-score table: scripts/serve.mjs answers
@@ -19,6 +19,17 @@ import {
 // - Givens arrange; they never assert the outcome text under test. A Given that must wait for an answer waits for the
 //   network (the dispatcher's counters), then lets a few frames run so the page has taken the answer in.
 // The player can only play a deposit of £0 or £50: one shot at the Damp straight above the pin, then standing still.
+// That choreography doesn't depend on the game's luck: the shot reaches the Damp in about half a second, and the first
+// bolt is fired a second into the wave whatever the seed, so it holds for any seed the game draws (DESIGN DDD-R15,
+// checked in DISTILL, rightmove-invaders-replay-verified-scores). Only the game's length does, and the driver waits.
+// Sessions (rightmove-invaders-replay-verified-scores, TABLE_PROTOCOL in domain-types.js):
+// - the game's request for a session (POST /api/sessions) takes over from the refresh at every game start, so the
+//   dispatcher treats it as a load: "can't be reached", "never answers" and "late" apply to it as to the GET;
+// - each page seeds Math.random with a seed of its own (SEED, then SEED + 1, ... per scenario), because main.js draws
+//   each game's seed from it, and two pages that drew the same seed would play the same game, which signs once (D7);
+// - other house-hunters' rows are put on the board through the local server's test route once sessions exist, since a
+//   signing without a game is refused; and every page carries test-clock=lenient, which lets games played on the fake
+//   clock through the clock check of the local server only (DDD-R11, E6).
 
 const FRAME_MS = 17;              // one display frame at 60 Hz
 const SHOT_FLIGHT_MS = 1000;      // the shot reaches the Damp above the pin within this
@@ -32,6 +43,9 @@ const PAUSE_LEAD_MS = 1000;       // or this far ahead of the page's clock, if t
 const SEED = 20261023;
 const BOARD_COOKIE = 'test-board';
 const SCORES = '/api/scores';
+const SESSIONS = '/api/sessions';
+const TEST_ROWS = '/__test/rows';     // scripts/serve.mjs only, test boards only (DDD-R17)
+const LENIENT_CLOCK = 'test-clock';   // scripts/serve.mjs only, test boards only (DDD-R11)
 
 const Load = Object.freeze({ PASS: 'pass', FAIL: 'fail', LATE: 'late', HOLD: 'hold' });
 const Signing = Object.freeze({ PASS: 'pass', FAIL: 'fail', HOLD: 'hold' });
@@ -64,17 +78,22 @@ export class LeaderboardGame {
   async prepare() {
     if (this.prepared) return;
     this.prepared = true;
-    await this.page.context().addCookies([{ name: BOARD_COOKIE, value: this.table.board, url: this.baseURL }]);
+    await this.page.context().addCookies([
+      { name: BOARD_COOKIE, value: this.table.board, url: this.baseURL },
+      { name: LENIENT_CLOCK, value: 'lenient', url: this.baseURL },
+    ]);
     await this.page.route(`**${SCORES}*`, route => this.dispatch(route));
+    await this.page.route(`**${SESSIONS}*`, route => this.dispatch(route));
   }
 
   async open() {
     if (this.opened) return;
     await this.prepare();
+    this.table.pagesOpened = (this.table.pagesOpened ?? 0) + 1;
     await this.page.addInitScript(seed => {
       let a = seed;   // mulberry32
       Math.random = () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-    }, SEED);
+    }, SEED + this.table.pagesOpened - 1);
     await this.page.addInitScript(() => {
       window.__announced = [];
       document.addEventListener('DOMContentLoaded', () => {
@@ -82,7 +101,7 @@ export class LeaderboardGame {
         new MutationObserver(() => window.__announced.push(live.textContent)).observe(live, { childList: true, characterData: true, subtree: true });
       });
     });
-    await this.page.clock.install({ time: START });
+    await this.installClock();
     await this.page.goto('/');
     // The page-load request must have been seen before any later fault takes its count, or expectRefreshAttempted could
     // mistake the page load for a refresh.
@@ -93,6 +112,9 @@ export class LeaderboardGame {
     this.opened = true;
   }
 
+  // Every page's clock starts at START; a driver that plays in real time starts it elsewhere and never pauses it.
+  async installClock() { await this.page.clock.install({ time: START }); }
+
   // The page's clock runs in real time from install until it is paused, and a pause can't go back in time. It pauses at
   // START + PAUSE_AT_MS, as it always has, unless a busy machine took so long to load the page and ask for the table
   // that the page's clock is within PAUSE_LEAD_MS of that or past it: then PAUSE_LEAD_MS ahead of the page's clock,
@@ -102,10 +124,13 @@ export class LeaderboardGame {
     await this.page.clock.pauseAt(Math.max(START.getTime() + PAUSE_AT_MS, pageNow + PAUSE_LEAD_MS));
   }
 
+  // Another house-hunter's row: signed through the function while it takes a bare signature, put straight on the
+  // board once a signing needs a game (DDD-R17).
   async signTheTable(initials, score) {
     await this.prepare();
-    const answer = await this.page.context().request.post(SCORES, { data: { initials, score } });
-    expect(answer.ok(), `arranging: ${initials} could not sign the table (${answer.status()})`).toBe(true);
+    const path = TABLE_PROTOCOL === TableProtocol.BARE ? SCORES : TEST_ROWS;
+    const answer = await this.page.context().request.post(path, { data: { initials, score } });
+    expect(answer.ok(), `arranging: ${initials}'s row could not be put on the table (${answer.status()})`).toBe(true);
   }
 
   async seedSignatures(count, score) {
@@ -273,14 +298,19 @@ export class LeaderboardGame {
   // ---- the network boundary ----
   async dispatch(route) {
     try {
-      const method = route.request().method();
-      if (method === 'GET') return await this.dispatchLoad(route);
-      if (method === 'POST') return await this.dispatchSigning(route);
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+      if (request.method() === 'GET' && path === SCORES) return await this.dispatchLoad(route);
+      if (request.method() === 'POST' && path === SESSIONS) return await this.dispatchSession(route);
+      if (request.method() === 'POST' && path === SCORES) return await this.dispatchSigning(route);
       return await route.continue();
     } catch {
       // the page gave up on the request (the 5000 ms timeout) or the scenario ended while it was held
     }
   }
+
+  // The game-start refresh, once it is the session request: a load like any other here.
+  async dispatchSession(route) { return this.dispatchLoad(route); }
 
   async dispatchLoad(route) {
     this.loadsSent++;

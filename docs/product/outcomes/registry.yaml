@@ -455,3 +455,102 @@ outcomes:
   artifact: src/view/backdrop.js
   related: [OUT-17, OUT-18]
   superseded_by: null
+- id: OUT-20
+  kind: operation
+  summary: 'The session request: a game''s seed in, its sealed session and the table
+    out, all or nothing'
+  feature: rightmove-invaders-replay-verified-scores
+  inputs:
+  - shape: 'POST /api/sessions, JSON exactly { seed: 32 lowercase hex }, at most 1
+      KB; options { now, newId, log, where, sessions (the signer, or null without
+      a secret), clockAllowanceMs }'
+  output:
+    shape: '200 { session: { seed, issuedAt (the root''s clock), token (HMAC-SHA256
+      over v1.seed.issuedAt, base64url, 43 characters) }, scores (the ranked top 10),
+      listedAt }, no-store; 405 method-not-allowed with Allow: POST; 415 json-required;
+      413 payload-too-large; 400 invalid-seed (another field, not JSON, not 32 lowercase
+      hex); 500 unexpected, logged sessions.error secret-missing, list-failed or unexpected,
+      and no session without its rows. One log line: sessions.issued ok, or sessions.rejected
+      / sessions.error with the reason, never the seed, the token or the game id'
+  keywords:
+  - session-request
+  - seed
+  - sealed-session
+  - issued-at
+  - all-or-nothing
+  artifact: netlify/functions/scores.mjs
+  related: []
+  superseded_by: null
+- id: OUT-21
+  kind: specification
+  summary: 'The game''s record: the three held controls by step, from the start to
+    the game over, read before any replay'
+  feature: rightmove-invaders-replay-verified-scores
+  inputs:
+  - shape: 'record { rules, steps, keys }: keys one entry per change of held controls,
+      the step delta in base 36 then a capital A-H for left 1, right 2, fire 4; recorded
+      by the game (initialsEntered carries it), step k being the k-th update after
+      startGame, the game-over update the last'
+  output:
+    shape: 'readRecord(record) -> { rules, steps, changes } or null: null unless keys
+      is text of such entries, the first at step 0, every later delta at least 1,
+      every change before steps, steps a safe integer of at least 1 and rules a version.
+      The 60-minute bound (MAX_GAME_STEPS, 432,000) is the signing''s next check (game-too-long),
+      and rules other than RULES_VERSION are refused as rules-changed, both without
+      a replay (clarified in DISTILL)'
+  keywords:
+  - record
+  - held-controls
+  - rules-version
+  - record-reader
+  - max-game-steps
+  artifact: src/game/record.js
+  related: []
+  superseded_by: null
+- id: OUT-22
+  kind: operation
+  summary: 'The replay: a fresh game from the session''s seed, played back step by
+    step, its deposit the one the table saves'
+  feature: rightmove-invaders-replay-verified-scores
+  inputs:
+  - shape: 'replay({ seed: 32 lowercase hex, record: a record readRecord accepted
+      })'
+  output:
+    shape: '{ over, steps, deposit }: a game created with that seed and no particles,
+      Enter pressed, one fixed step per recorded step with its held controls, stopping
+      at game over or at record.steps; never throws on a readable record. The table
+      saves the claimed deposit only when over is true, steps equals record.steps
+      and deposit equals the claim (else 400 replay-mismatch, logged with steps and
+      replayMs)'
+  keywords:
+  - replay
+  - replay-mismatch
+  - replayed-deposit
+  - game-over-step
+  artifact: src/game/replay.js
+  related: []
+  superseded_by: null
+- id: OUT-23
+  kind: invariant
+  summary: 'The same game everywhere: a seed and a record play out to the same deposit
+    and game-over step in Node, Chromium, Firefox and WebKit'
+  feature: rightmove-invaders-replay-verified-scores
+  inputs:
+  - shape: createGame({ newSeed, particles }) with every gameplay draw from the game's
+      seed (sfc32, a chance per game) and squared distances in erosion; the recorded-games
+      corpus in tests/fixtures/recorded-games/
+  output:
+    shape: every recorded game replays to its recorded deposit and step, on RULES_VERSION,
+      in Node (build gate) and in the three browser engines; a game played with the
+      keyboard replays on the function to the deposit the browser showed; a change
+      to how the game plays without a version bump fails the build, by the name of
+      the game it changes
+  keywords:
+  - determinism
+  - recorded-games
+  - corpus
+  - same-game-everywhere
+  - rules-version-bump
+  artifact: src/game/game.js
+  related: []
+  superseded_by: null

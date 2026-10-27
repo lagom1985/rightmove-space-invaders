@@ -26,7 +26,7 @@ target_environments:
     secret: "SCORES_SESSION_SECRET, value V, deploy context Branch deploys"
     preconditions: ["as deploy-preview"]
   - name: deploy-permalink
-    description: "Every deploy keeps its function and the secret value it was built with. A page on a permalink signs to that permalink's own function and store (published=false). A session one deploy issued verifies on another only if both were built with the same value (ADR-005, qualified by ADR-012)"
+    description: "Every deploy keeps its function and the secret value it was built with. A page on a permalink signs to that permalink's own function and store (published=false). A session one deploy issued verifies on another only if both were built with the same value (ADR-005, qualified by ADR-012). Untested: no smoke step crosses deploys (U2 signs on the same permalink; DISTILL, 2026-10-27)"
     platform: [netlify-functions-v2-node22]
     preconditions: []
   - name: local

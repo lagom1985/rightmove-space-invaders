@@ -6,7 +6,7 @@
 // sort as strings into arcade order: higher score first, then the earlier entry.
 // The handler reaches the store only through the restricted table port (createTablePort, DDD-4), which a composition
 // root builds and hands it with the clock, the id source, the logger and where the table is kept: the default export
-// below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one store per test-board cookie), and the acceptance
+// below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one store per test board), and the acceptance
 // harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
@@ -152,6 +152,15 @@ export async function handleScores(request, port, options) {
   } catch {
     return failed(record, 'unexpected');
   }
+}
+
+// The session request (rightmove-invaders-replay-verified-scores, DDD-R1): POST /api/sessions { seed } -> 200
+// { session: { seed, issuedAt, token }, scores, listedAt }, no-store, from the same function, dispatched by path. Both
+// handlers will take today's options plus `sessions` (the session signer, or null when the root has no secret) and
+// `clockAllowanceMs` (DDD-R11).
+// RED scaffold (DISTILL): it throws until DELIVER builds it (slice 01); nothing routes to it yet.
+export async function handleSessions(request, port, options) {
+  throw new Error('__SCAFFOLD__: handleSessions is not yet implemented (DDD-R1)');
 }
 
 // The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at, and by

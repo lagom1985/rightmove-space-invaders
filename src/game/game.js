@@ -140,6 +140,16 @@ export function snapshot() {
   });
 }
 
+// One game per instance (ADR-013, DESIGN DDD-R7): createGame({ newSeed, particles = true }) -> { g, update, handlePresses,
+// pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot,
+// canPlayAgain, invaderX, invaderY }, gameStarted carrying { seed } and initialsEntered { initials, score, signing,
+// record }. RED scaffold (DISTILL, rightmove-invaders-replay-verified-scores): it throws until DELIVER builds it
+// (enabling task E3). The acceptance tests play games in Node with it (tests/common/played-games.js).
+export const __SCAFFOLD__ = true;
+export function createGame() {
+  throw new Error('__SCAFFOLD__: createGame is not yet implemented (game.js, DDD-R7)');
+}
+
 export const invaderX = v => g.formation.x + v.c * GX;
 export const houseCentreX = i => W / 4 * (i + 0.5);   // four houses, i = 0..3 from the left
 export const invaderY = v => g.formation.y + v.r * GY;

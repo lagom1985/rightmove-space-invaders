@@ -58,7 +58,11 @@ const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
 // Short games played in Node, each with its seed, its record and the deposit it played to, and a player's signing of
 // one.
 const played = fc.constantFrom(...scriptedGames(12));
-const signingOf = (initials, game, session = sessionFor(game.seed)) => ({ initials, score: game.deposit, session, record: game.record });
+// A game's session is issued as long before its signing as the game lasted, plus a second, as a real game's is (the
+// acceptance harness's rule), so the clock check (row 14) lets it through.
+const onTimeMs = game => Math.ceil(game.steps * 1000 / 120) + 1000;
+const onTimeFor = (game, signedAt = NOW) => sessionFor(game.seed, signedAt - onTimeMs(game));
+const signingOf = (initials, game, session = onTimeFor(game)) => ({ initials, score: game.deposit, session, record: game.record });
 
 test('a GET handed only the listing answers 200 with the best ten rows held, and leaves the table as it was', async () => {
   await fc.assert(fc.asyncProperty(held, async rows => {
@@ -147,11 +151,11 @@ test('with a stopped clock, the same game signed again with the same initials an
     const store = freshStore();
     const logs = [];
     const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING };
-    const first = sessionFor(game.seed);
+    const first = onTimeFor(game);
     expect((await handleScores(signing(signingOf(who, game, first)), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
     const before = await snapshot(store);
     expect(before['table.keys'], 'arranging: the first signing\'s row').toEqual([encodeKey({ initials: who, score: game.deposit, at: NOW, id: gameIdOf(game.seed) })]);
-    const again = anotherSession ? sessionFor(game.seed, NOW - 1000) : first;
+    const again = anotherSession ? sessionFor(game.seed, first.issuedAt - 1000) : first;
     const response = await handleScores(signing(signingOf(who, game, again)), createTablePort(store), options);
     expect(response.status).toBe(503);
     expect(response.headers.get('cache-control')).toBe('no-store');
@@ -174,12 +178,12 @@ test('a game signed again whose own key the store fails to remove is still 409 a
     for (const r of rows) await store.set(encodeKey(r), '');
     const logs = [];
     const options = { now: movingClock(NOW).now, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING };
-    const session = sessionFor(game.seed);
+    const session = onTimeFor(game);
     expect((await handleScores(signing(signingOf(first, game, session)), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
     const before = await snapshotWithRows(store);
     const real = createTablePort(store);
     const port = Object.freeze({ ...real, remove: async () => { throw new Error('The store could not delete a key'); } });
-    const response = await handleScores(signing(signingOf(again, game, anotherSession ? sessionFor(game.seed, NOW - 1000) : session)), port, options);
+    const response = await handleScores(signing(signingOf(again, game, anotherSession ? sessionFor(game.seed, session.issuedAt - 1000) : session)), port, options);
     expect(response.status).toBe(409);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ error: 'already-signed' });
@@ -266,10 +270,11 @@ test('each handler is handed only its part of the port and of the signer, and th
     expect(read.status, 'the GET').toBe(200);
     assertStateDelta(beforeSession, await snapshot(store), { universe: UNIVERSE });
 
-    const saved = await handleScores(signing(signingOf(signed, game, session)), port, { ...ONLY_THE_CLOCK_LOG_AND_WHERE, sessions: SIGNING });
+    const signedAt = NOW + onTimeMs(game);   // signed as long after its session as the game lasted, plus a second
+    const saved = await handleScores(signing(signingOf(signed, game, session)), port, { ...ONLY_THE_CLOCK_LOG_AND_WHERE, now: () => signedAt, sessions: SIGNING });
     expect(saved.status, 'the signing').toBe(200);
     expect((await saved.json()).id, 'the new row\'s id is its game id').toBe(gameIdOf(game.seed));
-    const ownRow = encodeKey({ initials: signed, score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
+    const ownRow = encodeKey({ initials: signed, score: game.deposit, at: signedAt, id: gameIdOf(game.seed) });
     assertStateDelta(beforeSession, await snapshot(store), {
       universe: UNIVERSE,
       expected: { 'table.keys': setTo([...beforeSession['table.keys'], ownRow].sort()) },
@@ -372,7 +377,8 @@ test('a signing whose session the table didn\'t seal is invalid-session, logged 
 // A session lasts 2 hours, on the handler's own clock (D18; DDD-R2's lifetime; Signing checks rows 9b and 10, C8): verify
 // takes no clock, so the handler judges a sealed session's issue time with its now and the roots' clockAllowanceMs
 // (10 s). For any issue time, an otherwise good signing is 400 session-expired exactly when its session is more than 2
-// hours old (now - issuedAt > 7,200,000), and 400 invalid-session exactly when it was issued more than 10 s after now.
+// hours old (now - issuedAt > 7,200,000), and 400 invalid-session exactly when it was issued more than 10 s after now;
+// neither, it is 400 too-fast when signed sooner than its game lasted, less those 10 s (row 14, after rows 9b and 10).
 // Either is never kept, is logged scores.rejected with its reason and nothing of the player, and saves nothing; any
 // other issue time signs the game's deposit. The issue times crowd both edges, so a check one millisecond off is
 // caught.
@@ -383,9 +389,10 @@ const issuedFromNow = fc.oneof(
   fc.integer({ min: -LIFETIME_MS - 2, max: -LIFETIME_MS + 2 }),
   fc.integer({ min: CLOCK_ALLOWANCE_MS - 2, max: CLOCK_ALLOWANCE_MS + 2 }),
 );
-const lifetimeRefusal = fromNow => {
+const lifetimeRefusal = (fromNow, game) => {
   if (fromNow > CLOCK_ALLOWANCE_MS) return 'invalid-session';
-  return -fromNow > LIFETIME_MS ? 'session-expired' : null;
+  if (-fromNow > LIFETIME_MS) return 'session-expired';
+  return game.steps * 1000 > (-fromNow + CLOCK_ALLOWANCE_MS) * 120 ? 'too-fast' : null;
 };
 
 test('a signing is session-expired exactly past 2 hours, and invalid-session exactly when issued more than 10 s ahead, and the table is unchanged', async () => {
@@ -396,7 +403,7 @@ test('a signing is session-expired exactly past 2 hours, and invalid-session exa
     const before = await snapshot(store);
     const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
     const response = await handleScores(signing(signingOf(signed, game, sessionFor(game.seed, NOW + fromNow))), createTablePort(store), options);
-    const refused = lifetimeRefusal(fromNow);
+    const refused = lifetimeRefusal(fromNow, game);
     const ownRow = encodeKey({ initials: signed, score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
     expect(response.status, `issued ${fromNow} ms from now`).toBe(refused ? 400 : 200);
     expect(response.headers.get('cache-control')).toBe('no-store');

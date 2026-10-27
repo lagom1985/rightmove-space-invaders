@@ -7,14 +7,14 @@ Feature: No game signs faster than it could have been played
   scenarios here never ask it to.
 
   # The local server's lenient clock is its own: the table, as the function runs it, ignores the cookie (E6).
-  @pending @US-05 @D8 @DDD-R11 @E6 @server @real-io @error @kpi-K20
+  @US-05 @D8 @DDD-R11 @E6 @server @real-io @error @kpi-K20
   Scenario: A game signed sooner than it lasted is refused, even when the request asks for the local server's lenient clock
     Given the high-score table holds KIM with £2,000
     When Alex's game signs ALX with £1,250 a second after its session was issued, asking for the lenient clock
     Then the signature is refused as faster than the clock
     And the table is left as it was
 
-  @pending @US-05 @D8 @DDD-R11 @DDD-R14 @server @real-io @error @kpi-K20
+  @US-05 @D8 @DDD-R11 @DDD-R14 @server @real-io @error @kpi-K20
   Scenario: A 20-minute game signed a minute after its session is refused
     Given the high-score table holds KIM with £2,000
     When HAX signs with £80,000 and a made-up record of 20 minutes, a minute after its session was issued
@@ -24,7 +24,7 @@ Feature: No game signs faster than it could have been played
     And the table is left as it was
 
   # A game whose length is a whole number of milliseconds, so the boundary is exact (DISTILL, Clarifications).
-  @pending @US-05 @D8 @DDD-R11 @server @real-io @edge @kpi-K20
+  @US-05 @D8 @DDD-R11 @server @real-io @edge @kpi-K20
   Scenario Outline: Signed as long after its session as the game lasted, less <margin>, a game is <what happens>
     Given the high-score table holds KIM with £2,000
     When Alex's game signs ALX with £1,250, as long after its session was issued as the game lasted, less <margin>

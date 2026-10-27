@@ -177,6 +177,13 @@ const interleaving = played.chain(games => fc.record({
   readings: fc.integer({ min: 0, max: 2 }),
 }));
 
+// Each game's session issued as long before NOW as the game lasted, plus a second, as a real game's is (the acceptance
+// harness's rule), so the clock check (row 14) lets it through.
+const onTime = game => {
+  const issuedAt = NOW - Math.ceil(game.steps * 1000 / 120) - 1000;
+  return { seed: game.seed, issuedAt, token: signer.sign(game.seed, issuedAt) };
+};
+
 test('after any interleaving of signings, every answer shows the first 10 winners, losers are pruned first, and no signing removes more than 5 keys', async () => {
   await fc.assert(fc.asyncProperty(fc.scheduler(), interleaving, async (s, { held, signings, readings }) => {
     const store = scheduledStore(s, held);
@@ -188,7 +195,7 @@ test('after any interleaving of signings, every answer shows the first 10 winner
 
     const requests = [
       ...signings.map(({ game, initials }) => ({
-        body: { initials, score: game.deposit, session: { seed: game.seed, issuedAt: NOW, token: signer.sign(game.seed, NOW) }, record: game.record },
+        body: { initials, score: game.deposit, session: onTime(game), record: game.record },
       })),
       ...Array.from({ length: readings }, () => ({ body: null })),
     ].map(request => ({ ...request, ...noting(port) }));

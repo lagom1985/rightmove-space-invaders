@@ -54,8 +54,9 @@ export default async function scores(request, context) {
   return dispatch(request, port, options, signerFrom(process.env.SCORES_SESSION_SECRET));
 }
 
-// How far ahead of a root's clock a session may have been issued, by another instance's (DDD-R2, DDD-R11): 10 s, the
-// same for both roots.
+// How far ahead of a root's clock a session may have been issued, by another instance's (DDD-R2, DDD-R11), and how
+// much sooner than its game lasted a signing may arrive (D8: the session's 5 s timeout, plus margin for clock skew
+// between instances): 10 s, the same for both roots, and the handler's own when it is handed none.
 export const CLOCK_ALLOWANCE_MS = 10_000;
 
 // The session signer a secret's value makes, or null.
@@ -222,9 +223,10 @@ function failed(logLine, reason, event = SCORES.error) {
 
 // options, from the composition root: now () -> ms (a new row's time, listedAt, and a session's age), log (receives one
 // entry per request), where ({ scope, context, published }, logged as given), sessions (the signer's verify and gameId,
-// or null when the root has no secret) and clockAllowanceMs (how far ahead of now a session may have been issued). A
-// GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws is answered 500
-// unexpected and logged as unexpected, so the promise always resolves.
+// or null when the root has no secret) and clockAllowanceMs (how far ahead of now a session may have been issued, and
+// how much sooner than it lasted a game may be signed; CLOCK_ALLOWANCE_MS when not given, so a root that leaves it out
+// weakens neither check). A GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws
+// is answered 500 unexpected and logged as unexpected, so the promise always resolves.
 export async function handleScores(request, port, options) {
   const logLine = journal(options);
   try {
@@ -376,7 +378,8 @@ function notSaved(logLine) {
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'session-expired': 400,
-  'invalid-record': 400, 'game-too-long': 400, 'implausible-score': 400, 'replay-mismatch': 400, 'invalid-seed': 400,
+  'invalid-record': 400, 'game-too-long': 400, 'too-fast': 400, 'implausible-score': 400, 'replay-mismatch': 400,
+  'invalid-seed': 400,
   'already-signed': 409,
 });
 // Bytes, counted as the body is read, since a Content-Length can lie (DDD-5): a session request is { seed } within
@@ -400,10 +403,11 @@ const isSigning = signing => {
 };
 
 // A session lasts 2 hours (D18), judged on the handler's own clock, since verify takes none (DDD-R2, C8): one issued
-// more than clockAllowanceMs after now is one the table didn't seal (row 9b), and one more than 2 hours old has expired
+// more than the allowance after now is one the table didn't seal (row 9b), and one more than 2 hours old has expired
 // (row 10).
 const SESSION_LIFETIME_MS = 7_200_000;   // 2 hours
-const fromTheFuture = ({ session }, { now, clockAllowanceMs }) => session.issuedAt - now() > clockAllowanceMs;
+const allowanceOf = ({ clockAllowanceMs }) => clockAllowanceMs ?? CLOCK_ALLOWANCE_MS;
+const fromTheFuture = ({ session }, options) => session.issuedAt - options.now() > allowanceOf(options);
 const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIFETIME_MS;
 
 // The record names its rules version before anything else of it is read (row 11), then reads whole (row 12b), so the
@@ -412,6 +416,15 @@ const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIF
 const namesItsRules = ({ record }) => typeof record === 'object' && record !== null && Number.isSafeInteger(record.rules);
 const reads = ({ record }) => readRecord(record) !== null;
 const withinTheHour = ({ record }) => record.steps <= MAX_GAME_STEPS;
+
+// The clock check (row 14, DDD-R11, D8): whether a game of `steps` steps, signed `elapsedMs` after its session was
+// issued, was signed sooner than it lasted, less `allowanceMs`. A game lasts steps × 1000 / 120 ms, compared in integers
+// so the boundary is exact (C2): in floating point, steps × STEP × 1000 rounds up for 787 step counts up to
+// MAX_GAME_STEPS, and would refuse an honest game signed exactly its length less the allowance after its session.
+const STEPS_PER_SECOND = 120;   // the game's fixed step (src/game/config.js's STEP), as a whole number
+export const fasterThanTheClock = (steps, elapsedMs, allowanceMs) => steps * 1000 > (elapsedMs + allowanceMs) * STEPS_PER_SECOND;
+// Judged on the handler's clock alone: the signing carries no browser time.
+const notTooFast = ({ session, record }, options) => !fasterThanTheClock(record.steps, options.now() - session.issuedAt, allowanceOf(options));
 
 // The replay (row 16, DDD-R9): the game played again from the seed its session sealed, which must be over exactly at
 // record.steps, on the deposit claimed; a replay that stops short of game over, or reaches it sooner, is a mismatch
@@ -424,7 +437,7 @@ function replaysToTheClaim({ score, session, record }, { now }, logLine) {
   return over && steps === record.steps && deposit === score;
 }
 
-// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b, 13, 15 and 16): a body without a session is
+// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b and 13 to 16): a body without a session is
 // one no game asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't
 // seal is invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so
 // a session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
@@ -439,6 +452,7 @@ const SIGNING_CHECKS = Object.freeze([
   ['invalid-record', namesItsRules],
   ['invalid-record', reads],
   ['game-too-long', withinTheHour],
+  ['too-fast', notTooFast],
   ['implausible-score', signing => isPlausibleScore(signing.score)],
   ['replay-mismatch', replaysToTheClaim],
 ]);

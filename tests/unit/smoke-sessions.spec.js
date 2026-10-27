@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { assertStateDelta, normalizedTo, satisfying } from '../common/state-delta.js';
-import { CLOCK_ALLOWANCE_MS, createTablePort, decodeKey, dispatch, encodeKey } from '../../netlify/functions/scores.mjs';
+import { createTablePort, decodeKey, dispatch, encodeKey } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { SCORE_STEP } from '../../src/game/high-scores.js';
 import { MAX_GAME_STEPS } from '../../src/game/record.js';
@@ -64,7 +64,10 @@ function memoryStore() {
 function fakeDeploy({ clock, secret, latencies = [1], testRoute = null, signing = null }) {
   const readSecret = readSessionSecret(secret);
   const signer = readSecret && createSessionSigner(readSecret);
-  const options = { now: clock.now, log: () => {}, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+  // A deploy of slice 01 or 02, which has no clock check (row 14 is slice 03's): the real dispatch handed an allowance
+  // no game outlasts, as 02-05's stand-in kept slice 01's envelope. No smoke step sends a session from the future, so
+  // row 9b, which this allowance also opens, decides nothing here.
+  const options = { now: clock.now, log: () => {}, clockAllowanceMs: Infinity };
   const signs = signing && signing(signer, clock);
   const tables = new Map();
   const tableOf = host => tables.get(host) ?? tables.set(host, createTablePort(memoryStore())).get(host);

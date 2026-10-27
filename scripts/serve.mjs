@@ -9,7 +9,9 @@
 // signer, and dispatches as the Netlify entry does, handing each handler its part, the clock and its allowance, the
 // logger and where the table is kept (scope local). Its secret is 32 random bytes of its own at each start, never
 // production's (DDD-R2, E1).
-// For the tests only, a test board can also be handed rows without a game (POST /__test/rows, DDD-R17).
+// For the tests only, a test board can also be handed rows without a game (POST /__test/rows, DDD-R17), and a test
+// board's request carrying the cookie test-clock=lenient skips the clock check (DDD-R11, E6): the browser scenarios play
+// on a fake clock, far faster than real time. Any other request gets production's allowance; the function has neither.
 import { STATUS_CODES, createServer } from 'node:http';
 import { rmSync } from 'node:fs';
 import { readFile, mkdtemp } from 'node:fs/promises';
@@ -32,6 +34,7 @@ const types = {
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
+const LENIENT_CLOCK = /(?:^|;\s*)test-clock=lenient(?:;|$)/;
 const SESSIONS_PATH = '/api/sessions';
 const TABLE_PATHS = Object.freeze(['/api/scores', SESSIONS_PATH]);
 const TEST_ROWS = '/__test/rows';
@@ -40,6 +43,8 @@ const FIXTURE_PAGE = /^\/tests\/e2e\/[^/]+\/acceptance\/fixtures\/[^/]+\.html$/;
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
 // The production clock, its allowance and the production logger.
 const tableOptions = Object.freeze({ now: Date.now, log: logToConsole, where: LOCAL, clockAllowanceMs: CLOCK_ALLOWANCE_MS });
+// The lenient clock's: an allowance no game outlasts. Explicit, since a handler handed no allowance uses production's.
+const lenientOptions = Object.freeze({ ...tableOptions, clockAllowanceMs: Infinity });
 const signer = createSessionSigner(randomBytes(32));
 const STOP_WITHIN_MS = 1000;   // a request still in flight can hold the emulator open; the directory goes regardless
 
@@ -66,6 +71,8 @@ function removeWhenStopped(blobs, directory) {
 }
 
 const boardOf = req => BOARD.exec(req.headers.cookie ?? '')?.[1] ?? null;
+// The lenient clock needs both cookies: test-clock=lenient alone, or a test board alone, gets production's allowance.
+const optionsFor = req => (boardOf(req) !== null && LENIENT_CLOCK.test(req.headers.cookie ?? '') ? lenientOptions : tableOptions);
 
 function storeFor(req) {
   return getStore({ name: `leaderboard-${boardOf(req) ?? 'local'}`, consistency: 'strong' });
@@ -78,7 +85,7 @@ async function serveTable(path, req, res) {
   if (refused) return send(res, refused);
   const body = req.method === 'POST' ? bodyOf(req) : undefined;
   const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body, duplex: 'half' });
-  return send(res, await dispatch(request, createTablePort(storeFor(req)), tableOptions, signer));
+  return send(res, await dispatch(request, createTablePort(storeFor(req)), optionsFor(req), signer));
 }
 
 // Another house-hunter's row on a test board, with no game (DDD-R17): { initials, score } written as one key through

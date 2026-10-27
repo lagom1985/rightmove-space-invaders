@@ -184,6 +184,14 @@ const signature = fc.record({ initials, score: fc.integer({ min: 1, max: 2000 })
 // common/played-games.js), which the function replays before it saves (DDD-R3, DDD-R9).
 const played = fc.constantFrom(...scriptedGames(8));
 const signingOf = (who, game, session) => ({ initials: who, score: game.deposit, session, record: game.record });
+// The entry's clock (Date.now) moved on by `ms` while `call` runs, so a game is signed as long after its session as it
+// lasted, plus a second, as a real game is (the clock check, row 14), without the test waiting that long.
+const onTimeMs = game => Math.ceil(game.steps * 1000 / 120) + 1000;
+async function later(ms, call) {
+  const real = Date.now;
+  Date.now = () => real() + ms;
+  try { return await call(); } finally { Date.now = real; }
+}
 // 32 bytes in canonical base64, as the owner sets it: 43 characters and one '='.
 const canonicalSecret = fc.uint8Array({ minLength: 32, maxLength: 32 }).map(bytes => Buffer.from(bytes).toString('base64'));
 // Everything else a secret's value can be: not set, empty or a word, another number of bytes, the padding dropped,
@@ -213,7 +221,7 @@ test('with a canonical secret, the entry issues a session sealed with its 32 byt
     expect(asked.logged).toEqual([{ event: 'sessions.issued', reason: 'ok', ms: expect.any(Number), ...PREVIEW_LOGGED }]);
     assertStateDelta(asked.before, asked.after, { universe: UNIVERSE });
 
-    const signing = await requestThroughEntry({ deployID, context, secret, method: 'POST', body: signingOf(signed, game, session) });
+    const signing = await later(onTimeMs(game), () => requestThroughEntry({ deployID, context, secret, method: 'POST', body: signingOf(signed, game, session) }));
     expect(signing.answer.status, 'the signing').toBe(200);
     expect(signing.answer.body.id, 'the new row\'s id is its game id').toBe(gameIdOf(game.seed));
     expect(signing.logged).toEqual([{ event: 'scores.signed', reason: 'ok', ms: expect.any(Number), keys: 2, steps: game.steps, replayMs: expect.any(Number), ...PREVIEW_LOGGED }]);
@@ -294,7 +302,7 @@ async function sentOnAFreshDeploy(kind, { secret, game, signed }, cookie) {
   const deployID = freshDeployId();
   const context = previewOf(deployID);
   const session = kind === 'a signing' ? (await requestThroughEntry({ deployID, context, secret, ...ASKING_FOR(game) })).answer.body.session : undefined;
-  const sent = await requestThroughEntry({ deployID, context, secret, cookie, ...SENT[kind]({ game, signed, session }) });
+  const sent = await later(kind === 'a signing' ? onTimeMs(game) : 0, () => requestThroughEntry({ deployID, context, secret, cookie, ...SENT[kind]({ game, signed, session }) }));
   return { ...sent, answer: { ...sent.answer, body: timeless(sent.answer.body) }, logged: sent.logged.map(({ ms, replayMs, ...line }) => line) };
 }
 

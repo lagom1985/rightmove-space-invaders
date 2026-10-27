@@ -5,7 +5,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
-import { readRecord } from '../../src/game/record.js';
+import { MAX_GAME_STEPS, readRecord } from '../../src/game/record.js';
 import { createTablePort, decodeKey, encodeKey, handleScores, handleSessions } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
@@ -464,4 +464,39 @@ test('any record readRecord refuses is invalid-record, never replayed, and the t
     expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'invalid-record', ms: expect.any(Number), ...LOCAL }]);
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 60, examples: CLARIFIED.map(breaking => [[], 'FAB', scriptedGames(1)[0], breaking]) });
+});
+
+// No record longer than an hour is ever replayed (D9, Signing checks row 13): an otherwise good signing, its session
+// sealed and its claim the deposit its game played to, carrying its game's record stretched past MAX_GAME_STEPS
+// (432,000) by one step or by up to the largest safe step count, and sometimes with one more change of the controls
+// after the game's last, is 400 game-too-long, never kept. The record still reads (the hour is row 13's, not
+// readRecord's, C3). Its one log line is scores.rejected game-too-long, with no replay's steps or replayMs, since it
+// never replayed, and nothing of the player. Nothing is saved. The record one step too long is run as an example,
+// whatever the seed.
+const over = fc.oneof(fc.integer({ min: 1, max: 1000 }), fc.integer({ min: 1, max: Number.MAX_SAFE_INTEGER - MAX_GAME_STEPS }));
+const oneMoreChange = fc.option(fc.tuple(fc.integer({ min: 1, max: MAX_GAME_STEPS }), fc.integer({ min: 1, max: 7 })), { nil: null });
+const pastTheHour = (record, by, change) => {
+  const steps = MAX_GAME_STEPS + by;
+  if (!change) return { ...record, steps };
+  const [lastStep, lastControls] = readRecord(record).changes.at(-1);
+  const [later, other] = change;
+  return { ...record, steps, keys: `${record.keys}${Math.min(later, steps - 1 - lastStep).toString(36)}${otherControls(lastControls, other)}` };
+};
+
+test('any record longer than MAX_GAME_STEPS is game-too-long, never replayed, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, initials, played, over, oneMoreChange, async (rows, who, game, by, change) => {
+    const record = pastTheHour(game.record, by, change);
+    expect(readRecord(record), `arranging: the record reads, ${record.steps} steps long`).not.toBeNull();
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+    const response = await handleScores(signing({ ...signingOf(who, game), record }), createTablePort(store), options);
+    expect(response.status).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'game-too-long' });
+    expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'game-too-long', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 30, examples: [[[], 'FAB', scriptedGames(1)[0], 1, null]] });
 });

@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
 import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
-import { readRecord } from '../../src/game/record.js';
+import { MAX_GAME_STEPS, readRecord } from '../../src/game/record.js';
 import { replay } from '../../src/game/replay.js';
 import { createSessionSigner, readSessionSecret } from '../scores/sessions.mjs';
 
@@ -376,7 +376,8 @@ function notSaved(logLine) {
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'session-expired': 400,
-  'invalid-record': 400, 'implausible-score': 400, 'replay-mismatch': 400, 'invalid-seed': 400, 'already-signed': 409,
+  'invalid-record': 400, 'game-too-long': 400, 'implausible-score': 400, 'replay-mismatch': 400, 'invalid-seed': 400,
+  'already-signed': 409,
 });
 // Bytes, counted as the body is read, since a Content-Length can lie (DDD-5): a session request is { seed } within
 // 1 KB (DDD-R1), a signing carries its game's record within 128 KB, about an hour of key changes at a human's pace
@@ -406,9 +407,11 @@ const fromTheFuture = ({ session }, { now, clockAllowanceMs }) => session.issued
 const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIFETIME_MS;
 
 // The record names its rules version before anything else of it is read (row 11), then reads whole (row 12b), so the
-// replay only ever plays a record readRecord accepts, and never throws.
+// replay only ever plays a record readRecord accepts, and never throws; and it lasts at most an hour of game time (row
+// 13, D9), so no request keeps the table replaying for long. The hour is this check's, not readRecord's (C3).
 const namesItsRules = ({ record }) => typeof record === 'object' && record !== null && Number.isSafeInteger(record.rules);
 const reads = ({ record }) => readRecord(record) !== null;
+const withinTheHour = ({ record }) => record.steps <= MAX_GAME_STEPS;
 
 // The replay (row 16, DDD-R9): the game played again from the seed its session sealed, which must be over exactly at
 // record.steps, on the deposit claimed; a replay that stops short of game over, or reaches it sooner, is a mismatch
@@ -421,10 +424,10 @@ function replaysToTheClaim({ score, session, record }, { now }, logLine) {
   return over && steps === record.steps && deposit === score;
 }
 
-// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b, 15 and 16): a body without a session is one
-// no game asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal
-// is invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
-// session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
+// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b, 13, 15 and 16): a body without a session is
+// one no game asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't
+// seal is invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so
+// a session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
 // session's issue time is judged. Every check is cheaper than the replay, which comes last.
 const SIGNING_CHECKS = Object.freeze([
   ['session-required', hasSession],
@@ -435,6 +438,7 @@ const SIGNING_CHECKS = Object.freeze([
   ['session-expired', (signing, options) => !expired(signing, options)],
   ['invalid-record', namesItsRules],
   ['invalid-record', reads],
+  ['game-too-long', withinTheHour],
   ['implausible-score', signing => isPlausibleScore(signing.score)],
   ['replay-mismatch', replaysToTheClaim],
 ]);

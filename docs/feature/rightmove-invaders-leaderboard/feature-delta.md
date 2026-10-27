@@ -377,6 +377,8 @@ This is a spec only. DELIVER implements it and runs it once ADR-005 and the amen
 | Production mode | `--production <URL>` | the production custom domain; **GET only** | P1–P3 | K13 |
 | Unpublished check | `--site <name> --unpublished <permalink> --production <URL>`, with `NETLIFY_AUTH_TOKEN` and `--site-id <ID>` for the API route, or interactive otherwise | the permalink of an older, unpublished production deploy | U1–U3 | K13 |
 
+Amended by rightmove-invaders-replay-verified-scores (DELIVER, 2026-10-27): a preview or burst run now needs `--slice 01|02|03` (a burst run `--slice 02`) and runs that slice's steps; the preview and burst runs above, which signed with no session, were retired with that feature.
+
 - **Runtime**: Node 22 `fetch`, no dependencies. It imports `src/game/high-scores.js` for valid and blocked initials. It prints one JSON summary. It exits 1 if a hard check fails, and 2 if the write guard refuses.
 - **Write guard**: checked before any POST, in every mode. A refusal writes nothing.
   1. **Host**: a POST goes only to `deploy-preview-<n>--<site>.netlify.app` or `<branch>--<site>.netlify.app`, with `<site>` taken from `--site`.
@@ -1299,6 +1301,7 @@ The walking skeleton plays through the real page and keyboard, and the real func
   1. Open a pull request from `worktree-leaderboard-spike`, for its deploy preview. With the user's OK, push the throwaway burst branch (`smoke/no-rate-limit`: the candidate commit without `rateLimit`).
   2. The burst run (K11): `node scripts/smoke-leaderboard.mjs --site <name> --burst <throwaway preview URL>`. Then delete that deploy and its branch.
   3. The preview run (K10, K12, K14): `node scripts/smoke-leaderboard.mjs --site <name> --preview <preview URL> --production https://maketherightmove.fabiodamico.xyz --permalink <preview permalink>`. Also read by hand: the `published` flag in the preview's log line, the full header set, and the `Cache-Status` header's name.
+     - Amended by rightmove-invaders-replay-verified-scores (DELIVER, 2026-10-27): the burst and preview runs now need `--slice` (the burst run `--slice 02`); the two commands above, the leaderboard's own runs, were retired with that feature.
   4. Record the account's Blobs limits (Quota and outage risk).
   5. Start the list of live function hostnames: the smoke-test previews, and any branch deploy that the push of `worktree-leaderboard-spike` made.
   6. The user decides whether to move the game to a Netlify team of its own.

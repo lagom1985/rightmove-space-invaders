@@ -3,6 +3,7 @@
 //   POST /api/sessions { seed }                      -> { session: { seed, issuedAt, token }, scores, listedAt }   a game's
 //                                                       session, sealed by the table, with the table as it stands (DDD-R1)
 //   POST /api/scores { initials, score, session }    -> { scores, id, listedAt }   id = the new row's: its game id (DDD-R4)
+//   any other path, or a method its path doesn't take -> 404 not-found, or 405 method-not-allowed with Allow
 // One blob per score, with everything in its key and an empty body (spike findings, strategy D). Every write
 // goes to a key of its own, so players signing at the same moment never overwrite each other, and the keys
 // sort as strings into arcade order: higher score first, then the earlier entry.
@@ -29,19 +30,20 @@ const STORES = Object.freeze({
 
 // The Netlify entry (ADR-005): the published production deploy keeps the site-wide table, and every other deploy a
 // table of its own, which Netlify deletes with the deploy. A deploy store needs a deploy ID: without one the table is
-// unavailable, and the site-wide table is never used instead. A method the table doesn't take is refused before any
-// store is opened, so it is told what the table takes whether or not there is one. The session signer is built from
-// SCORES_SESSION_SECRET, and none from a value that isn't canonical base64 of exactly 32 bytes (DDD-R2): the handlers
-// then issue no session and save no signing.
+// unavailable, and the site-wide table is never used instead. A path the function doesn't serve, or a method its path
+// doesn't take, is refused before any store is opened, so it is told so whether or not there is one. The session
+// signer is built from SCORES_SESSION_SECRET, and none from a value that isn't canonical base64 of exactly 32 bytes
+// (DDD-R2): the handlers then issue no session and save no signing.
 export default async function scores(request, context) {
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
   const options = { now: Date.now, log: logToConsole, where };
-  const asking = asksForSession(request);
-  if (!asking && !isReadOrSign(request.method)) return refuseMethod(options);
+  const path = pathOf(request);
+  const refused = refuseBeforeTheTable(path, request.method, options);
+  if (refused) return refused;
   const record = journal(options);
   const port = openTable(scope);
-  if (!port) return failed(record, 'store-unavailable', asking ? SESSIONS_ERROR : SCORES_ERROR);
+  if (!port) return failed(record, 'store-unavailable', PATHS.get(path).error);
   return dispatch(request, port, options, signerFrom(process.env.SCORES_SESSION_SECRET));
 }
 
@@ -51,18 +53,40 @@ function signerFrom(value) {
   return secret && createSessionSigner(secret);
 }
 
-// The roots' dispatch by path (DDD-R1): the session request to handleSessions, the table to handleScores. Each is handed
-// only its part (the user, 2026-10-27): a GET and the session request the port's listing alone, the session request the
-// signer's sign, the signing its verify and gameId. signer is null for a root with no secret, and so is each part.
+// ---- the two paths (DDD-R1) ----
+// Each path the function serves, the methods it takes and the events its log lines are filed under (DDD-R14): the
+// table can only be read or signed (DDD-6), and a session can only be asked for.
+const SCORES_PATH = '/api/scores';
 const SESSIONS_PATH = '/api/sessions';
-const asksForSession = request => new URL(request.url).pathname === SESSIONS_PATH;
+const SCORES = Object.freeze({ methods: Object.freeze(['GET', 'POST']), rejected: 'scores.rejected', error: 'scores.error' });
+const SESSIONS = Object.freeze({ methods: Object.freeze(['POST']), rejected: 'sessions.rejected', error: 'sessions.error' });
+const PATHS = new Map([[SCORES_PATH, SCORES], [SESSIONS_PATH, SESSIONS]]);
+const pathOf = request => new URL(request.url).pathname;
+const takes = (served, method) => served.methods.includes(method);
+
+// What both roots refuse before they open a store or build a Request (scripts/serve.mjs: a Request can't carry TRACE),
+// from the path and the method alone: a path the function doesn't serve is 404 not-found, and a method its path doesn't
+// take 405 method-not-allowed, with Allow. null for anything else. options as the handlers': the clock, the logger and
+// where are all it uses.
+export function refuseBeforeTheTable(path, method, options) {
+  const served = PATHS.get(path);
+  if (!served) return refuse(journal(options), 'not-found');
+  return takes(served, method) ? null : methodRefused(journal(options), served);
+}
+
+// The roots' dispatch by exact path (DDD-R1): the session request to handleSessions, the table to handleScores, and
+// any other path 404. Each handler is handed only its part (the user, 2026-10-27): a GET and the session request the
+// port's listing alone, the session request the signer's sign, the signing its verify and gameId. signer is null for a
+// root with no secret, and so is each part.
 const listingOnly = port => Object.freeze({ list: port.list });
 const issuingPart = signer => signer && Object.freeze({ sign: signer.sign });
 const signingPart = signer => signer && Object.freeze({ verify: signer.verify, gameId: signer.gameId });
 
-export function dispatch(request, port, options, signer) {
-  if (asksForSession(request)) return handleSessions(request, listingOnly(port), { ...options, sessions: issuingPart(signer) });
-  return handleScores(request, request.method === 'POST' ? port : listingOnly(port), { ...options, sessions: signingPart(signer) });
+export async function dispatch(request, port, options, signer) {
+  const path = pathOf(request);
+  if (path === SESSIONS_PATH) return handleSessions(request, listingOnly(port), { ...options, sessions: issuingPart(signer) });
+  if (path === SCORES_PATH) return handleScores(request, request.method === 'POST' ? port : listingOnly(port), { ...options, sessions: signingPart(signer) });
+  return refuse(journal(options), 'not-found');
 }
 
 // 'site' only for the published production deploy; anything else, however close, gets 'deploy' (ADR-005).
@@ -164,10 +188,7 @@ function journal({ now, log, where = NOWHERE }) {
 }
 
 // 500 unexpected, logged with its fixed reason and never with the error, whose message can carry a key (DDD-17).
-const SCORES_ERROR = 'scores.error';
-const SESSIONS_ERROR = 'sessions.error';
-
-function failed(record, reason, event = SCORES_ERROR) {
+function failed(record, reason, event = SCORES.error) {
   record(event, reason);
   return answer(500, { error: 'unexpected' });
 }
@@ -194,32 +215,34 @@ export async function handleSessions(request, port, options) {
   try {
     return await issue(request, port, options, record);
   } catch {
-    return failed(record, 'unexpected', SESSIONS_ERROR);
+    return failed(record, 'unexpected', SESSIONS.error);
   }
 }
 
+// A session can only be asked for, and only of a table with a secret, which is checked before the body is read. All
+// or nothing: a session is issued only with its own listing's rows, so a listing that fails issues none (500,
+// list-failed). The issued line carries how long the request took (ms), and never the seed, the token or a game id.
 async function issue(request, { list }, { now, sessions }, record) {
+  if (!takes(SESSIONS, request.method)) return methodRefused(record, SESSIONS);
+  if (!sessions) return failed(record, 'secret-missing', SESSIONS.error);
   const { seed } = await request.json();
   const issuedAt = now();
+  const listed = await listing(list, now);
+  if (!listed) return failed(record, 'list-failed', SESSIONS.error);
   const session = { seed, issuedAt, token: sessions.sign(seed, issuedAt) };
-  const keys = await list();
-  const listedAt = now();
   record('sessions.issued', 'ok');
-  return answer(200, { session, scores: table(keys), listedAt });
+  return answer(200, { session, scores: table(listed.keys), listedAt: listed.listedAt });
 }
 
-// The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at, and by
-// a composition root before it opens a store or builds a Request (scripts/serve.mjs: a Request can't carry TRACE).
-// refuseMethod takes the options handleScores takes (the clock, the logger and where are all it uses).
-const METHODS = Object.freeze(['GET', 'POST']);
-const READ_OR_SIGN_ONLY = Object.freeze({ ...NEVER_KEPT, Allow: METHODS.join(', ') });
-export const isReadOrSign = method => METHODS.includes(method);
-const methodRefused = record => refuse(record, 'method-not-allowed', READ_OR_SIGN_ONLY);
-export const refuseMethod = options => methodRefused(journal(options));
+// A method its path doesn't take is refused before anything else is looked at (DDD-6, DDD-R1), with what the path
+// takes in Allow, and logged under the path's event.
+function methodRefused(record, served) {
+  return refuse(record, 'method-not-allowed', { ...NEVER_KEPT, Allow: served.methods.join(', ') }, served.rejected);
+}
 
 // A signing needs the root's secret, and is refused without one before its body is read (Signing checks, row 2).
 async function route(request, port, options, record) {
-  if (!isReadOrSign(request.method)) return methodRefused(record);
+  if (!takes(SCORES, request.method)) return methodRefused(record, SCORES);
   if (request.method === 'GET') return read(port, options, record);
   if (!options.sessions) return failed(record, 'secret-missing');
   return sign(request, port, options, record);
@@ -297,18 +320,18 @@ function notSaved(record) {
   return answer(503, { error: 'not-saved' });
 }
 
-// ---- refusals: a method the table doesn't take, then what a POST must be (ADR-007, DDD-5; DESIGN's Signing checks),
-// checked in this order, the first that fails deciding ----
+// ---- refusals: a path the function doesn't serve, a method its path doesn't take, then what a POST must be
+// (ADR-007, DDD-5; DESIGN's Signing checks), checked in this order, the first that fails deciding ----
 // A refusal saves nothing. The last, a score above the plausible ceiling, is S1 of
 // docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged £9,999,950.
 const REFUSAL_STATUS = Object.freeze({
-  'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400, 'session-required': 400,
-  'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
+  'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
+  'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
-function refuse(record, error, headers = NEVER_KEPT) {
-  record('scores.rejected', error);
+function refuse(record, error, headers = NEVER_KEPT, event = SCORES.rejected) {
+  record(event, error);
   return answer(REFUSAL_STATUS[error], { error }, headers);
 }
 

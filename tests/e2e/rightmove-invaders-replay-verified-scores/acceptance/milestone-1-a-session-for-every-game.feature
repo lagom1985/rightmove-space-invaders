@@ -4,7 +4,7 @@ Feature: The table issues a session for every game
   it, sealed by the table, together with the table as it now stands. The table issues no session without its rows, and
   none at all without its secret.
 
-  @pending @US-02 @D2 @D3 @DDD-R1 @DDD-R2 @DDD-R14 @driving_port @server @real-io @kpi-K25
+  @US-02 @D2 @D3 @DDD-R1 @DDD-R2 @DDD-R14 @driving_port @server @real-io @kpi-K25
   Scenario: A game that starts gets its session and the table, in one answer
     Given the high-score table holds KIM with £2,000
     When a game asks the high-score table for a session for its seed
@@ -35,7 +35,7 @@ Feature: The table issues a session for every game
       | its seed sent in the wrong format     | for its format |
       | its seed stretched past 1 KB          | as too long    |
 
-  @pending @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
+  @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
   Scenario: Asking for a session any other way is refused, because a session can only be asked for
     Given nobody has signed the high-score table yet
     When someone reads the sessions instead of asking for one
@@ -43,7 +43,7 @@ Feature: The table issues a session for every game
     And no session is issued
     And the owner can see why it was refused
 
-  @pending @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
+  @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
   Scenario: When the table can't be looked at, no session is issued without it
     Given the high-score table holds KIM with £2,000
     And looking at the high-score table fails
@@ -53,7 +53,7 @@ Feature: The table issues a session for every game
     And the owner can see it was a failed look at the table
     And what the owner sees says nothing about the player
 
-  @pending @US-01 @D3 @DDD-R2 @DDD-R14 @server @real-io @error
+  @US-01 @D3 @DDD-R2 @DDD-R14 @server @real-io @error
   Scenario: Without its secret, the table issues no session, and the owner is told why
     Given the high-score table has no secret
     When a game asks the high-score table for a session for its seed
@@ -62,7 +62,7 @@ Feature: The table issues a session for every game
     And the owner can see the table has no secret
     And what the owner sees says nothing about the player
 
-  @pending @US-01 @D3 @DDD-R2 @DDD-R14 @server @real-io @error
+  @US-01 @D3 @DDD-R2 @DDD-R14 @server @real-io @error
   Scenario: Without its secret, the table saves no signing, and the owner is told why
     Given the high-score table holds KIM with £2,000
     And Alex's game has been given a session, and the table has since lost its secret

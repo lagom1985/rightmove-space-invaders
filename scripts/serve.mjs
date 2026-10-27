@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import {
-  EVERY_ANSWER, createTablePort, dispatch, encodeKey, isReadOrSign, logToConsole, newId, refuseMethod,
+  EVERY_ANSWER, createTablePort, dispatch, encodeKey, logToConsole, newId, refuseBeforeTheTable,
 } from '../netlify/functions/scores.mjs';
 import { createSessionSigner } from '../netlify/scores/sessions.mjs';
 
@@ -30,8 +30,8 @@ const types = {
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
-const SCORES_PATH = '/api/scores';
-const TABLE_PATHS = Object.freeze([SCORES_PATH, '/api/sessions']);
+const SESSIONS_PATH = '/api/sessions';
+const TABLE_PATHS = Object.freeze(['/api/scores', SESSIONS_PATH]);
 const TEST_ROWS = '/__test/rows';
 // What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
@@ -67,10 +67,11 @@ function storeFor(req) {
   return getStore({ name: `leaderboard-${boardOf(req) ?? 'local'}`, consistency: 'strong' });
 }
 
-// Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6). A method the
-// table doesn't take is refused first, as on Netlify, and before a Request is built: one can't carry TRACE.
+// Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6). A method its
+// path doesn't take is refused first, as on Netlify, and before a Request is built: one can't carry TRACE.
 async function serveTable(path, req, res) {
-  if (path === SCORES_PATH && !isReadOrSign(req.method)) return send(res, refuseMethod(tableOptions));
+  const refused = refuseBeforeTheTable(path, req.method, tableOptions);
+  if (refused) return send(res, refused);
   const body = req.method === 'POST' ? bodyOf(req) : undefined;
   const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body, duplex: 'half' });
   return send(res, await dispatch(request, createTablePort(storeFor(req)), tableOptions, signer));
@@ -114,19 +115,20 @@ function bodyOf(req) {
   }, { highWaterMark: 0 });   // read only when the function asks
 }
 
-// Only the fixed reason is logged, never the error: its message can carry a key, and so initials (DDD-17).
-function failedLocally(res) {
-  logToConsole({ event: 'scores.error', reason: 'unexpected', ...LOCAL });
+// Only the fixed reason is logged, never the error: its message can carry a key, and so initials (DDD-17). It is filed
+// under the path's event, as the function files its own.
+function failedLocally(path, res) {
+  logToConsole({ event: path === SESSIONS_PATH ? 'sessions.error' : 'scores.error', reason: 'unexpected', ...LOCAL });
   const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', ...EVERY_ANSWER };
   res.writeHead(500, headers).end(JSON.stringify({ error: 'unexpected' }));
 }
 
 // CONNECT never reaches the request listener: Node hands it to 'connect', and drops the connection when nobody listens
-// there. To the table it is refused like any other method the table doesn't take, written straight to the socket;
-// anywhere else it is dropped, as Node does.
-async function refuseConnect(socket) {
+// there. On either of the function's paths it is refused like any other method the path doesn't take, written
+// straight to the socket; anywhere else it is dropped, as Node does.
+async function refuseConnect(path, socket) {
   socket.on('error', () => {});   // a client gone before the answer is no failure of the server's
-  const refusal = refuseMethod(tableOptions);
+  const refusal = refuseBeforeTheTable(path, 'CONNECT', tableOptions);
   const fields = [...refusal.headers].map(([name, value]) => `${name}: ${value}`);
   const head = [`HTTP/1.1 ${refusal.status} ${STATUS_CODES[refusal.status]}`, ...fields, 'connection: close'].join('\r\n');
   socket.end(`${head}\r\n\r\n${await refusal.text()}`);
@@ -156,9 +158,11 @@ createServer(async (req, res) => {
   const path = pathOf(req);
   if (path === null) { res.writeHead(400).end('Bad request'); return; }
   if (TABLE_PATHS.includes(path) || putsRow(path, req)) {
-    try { await (putsRow(path, req) ? putRow(req, res) : serveTable(path, req, res)); } catch { failedLocally(res); }
+    try { await (putsRow(path, req) ? putRow(req, res) : serveTable(path, req, res)); } catch { failedLocally(path, res); }
     return;
   }
   await serveFile(path, res);
-}).on('connect', (req, socket) => (pathOf(req) === SCORES_PATH ? refuseConnect(socket) : socket.destroy()))
-  .listen(port, '127.0.0.1', () => console.log(`Make the Right Move: http://localhost:${port}`));
+}).on('connect', (req, socket) => {
+  const path = pathOf(req);
+  return TABLE_PATHS.includes(path) ? refuseConnect(path, socket) : socket.destroy();
+}).listen(port, '127.0.0.1', () => console.log(`Make the Right Move: http://localhost:${port}`));

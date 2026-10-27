@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
@@ -266,4 +267,57 @@ test('any session request whose body isn\'t exactly { seed } with 32 lowercase h
     expect(logs, 'one line, its reason, never the seed').toEqual([{ event: 'sessions.rejected', reason: 'invalid-seed', ms: expect.any(Number), ...LOCAL }]);
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 25, examples: [[[], JSON.stringify({ seed: 'ABCDEF0123456789ABCDEF0123456789' })], [[], '']] });
+});
+
+// Only a session the table sealed can sign (DDD-R2, Signing checks row 9). A session issued in the last two hours with
+// any one of its fields changed (its seed another, its issue time another, its seal with one character changed, cut
+// short, run long, made up or any other value), a field dropped or one added, or any value that isn't a session at
+// all, sent in an otherwise good signing within 1 KB, is 400 invalid-session, never kept. It is logged scores.rejected
+// invalid-session and nothing else: never the session, its seal, its seed, its game id, the initials or the client's
+// IP. Nothing is saved.
+const HOUR = 3_600_000;
+const SEAL_CHARACTERS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'];
+const SESSION_FIELDS = ['seed', 'issuedAt', 'token'];
+const CLIENT_IP_HEADER = 'x-nf-client-connection-ip';
+const sealed = fc.tuple(seed, fc.integer({ min: NOW - 2 * HOUR, max: NOW })).map(([game, issuedAt]) => sessionFor(game, issuedAt));
+const unlike = (value, arbitrary) => arbitrary.filter(other => !isDeepStrictEqual(other, value));
+const withField = (session, field, value) => ({ ...session, [field]: value });
+const withoutField = (session, field) => Object.fromEntries(Object.entries(session).filter(([name]) => name !== field));
+const oneCharacterChanged = token => fc.tuple(fc.nat({ max: token.length - 1 }), fc.constantFrom(...SEAL_CHARACTERS))
+  .filter(([at, character]) => token[at] !== character)
+  .map(([at, character]) => `${token.slice(0, at)}${character}${token.slice(at + 1)}`);
+const otherSeal = token => fc.oneof(
+  oneCharacterChanged(token),
+  fc.nat({ max: token.length - 1 }).map(length => token.slice(0, length)),
+  fc.stringMatching(/^[A-Za-z0-9_-]{1,8}$/).map(more => token + more),
+  unlike(token, fc.oneof(fc.stringMatching(/^[A-Za-z0-9_-]{43}$/), fc.jsonValue({ maxDepth: 1 }))),
+);
+const oneFieldChanged = session => fc.oneof(
+  unlike(session.seed, fc.oneof(seed, fc.jsonValue({ maxDepth: 1 }))).map(other => withField(session, 'seed', other)),
+  unlike(session.issuedAt, fc.oneof(fc.integer({ min: session.issuedAt - 2 * HOUR, max: session.issuedAt + 2 * HOUR }), fc.jsonValue({ maxDepth: 1 })))
+    .map(other => withField(session, 'issuedAt', other)),
+  otherSeal(session.token).map(other => withField(session, 'token', other)),
+  fc.constantFrom(...SESSION_FIELDS).map(field => withoutField(session, field)),
+  fc.tuple(fc.string({ maxLength: 8 }).filter(field => !SESSION_FIELDS.includes(field)), fc.jsonValue({ maxDepth: 1 }))
+    .map(([field, value]) => withField(session, field, value)),
+);
+const notASession = fc.oneof(fc.constant('a session'), fc.jsonValue({ maxDepth: 2 }));
+const unsealedSigning = fc.tuple(signature, fc.oneof(sealed.chain(oneFieldChanged), notASession))
+  .map(([signed, session]) => JSON.stringify({ ...signed, session }))
+  .filter(body => new TextEncoder().encode(body).length <= KB);
+
+test('a signing whose session the table didn\'t seal is invalid-session, logged without the player, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, unsealedSigning, fc.ipV4(), async (rows, body, ip) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const request = new Request(URL, { method: 'POST', headers: { ...JSON_TYPE, [CLIENT_IP_HEADER]: ip }, body });
+    const response = await handleScores(request, createTablePort(store), { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING });
+    expect(response.status).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'invalid-session' });
+    expect(logs, 'one line, its reason, nothing of the player').toEqual([{ event: 'scores.rejected', reason: 'invalid-session', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 25 });
 });

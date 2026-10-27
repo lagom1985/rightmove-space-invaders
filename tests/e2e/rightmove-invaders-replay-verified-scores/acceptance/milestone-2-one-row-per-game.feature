@@ -5,7 +5,7 @@ Feature: Only a game the table sealed can sign it, and only once
   attempt doesn't use the session up, and a game whose row has left the table may sign again while its session lasts
   (D7, D16: accepted by the user).
 
-  @pending @US-01 @D6 @DDD-R2 @DDD-R14 @server @real-io @error @kpi-K20
+  @US-01 @D6 @DDD-R2 @DDD-R14 @server @real-io @error @kpi-K20
   Scenario Outline: A session the table didn't seal is refused: <carrying>
     Given the high-score table holds KIM with £2,000
     And Alex's game has been given a session

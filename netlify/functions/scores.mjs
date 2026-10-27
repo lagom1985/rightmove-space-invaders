@@ -349,7 +349,9 @@ const isSigning = signing => {
 };
 
 // What a parsed body must be, in order (Signing checks, rows 6 to 9 and 15): a body without a session is one no game
-// asked for (a page loaded before sessions, or a forgery sent from a terminal).
+// asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal is
+// invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
+// session changed, cut short or made up, or a value that isn't a session at all, stops at row 9.
 const SIGNING_CHECKS = Object.freeze([
   ['session-required', hasSession],
   ['invalid-signature', isSigning],

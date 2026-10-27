@@ -112,8 +112,8 @@ test('a well-formed answer to load() or sign() resolves to its body as it came',
 
 // main.js's hand-overs (DDD-11): an answer to the rules' answered operation, a failure to their failed one.
 const loadThrough = (leaderboard, rules) => leaderboard.load().then(answer => rules.tableAnswered(answer), () => rules.tableFailed());
-const signThrough = (leaderboard, rules, { initials, score, signing }, pendingSession) =>
-  leaderboard.sign({ initials, score, session: pendingSession }).then(answer => rules.signingAnswered(signing, answer), () => rules.signingFailed(signing));
+const signThrough = (leaderboard, rules, { initials, score, signing, record }, pendingSession) =>
+  leaderboard.sign({ initials, score, session: pendingSession, record }).then(answer => rules.signingAnswered(signing, answer), () => rules.signingFailed(signing));
 
 // A game over whose deposit made the table, signed with `initials`: -> the rules, and the INITIALS_ENTERED event main.js
 // takes to the table.

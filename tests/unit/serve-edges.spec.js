@@ -9,6 +9,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startLocalServer } from './support/local-server.js';
 import { assertStateDelta } from '../common/state-delta.js';
+import { scriptedGames } from '../common/played-games.js';
 
 // The local server (scripts/serve.mjs) at its edges, where Node hands it requests that reach the function differently
 // on Netlify, or not at all: a path that doesn't decode, a method a Web Request can't carry (TRACE; and CONNECT, which
@@ -94,18 +95,29 @@ test('a method a path of the function doesn\'t take, TRACE and CONNECT included,
   });
 });
 
-// A signing past 1 KB (1,024 bytes, DDD-5) whose body hasn't ended: the function reads up to its cap and answers while
-// the rest is still on its way, so the cap is how much the server reads, not only how much it keeps.
-const pastTheCap = fc.integer({ min: 1025, max: 64 * 1024 });
-const SIGNATURE = JSON.stringify({ initials: 'FAB', score: 1000 });
+// A signing past 128 KB (131,072 bytes, DDD-R3) whose body hasn't ended: the function reads up to its cap and answers
+// while the rest is still on its way, so the cap is how much the server reads, not only how much it keeps. The signing
+// is a game's, as the game sends it: the deposit a game played in Node to, a session the server issued for its seed,
+// and its record (tests/common/played-games.js).
+const SIGNING_CAP = 128 * 1024;
+const pastTheCap = fc.integer({ min: SIGNING_CAP + 1, max: 2 * SIGNING_CAP });
+const GAME = scriptedGames(1)[0];
 
-test('a signing whose body is still coming once it passes 1 KB is answered 413 there and then, and saves nothing', async () => {
+async function signingOfTheGame() {
+  const asked = await fetch(server.url('/api/sessions'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ seed: GAME.seed }) });
+  expect(asked.status, 'arranging: the game\'s session').toBe(200);
+  const { session } = await asked.json();
+  return JSON.stringify({ initials: 'FAB', score: GAME.deposit, session, record: GAME.record });
+}
+
+test('a signing whose body is still coming once it passes 128 KB is answered 413 there and then, and saves nothing', async () => {
   await fc.assert(fc.asyncProperty(pastTheCap, async size => {
+    const signing = await signingOfTheGame();
     const before = await observe();
-    const answer = await send('POST', '/api/scores', { body: SIGNATURE + ' '.repeat(size - SIGNATURE.length) });
+    const answer = await send('POST', '/api/scores', { body: signing + ' '.repeat(size - signing.length) });
     expect(answer).toMatchObject({ status: 413, headers: { 'cache-control': 'no-store' } });
     assertStateDelta(before, await observe(), { universe: UNIVERSE });
-  }), { numRuns: 5, examples: [[1025]] });
+  }), { numRuns: 5, examples: [[SIGNING_CAP + 1]] });
 });
 
 // A GET for the path exactly as written, `..` and all (fetch and request(url) resolve dot segments before they send):

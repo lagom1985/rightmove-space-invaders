@@ -8,6 +8,7 @@ import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { isAllowedInitials } from '../../src/game/high-scores.js';
 import scores, { config, decodeKey, encodeKey } from '../../netlify/functions/scores.mjs';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
+import { scriptedGames } from '../common/played-games.js';
 
 // The Netlify entry (the function's default export) is a composition root that only Netlify runs, so it is checked
 // here, in a fake deploy environment over a real BlobsServer: the Blobs context Netlify hands a function
@@ -177,7 +178,12 @@ const replaceAt = (text, at, char) => `${text.slice(0, at)}${char}${text.slice(a
 
 const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
 // Never on the word filter, and never above the plausible ceiling: these signings are all to be saved.
-const signature = fc.record({ initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials), score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50) });
+const initials = fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials);
+const signature = fc.record({ initials, score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50) });
+// A game a player signs: a short game played in Node, with its seed, its record and the deposit it played to (tests/
+// common/played-games.js), which the function replays before it saves (DDD-R3, DDD-R9).
+const played = fc.constantFrom(...scriptedGames(8));
+const signingOf = (who, game, session) => ({ initials: who, score: game.deposit, session, record: game.record });
 // 32 bytes in canonical base64, as the owner sets it: 43 characters and one '='.
 const canonicalSecret = fc.uint8Array({ minLength: 32, maxLength: 32 }).map(bytes => Buffer.from(bytes).toString('base64'));
 // Everything else a secret's value can be: not set, empty or a word, another number of bytes, the padding dropped,
@@ -195,29 +201,29 @@ const sealOf = (secret, game, issuedAt) => createHmac('sha256', Buffer.from(secr
 const gameIdOf = game => createHash('sha256').update(game).digest('hex').slice(0, 32);
 
 test('with a canonical secret, the entry issues a session sealed with its 32 bytes at /api/sessions, and saves a signing that carries it at /api/scores, as its game\'s row', async () => {
-  await fc.assert(fc.asyncProperty(canonicalSecret, seed, signature, async (secret, game, signed) => {
+  await fc.assert(fc.asyncProperty(canonicalSecret, played, initials, async (secret, game, signed) => {
     const deployID = freshDeployId();
     const context = previewOf(deployID);
-    const asked = await requestThroughEntry({ deployID, context, secret, method: 'POST', path: SESSIONS_PATH, body: { seed: game } });
+    const asked = await requestThroughEntry({ deployID, context, secret, method: 'POST', path: SESSIONS_PATH, body: { seed: game.seed } });
     expect(asked.answer.status, 'the session request').toBe(200);
     expect(asked.answer.headers['cache-control']).toBe('no-store');
     const { session, scores: rows } = asked.answer.body;
-    expect(session).toEqual({ seed: game, issuedAt: expect.any(Number), token: sealOf(secret, game, session.issuedAt) });
+    expect(session).toEqual({ seed: game.seed, issuedAt: expect.any(Number), token: sealOf(secret, game.seed, session.issuedAt) });
     expect(rows, 'the deploy\'s own table comes with the session').toEqual([shown(DEPLOY_ROW)]);
     expect(asked.logged).toEqual([{ event: 'sessions.issued', reason: 'ok', ms: expect.any(Number), ...PREVIEW_LOGGED }]);
     assertStateDelta(asked.before, asked.after, { universe: UNIVERSE });
 
-    const signing = await requestThroughEntry({ deployID, context, secret, method: 'POST', body: { ...signed, session } });
+    const signing = await requestThroughEntry({ deployID, context, secret, method: 'POST', body: signingOf(signed, game, session) });
     expect(signing.answer.status, 'the signing').toBe(200);
-    expect(signing.answer.body.id, 'the new row\'s id is its game id').toBe(gameIdOf(game));
-    expect(signing.logged).toEqual([{ event: 'scores.signed', reason: 'ok', ms: expect.any(Number), keys: 2, ...PREVIEW_LOGGED }]);
+    expect(signing.answer.body.id, 'the new row\'s id is its game id').toBe(gameIdOf(game.seed));
+    expect(signing.logged).toEqual([{ event: 'scores.signed', reason: 'ok', ms: expect.any(Number), keys: 2, steps: game.steps, replayMs: expect.any(Number), ...PREVIEW_LOGGED }]);
     assertStateDelta(signing.before, signing.after, {
       universe: UNIVERSE,
       expected: {
         'deploy.scores': satisfying('the game\'s own row added to the deploy\'s table, nothing removed', (was, now) => {
           const added = now.filter(key => !was.includes(key)).map(decodeKey);
           return was.every(key => now.includes(key)) && added.length === 1
-            && added[0].id === gameIdOf(game) && added[0].initials === signed.initials && added[0].score === signed.score;
+            && added[0].id === gameIdOf(game.seed) && added[0].initials === signed && added[0].score === game.deposit;
         }),
       },
     });
@@ -266,16 +272,18 @@ test('a POST /__test/rows to the entry is refused 404 before any store is opened
   }), { numRuns: RUNS, examples: [[null, DEPLOY_PREVIEW, { initials: 'FAB', score: 1000 }, TEST_COOKIES.join('; ')]] });
 });
 
-// Each request a game or the local harness sends; a signing carries the session its deploy issued it first.
-const ASKING_FOR = game => ({ method: 'POST', path: SESSIONS_PATH, body: { seed: game } });
+// Each request a game or the local harness sends; a signing carries the session its deploy issued it first, and its
+// game's record.
+const ASKING_FOR = game => ({ method: 'POST', path: SESSIONS_PATH, body: { seed: game.seed } });
 const SENT = Object.freeze({
   'a read': () => ({}),
   'a session request': ({ game }) => ASKING_FOR(game),
-  'a signing': ({ signed, session }) => ({ method: 'POST', body: { ...signed, session } }),
-  'a test row': ({ signed }) => ({ method: 'POST', path: TEST_ROWS_PATH, body: signed }),
+  'a signing': ({ game, signed, session }) => ({ method: 'POST', body: signingOf(signed, game, session) }),
+  'a test row': ({ game, signed }) => ({ method: 'POST', path: TEST_ROWS_PATH, body: { initials: signed, score: game.deposit } }),
 });
 // What moves with the clock is left out of an answer (listedAt, a session's issuedAt and the token sealing it) and of
-// a log line (ms), and a row's time out of a store's change: what is left must not depend on the cookies.
+// a log line (ms, and a replay's replayMs), and a row's time out of a store's change: what is left must not depend on
+// the cookies.
 const MOVES_WITH_THE_CLOCK = new Set(['listedAt', 'issuedAt', 'token']);
 const timeless = body => JSON.parse(JSON.stringify(body, (key, value) => (MOVES_WITH_THE_CLOCK.has(key) ? typeof value : value)));
 const rowsOf = keys => keys.map(decodeKey).map(shown);
@@ -287,11 +295,11 @@ async function sentOnAFreshDeploy(kind, { secret, game, signed }, cookie) {
   const context = previewOf(deployID);
   const session = kind === 'a signing' ? (await requestThroughEntry({ deployID, context, secret, ...ASKING_FOR(game) })).answer.body.session : undefined;
   const sent = await requestThroughEntry({ deployID, context, secret, cookie, ...SENT[kind]({ game, signed, session }) });
-  return { ...sent, answer: { ...sent.answer, body: timeless(sent.answer.body) }, logged: sent.logged.map(({ ms, ...line }) => line) };
+  return { ...sent, answer: { ...sent.answer, body: timeless(sent.answer.body) }, logged: sent.logged.map(({ ms, replayMs, ...line }) => line) };
 }
 
 test('a request carrying test-board or test-clock cookies gets the same answer, store change and log line from the entry as without them', async () => {
-  await fc.assert(fc.asyncProperty(fc.constantFrom(...Object.keys(SENT)), testCookies, canonicalSecret, seed, signature, async (kind, cookie, secret, game, signed) => {
+  await fc.assert(fc.asyncProperty(fc.constantFrom(...Object.keys(SENT)), testCookies, canonicalSecret, played, initials, async (kind, cookie, secret, game, signed) => {
     const plain = await sentOnAFreshDeploy(kind, { secret, game, signed });
     const dressed = await sentOnAFreshDeploy(kind, { secret, game, signed }, cookie);
     expect(dressed.answer, `${kind}: the answer`).toEqual(plain.answer);
@@ -299,7 +307,7 @@ test('a request carrying test-board or test-clock cookies gets the same answer, 
     const asWithout = slot => satisfying('the same rows added and removed as without the cookies', (was, now) =>
       isDeepStrictEqual(changeOf(was, now), changeOf(plain.before[slot], plain.after[slot])));
     assertStateDelta(dressed.before, dressed.after, { universe: UNIVERSE, expected: Object.fromEntries(UNIVERSE.map(slot => [slot, asWithout(slot)])) });
-  }), { numRuns: RUNS, examples: [['a signing', TEST_COOKIES.join('; '), Buffer.alloc(32, 1).toString('base64'), '0123456789abcdef0123456789abcdef', { initials: 'FAB', score: 1000 }]] });
+  }), { numRuns: RUNS, examples: [['a signing', TEST_COOKIES.join('; '), Buffer.alloc(32, 1).toString('base64'), scriptedGames(1)[0], 'FAB']] });
 });
 
 // bypass: the exported config is one literal, which Netlify reads statically.

@@ -42,10 +42,11 @@ export function createLeaderboard({ fetch, setTimeout, clearTimeout }) {
     startSession(seed) { return request(SESSIONS, isSessionFor(seed), posting({ seed })); },
     // -> { scores, id, listedAt }, id being the new row's. pendingSession is the promise startSession returned for the
     // game being signed: nothing is sent until it resolves, and the timeout starts when the signing is sent. If it
-    // rejects, the signing fails at once, unsent (DDD-R10).
-    async sign({ initials, score, session: pendingSession }) {
+    // rejects, the signing fails at once, unsent (DDD-R10). record is the game's, as initialsEntered carries it: the
+    // table replays it (DDD-R3).
+    async sign({ initials, score, session: pendingSession, record }) {
       const { session } = await pendingSession;
-      return request(SCORES, isSigning, posting({ initials, score, session }));
+      return request(SCORES, isSigning, posting({ initials, score, session, record }));
     },
   };
 }

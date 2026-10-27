@@ -4,7 +4,7 @@ Feature: The table saves only the deposit it replays
   the game again from the seed its session sealed, and saves the deposit only when the replay ends at game over exactly
   where the record ends, on the deposit claimed. Anything else is refused, and nothing is saved.
 
-  @pending @US-03 @D1 @DDD-R9 @DDD-R14 @driving_port @server @real-io @kpi-K21
+  @US-03 @D1 @DDD-R9 @DDD-R14 @driving_port @server @real-io @kpi-K21
   Scenario: An honest game's deposit is the deposit the table saves
     Given the high-score table holds these signatures:
       | initials | deposit | signed at |
@@ -16,7 +16,7 @@ Feature: The table saves only the deposit it replays
     And the answer shows ALX's new row at #3
     And the owner can see the game was replayed, and how long the replay took
 
-  @pending @US-03 @D1 @DDD-R9 @DDD-R14 @server @real-io @error @kpi-K20
+  @US-03 @D1 @DDD-R9 @DDD-R14 @server @real-io @error @kpi-K20
   Scenario Outline: A deposit the game didn't play to is refused: <claimed> for a game played to <played>
     Given the high-score table holds KIM with £2,000
     When HAX's game, played to <played>, signs HAX with <claimed>
@@ -73,7 +73,7 @@ Feature: The table saves only the deposit it replays
       | length is nothing at all                      |
 
   # The ceiling (£500,000 from slice 02, D14) is checked on the claim, so a refusal there costs no replay.
-  @pending @US-03 @US-04 @D14 @DDD-R16 @server @real-io @error @edge @kpi-K20
+  @US-03 @US-04 @D14 @DDD-R16 @server @real-io @error @edge @kpi-K20
   Scenario Outline: The ceiling is checked on the claim, before any replay: <claimed> for a game played to £1,250
     Given the high-score table holds KIM with £2,000
     When Alex's game, played to £1,250, signs ALX with <claimed>

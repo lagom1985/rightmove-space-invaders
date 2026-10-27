@@ -28,8 +28,8 @@ Feature: The signing and table rules, whatever order the answers arrive in
 
     Examples:
       | deposit    | outcome                   |
-      | £250,000   | initials are asked for    |
-      | £250,050   | no initials are asked for |
+      | £500,000   | initials are asked for    |
+      | £500,050   | no initials are asked for |
       | £9,999,950 | no initials are asked for |
 
   @OUT-11 @DDD-8 @in-memory @edge

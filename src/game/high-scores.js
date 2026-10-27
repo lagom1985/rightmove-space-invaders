@@ -9,9 +9,11 @@ export const INITIALS_LENGTH = 3;
 export const SCORE_STEP = 50;                          // every hurdle value and Dream Home bonus is a multiple of £50
 export const MAX_SCORE = 9_999_999;                    // the 7-digit score field of a row's key (ADR-004)
 
-// The plausible ceiling: the most a deposit can plausibly be, about 28 perfect waves of £8,800, while the key field
-// allows far more (docs/analysis/root-cause-analysis-forged-high-scores.md, S1). A multiple of SCORE_STEP, below MAX_SCORE.
-export const MAX_PLAUSIBLE_SCORE = 250_000;
+// The plausible ceiling: the most a deposit can plausibly be, while the key field allows far more (docs/analysis/
+// root-cause-analysis-forged-high-scores.md, S1). The table replays every game it saves, so this is defence in depth:
+// the owner's judgement, about 1.8 times the best rate a bot played at, kept up for 60 minutes (D14, DDD-R16). The
+// function checks it on the claim, before the replay. A multiple of SCORE_STEP, below MAX_SCORE.
+export const MAX_PLAUSIBLE_SCORE = 500_000;
 
 // The 3-letter word filter: short, public (it ships to the browser) and reviewed by the owner. The acceptance tests take
 // their blocked example from here.

@@ -57,10 +57,11 @@ function startSession(seed) {
   pendingSession = leaderboard.startSession(seed);
   pendingSession.then(({ scores, listedAt }) => tableAnswered({ scores, listedAt }), () => tableFailed());
 }
-// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it. The table client sends it
-// once the game's session has arrived, and fails it unsent if the session never comes.
-const signTable = ({ initials, score, signing }) =>
-  leaderboard.sign({ initials, score, session: pendingSession }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
+// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it. It carries the game's
+// record, which the table replays (DDD-R10). The table client sends it once the game's session has arrived, and fails
+// it unsent if the session never comes.
+const signTable = ({ initials, score, signing, record }) =>
+  leaderboard.sign({ initials, score, session: pendingSession, record }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 

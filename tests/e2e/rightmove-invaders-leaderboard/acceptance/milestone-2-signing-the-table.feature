@@ -31,7 +31,6 @@ Feature: Signing the shared high-score table
     Examples:
       | signature                         |
       | FAB with £50                      |
-      | FAB with £250,000                 |
       | FAB with £1,000 stretched to 1 KB |
 
   @OUT-8 @DDD-5 @DDD-17 @server @real-io @error
@@ -45,7 +44,6 @@ Feature: Signing the shared high-score table
     Examples: The wrong format or size
       | what                                                   | why            |
       | the signature FAB with £1,000 sent in the wrong format | for its format |
-      | the signature FAB with £1,000 stretched past 1 KB      | as too long    |
 
     Examples: Not a signature
       | what                                     | why                |
@@ -59,7 +57,7 @@ Feature: Signing the shared high-score table
 
     Examples: More than any game could save (docs/analysis/root-cause-analysis-forged-high-scores.md, S1)
       | what                              | why            |
-      | the signature FAB with £250,050   | as implausible |
+      | the signature FAB with £500,050   | as implausible |
       | the signature FAB with £9,999,950 | as implausible |
 
   @OUT-8 @OUT-10 @DDD-10 @DDD-17 @server @real-io @error @kpi-K12

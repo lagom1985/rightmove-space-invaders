@@ -2,8 +2,11 @@
 //   GET  /api/scores                                 -> { scores: [{ initials, score, id }], listedAt }   best first, at most 10
 //   POST /api/sessions { seed }                      -> { session: { seed, issuedAt, token }, scores, listedAt }   a game's
 //                                                       session, sealed by the table, with the table as it stands (DDD-R1)
-//   POST /api/scores { initials, score, session }    -> { scores, id, listedAt }   id = the new row's: its game id (DDD-R4);
-//                                                       409 already-signed for a game whose row is on the table
+//   POST /api/scores { initials, score, session, record }
+//                                                    -> { scores, id, listedAt }   id = the new row's: its game id
+//                                                       (DDD-R4); saved only when the table's replay of the record ends
+//                                                       at game over, at record.steps, on the deposit claimed (DDD-R3,
+//                                                       DDD-R9); 409 already-signed for a game whose row is on the table
 //   any other path, or a method its path doesn't take -> 404 not-found, or 405 method-not-allowed with Allow
 // One blob per score, with everything in its key and an empty body (spike findings, strategy D). Every write
 // goes to a key of its own, so players signing at the same moment never overwrite each other, and the keys
@@ -17,6 +20,8 @@
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
 import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
+import { readRecord } from '../../src/game/record.js';
+import { replay } from '../../src/game/replay.js';
 import { createSessionSigner, readSessionSecret } from '../scores/sessions.mjs';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
@@ -43,9 +48,9 @@ export default async function scores(request, context) {
   const path = pathOf(request);
   const refused = refuseBeforeTheTable(path, request.method, options);
   if (refused) return refused;
-  const record = journal(options);
+  const logLine = journal(options);
   const port = openTable(scope);
-  if (!port) return failed(record, 'store-unavailable', PATHS.get(path).error);
+  if (!port) return failed(logLine, 'store-unavailable', PATHS.get(path).error);
   return dispatch(request, port, options, signerFrom(process.env.SCORES_SESSION_SECRET));
 }
 
@@ -199,16 +204,19 @@ const answer = (status, body, headers = NEVER_KEPT) => Response.json(body, { sta
 
 // One log line per request (DDD-17): a fixed reason, how long it took and where the table is kept, as the root said
 // (all three 'missing' if it didn't). Never a key, initials, an id, a body or an error message. A clock that throws
-// costs the line its ms (logged as null), never the line itself.
+// costs the line its ms (logged as null), never the line itself. What the request noted on its way (logLine.note) is on
+// its line, whichever line that is: a replay's steps and replayMs (DDD-R14), so every line that replayed carries both.
 function journal({ now, log, where = NOWHERE }) {
   const reading = () => { try { return now(); } catch { return NaN; } };
   const started = reading();
-  return (event, reason, fields = {}) => log({ event, reason, ms: reading() - started, ...fields, ...where });
+  const noted = {};
+  const logLine = (event, reason, fields = {}) => log({ event, reason, ms: reading() - started, ...noted, ...fields, ...where });
+  return Object.assign(logLine, { note: fields => Object.assign(noted, fields) });
 }
 
 // 500 unexpected, logged with its fixed reason and never with the error, whose message can carry a key (DDD-17).
-function failed(record, reason, event = SCORES.error) {
-  record(event, reason);
+function failed(logLine, reason, event = SCORES.error) {
+  logLine(event, reason);
   return answer(500, { error: 'unexpected' });
 }
 
@@ -218,11 +226,11 @@ function failed(record, reason, event = SCORES.error) {
 // GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws is answered 500
 // unexpected and logged as unexpected, so the promise always resolves.
 export async function handleScores(request, port, options) {
-  const record = journal(options);
+  const logLine = journal(options);
   try {
-    return await route(request, port, options, record);
+    return await route(request, port, options, logLine);
   } catch {
-    return failed(record, 'unexpected');
+    return failed(logLine, 'unexpected');
   }
 }
 
@@ -231,11 +239,11 @@ export async function handleScores(request, port, options) {
 // came in, before the listing (C5). options as handleScores's, but sessions is the signer's sign; port is the listing
 // alone. Nothing escapes it either: whatever throws is answered 500 unexpected, logged as sessions.error unexpected.
 export async function handleSessions(request, port, options) {
-  const record = journal(options);
+  const logLine = journal(options);
   try {
-    return await issue(request, port, options, record);
+    return await issue(request, port, options, logLine);
   } catch {
-    return failed(record, 'unexpected', SESSIONS.error);
+    return failed(logLine, 'unexpected', SESSIONS.error);
   }
 }
 
@@ -243,37 +251,37 @@ export async function handleSessions(request, port, options) {
 // the body must be exactly { seed } (readSeed). All or nothing: a session is issued only with its own listing's rows,
 // so a listing that fails issues none (500, list-failed). The issued line carries how long the request took (ms), and
 // never the seed, the token or a game id; a refused line, its reason alone.
-async function issue(request, { list }, { now, sessions }, record) {
-  if (!takes(SESSIONS, request.method)) return methodRefused(record, SESSIONS);
-  if (!sessions) return failed(record, 'secret-missing', SESSIONS.error);
+async function issue(request, { list }, { now, sessions }, logLine) {
+  if (!takes(SESSIONS, request.method)) return methodRefused(logLine, SESSIONS);
+  if (!sessions) return failed(logLine, 'secret-missing', SESSIONS.error);
   const { seed, refused } = await readSeed(request);
-  if (refused) return refuse(record, refused, NEVER_KEPT, SESSIONS.rejected);
+  if (refused) return refuse(logLine, refused, NEVER_KEPT, SESSIONS.rejected);
   const issuedAt = now();
   const listed = await listing(list, now);
-  if (!listed) return failed(record, 'list-failed', SESSIONS.error);
+  if (!listed) return failed(logLine, 'list-failed', SESSIONS.error);
   const session = { seed, issuedAt, token: sessions.sign(seed, issuedAt) };
-  record('sessions.issued', 'ok');
+  logLine('sessions.issued', 'ok');
   return answer(200, { session, scores: table(listed.keys), listedAt: listed.listedAt });
 }
 
 // A method its path doesn't take is refused before anything else is looked at (DDD-6, DDD-R1), with what the path
 // takes in Allow, and logged under the path's event.
-function methodRefused(record, served) {
-  return refuse(record, 'method-not-allowed', { ...NEVER_KEPT, Allow: served.methods.join(', ') }, served.rejected);
+function methodRefused(logLine, served) {
+  return refuse(logLine, 'method-not-allowed', { ...NEVER_KEPT, Allow: served.methods.join(', ') }, served.rejected);
 }
 
 // A signing needs the root's secret, and is refused without one before its body is read (Signing checks, row 2).
-async function route(request, port, options, record) {
-  if (!takes(SCORES, request.method)) return methodRefused(record, SCORES);
-  if (request.method === 'GET') return read(port, options, record);
-  if (!options.sessions) return failed(record, 'secret-missing');
-  return sign(request, port, options, record);
+async function route(request, port, options, logLine) {
+  if (!takes(SCORES, request.method)) return methodRefused(logLine, SCORES);
+  if (request.method === 'GET') return read(port, options, logLine);
+  if (!options.sessions) return failed(logLine, 'secret-missing');
+  return sign(request, port, options, logLine);
 }
 
-async function read({ list }, { now }, record) {
+async function read({ list }, { now }, logLine) {
   const listed = await listing(list, now);
-  if (!listed) return failed(record, 'list-failed');
-  record('scores.read', 'ok', { keys: listed.keys.length });
+  if (!listed) return failed(logLine, 'list-failed');
+  logLine('scores.read', 'ok', { keys: listed.keys.length });
   return answer(200, { scores: table(listed.keys), listedAt: listed.listedAt }, SHARED_15_SECONDS);
 }
 
@@ -291,10 +299,10 @@ function table(keys) {
 }
 
 // A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
-async function sign(request, port, options, record) {
-  const { signing, refused } = await readSigning(request, options);
-  if (refused) return refuse(record, refused);
-  return save(signing, port, options, record);
+async function sign(request, port, options, logLine) {
+  const { signing, refused } = await readSigning(request, options, logLine);
+  if (refused) return refuse(logLine, refused);
+  return save(signing, port, options, logLine);
 }
 
 // A key that already exists is turned away (503, no second row). A save that throws may or may not have written its
@@ -303,17 +311,17 @@ async function sign(request, port, options, record) {
 // session for one seed names the same row, and a signing keeps its key only if its own listing shows no other key of
 // its game (Signing checks row 18, DDD-R4). Tidying up is best effort: the answer is the listing's top ten whatever the
 // tidy-up does, and a store failure while tidying is only logged (prune-failed). The rows are logged as a count.
-async function save({ initials, score, session }, port, { now, sessions }, record) {
+async function save({ initials, score, session }, port, { now, sessions }, logLine) {
   const id = sessions.gameId(session.seed);
   const key = encodeKey({ initials, score, at: now(), id });
   const saved = await saving(port, key);
-  if (saved === null) return failed(record, 'put-failed');
-  if (!saved) return notSaved(record);
+  if (saved === null) return failed(logLine, 'put-failed');
+  if (!saved) return notSaved(logLine);
   const listed = await listing(port.list, now);
-  if (!listed) return failed(record, 'list-failed');
-  if (hasAnotherKey(id, key, listed.keys)) return alreadySigned(port, key, record);
+  if (!listed) return failed(logLine, 'list-failed');
+  if (hasAnotherKey(id, key, listed.keys)) return alreadySigned(port, key, logLine);
   const tidied = await removeAll(port, planPrune(listed.keys));
-  record('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: listed.keys.length });
+  logLine('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: listed.keys.length });
   return answer(200, { scores: table(listed.keys), id, listedAt: listed.listedAt });
 }
 
@@ -323,9 +331,9 @@ const hasAnotherKey = (id, own, keys) => keys.some(key => key !== own && decodeK
 // A game whose row is on the table removes the key it has just written, and is 409 whether or not the store removed
 // it: a key left behind is its game's loser, which never shows and is pruned first, and its one log line says so with
 // removed: false (the user, 2026-10-27).
-async function alreadySigned(port, key, record) {
+async function alreadySigned(port, key, logLine) {
   const removed = await removeAll(port, [key]);
-  return refuse(record, 'already-signed', NEVER_KEPT, SCORES.rejected, removed ? {} : { removed: false });
+  return refuse(logLine, 'already-signed', NEVER_KEPT, SCORES.rejected, removed ? {} : { removed: false });
 }
 
 // true if saved, false if the key already existed, null when the store failed. A key the port refuses is no store
@@ -352,31 +360,37 @@ async function removeAll(port, keys) {
   return failures.length === 0;
 }
 
-function notSaved(record) {
-  record('scores.not_saved', 'key-exists');
+function notSaved(logLine) {
+  logLine('scores.not_saved', 'key-exists');
   return answer(503, { error: 'not-saved' });
 }
 
 // ---- refusals: a path the function doesn't serve, a method its path doesn't take, then what a POST must be
 // (ADR-007, DDD-5; DESIGN's Signing checks; DDD-R1 for the session request), checked in this order, the first that
 // fails deciding ----
-// A refusal saves nothing and issues no session. The signing's last before its write, a score above the plausible
-// ceiling, is S1 of docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged
-// £9,999,950. The one after its write, already-signed, removes what it wrote, or leaves it to pruning (save).
+// A refusal saves nothing and issues no session. The signing's last before its write is the replay (DDD-R9): only a
+// deposit the game played to is saved. The plausible ceiling just before it, S1 of
+// docs/analysis/root-cause-analysis-forged-high-scores.md (the key's 7-digit field alone takes a forged £9,999,950), is
+// checked on the claim, so a refusal there costs no replay (DDD-R16). The one after its write, already-signed, removes
+// what it wrote, or leaves it to pruning (save).
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'session-expired': 400,
-  'implausible-score': 400, 'invalid-seed': 400, 'already-signed': 409,
+  'invalid-record': 400, 'implausible-score': 400, 'replay-mismatch': 400, 'invalid-seed': 400, 'already-signed': 409,
 });
-const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
+// Bytes, counted as the body is read, since a Content-Length can lie (DDD-5): a session request is { seed } within
+// 1 KB (DDD-R1), a signing carries its game's record within 128 KB, about an hour of key changes at a human's pace
+// (DDD-R3).
+const SESSION_BODY_CAP = 1024;
+const SIGNING_BODY_CAP = 128 * 1024;
 
-function refuse(record, error, headers = NEVER_KEPT, event = SCORES.rejected, fields = {}) {
-  record(event, error, fields);
+function refuse(logLine, error, headers = NEVER_KEPT, event = SCORES.rejected, fields = {}) {
+  logLine(event, error, fields);
   return answer(REFUSAL_STATUS[error], { error }, headers);
 }
 
-// A signing is exactly { initials, score, session }, { initials, score } being a valid signature (ADR-006).
-const SIGNING_FIELDS = Object.freeze(['initials', 'score', 'session']);
+// A signing is exactly { initials, score, session, record }, { initials, score } being a valid signature (ADR-006).
+const SIGNING_FIELDS = Object.freeze(['initials', 'score', 'session', 'record'].sort());
 const hasSession = signing => typeof signing === 'object' && signing !== null && Object.hasOwn(signing, 'session');
 const isSigning = signing => {
   const fields = Object.keys(signing).sort();
@@ -391,11 +405,27 @@ const SESSION_LIFETIME_MS = 7_200_000;   // 2 hours
 const fromTheFuture = ({ session }, { now, clockAllowanceMs }) => session.issuedAt - now() > clockAllowanceMs;
 const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIFETIME_MS;
 
-// What a parsed body must be, in order (Signing checks, rows 6 to 10 and 15): a body without a session is one no game
-// asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal is
-// invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
+// The record names its rules version before anything else of it is read (row 11), then reads whole (row 12b), so the
+// replay only ever plays a record readRecord accepts, and never throws.
+const namesItsRules = ({ record }) => typeof record === 'object' && record !== null && Number.isSafeInteger(record.rules);
+const reads = ({ record }) => readRecord(record) !== null;
+
+// The replay (row 16, DDD-R9): the game played again from the seed its session sealed, which must be over exactly at
+// record.steps, on the deposit claimed; a replay that stops short of game over, or reaches it sooner, is a mismatch
+// as much as another deposit is. Its steps, and how long it took on the handler's clock, are on the request's line
+// (DDD-R14).
+function replaysToTheClaim({ score, session, record }, { now }, logLine) {
+  const started = now();
+  const { over, steps, deposit } = replay({ seed: session.seed, record });
+  logLine.note({ steps, replayMs: now() - started });
+  return over && steps === record.steps && deposit === score;
+}
+
+// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b, 15 and 16): a body without a session is one
+// no game asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal
+// is invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
 // session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
-// session's issue time is judged.
+// session's issue time is judged. Every check is cheaper than the replay, which comes last.
 const SIGNING_CHECKS = Object.freeze([
   ['session-required', hasSession],
   ['invalid-signature', isSigning],
@@ -403,16 +433,19 @@ const SIGNING_CHECKS = Object.freeze([
   ['invalid-session', (signing, { sessions }) => sessions.verify(signing.session)],
   ['invalid-session', (signing, options) => !fromTheFuture(signing, options)],
   ['session-expired', (signing, options) => !expired(signing, options)],
+  ['invalid-record', namesItsRules],
+  ['invalid-record', reads],
   ['implausible-score', signing => isPlausibleScore(signing.score)],
+  ['replay-mismatch', replaysToTheClaim],
 ]);
 
 // { signing } or { refused: the error code }. options as the handler's: the checks use sessions, now and
-// clockAllowanceMs.
-async function readSigning(request, options) {
-  const { json: signing, refused: unread } = await readJson(request, BODY_CAP);
+// clockAllowanceMs; logLine is the request's, which the replay notes itself on.
+async function readSigning(request, options, logLine) {
+  const { json: signing, refused: unread } = await readJson(request, SIGNING_BODY_CAP);
   if (unread) return { refused: unread };
   if (signing === undefined) return { refused: 'invalid-signature' };
-  const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, options)) ?? [];
+  const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, options, logLine)) ?? [];
   return refused ? { refused } : { signing };
 }
 
@@ -423,7 +456,7 @@ const isSeedRequest = body => typeof body === 'object' && body !== null && Objec
   && Object.hasOwn(body, 'seed') && typeof body.seed === 'string' && SEED.test(body.seed);
 
 async function readSeed(request) {
-  const { json, refused } = await readJson(request, BODY_CAP);
+  const { json, refused } = await readJson(request, SESSION_BODY_CAP);
   if (refused) return { refused };
   return isSeedRequest(json) ? { seed: json.seed } : { refused: 'invalid-seed' };
 }

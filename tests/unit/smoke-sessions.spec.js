@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { assertStateDelta, normalizedTo, satisfying } from '../common/state-delta.js';
-import { CLOCK_ALLOWANCE_MS, createTablePort, dispatch, encodeKey } from '../../netlify/functions/scores.mjs';
+import { CLOCK_ALLOWANCE_MS, createTablePort, decodeKey, dispatch, encodeKey } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
 import { runSmoke } from '../../scripts/smoke-leaderboard.mjs';
@@ -50,11 +50,13 @@ function memoryStore() {
 // signer built from `secret` the way the Netlify entry builds it from SCORES_SESSION_SECRET (readSessionSecret, then
 // createSessionSigner; no signer from a value that isn't canonical base64 of 32 bytes). Each answer takes the next of
 // `latencies` ms on the run's clock (at least 1, so two signings never share a moment). `testRoute`, when given, answers
-// POST /__test/rows with its status instead of the function's 404, and writes a row first if it `writes`.
-function fakeDeploy({ clock, secret, latencies = [1], testRoute = null }) {
+// POST /__test/rows with its status instead of the function's 404, and writes a row first if it `writes`. `signing`,
+// when given, answers POST /api/scores in the function's place: (signer, clock) -> (request, table) -> a Response.
+function fakeDeploy({ clock, secret, latencies = [1], testRoute = null, signing = null }) {
   const readSecret = readSessionSecret(secret);
   const signer = readSecret && createSessionSigner(readSecret);
   const options = { now: clock.now, log: () => {}, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+  const signs = signing && signing(signer, clock);
   const tables = new Map();
   const tableOf = host => tables.get(host) ?? tables.set(host, createTablePort(memoryStore())).get(host);
   const requests = [];
@@ -70,10 +72,31 @@ function fakeDeploy({ clock, secret, latencies = [1], testRoute = null }) {
     requests.push({ at: clock.now(), host, method, path: pathname, search, cookie: init.headers?.cookie ?? null, body });
     await clock.sleep(latencies[answered++ % latencies.length]);
     if (testRoute && pathname === '/__test/rows') return answerTheRoute(host);
+    if (signs && method === 'POST' && pathname === '/api/scores') return signs(new Request(url, init), tableOf(host));
     return dispatch(new Request(url, init), tableOf(host), options, signer);
   };
   return { fetch, tableOf, state: () => ({ 'network.requests': [...requests] }) };
 }
+
+// A stand-in for slice 01's signing path, whose envelope is { initials, score, session }. Slice 01 is released: its gate
+// ran on deploy-preview-8 on 2026-10-27 and passed. Today's dispatch is slice 02's, which refuses that envelope before
+// it looks at the session (Signing checks, row 7), so it can no longer stand in for a slice-01 deploy. The stand-in keeps
+// only what S4 looks at, on the deploy's real session signer (built from its secret): no session is session-required, a
+// session the signer doesn't verify is invalid-session, and a verified one saves its game's row once (200, its id the
+// game id) and is already-signed after that (409). The deploy's other paths stay the real dispatch, over the same table.
+// Slice 02's own probe, S9b with a record {}, comes with 02-09, against the real dispatch.
+const NOT_KEPT = Object.freeze({ 'cache-control': 'no-store' });
+const slice01Signing = (signer, clock) => async (request, table) => {
+  const { initials, score, session } = await request.json();
+  if (session === undefined) return Response.json({ error: 'session-required' }, { status: 400, headers: NOT_KEPT });
+  if (!signer.verify(session)) return Response.json({ error: 'invalid-session' }, { status: 400, headers: NOT_KEPT });
+  const id = signer.gameId(session.seed);
+  const signed = (await table.list()).some(key => decodeKey(key).id === id);
+  if (signed) return Response.json({ error: 'already-signed' }, { status: 409, headers: NOT_KEPT });
+  await table.putIfNew(encodeKey({ initials, score, at: clock.now(), id }));
+  const scores = (await table.list()).map(decodeKey).map(row => ({ initials: row.initials, score: row.score, id: row.id }));
+  return Response.json({ scores, id, listedAt: clock.now() }, { headers: NOT_KEPT });
+};
 
 const canonicalSecret = fc.uint8Array({ minLength: 32, maxLength: 32 }).map(bytes => Buffer.from(bytes).toString('base64'));
 const OTHER_SECRET = Buffer.alloc(32, 9).toString('base64');
@@ -184,11 +207,12 @@ test('a 500 to the first session request stops the run, and a 200 for the public
     expect(summary.error).toMatch(/SCORES_SESSION_SECRET/);
     expect(summary.exitCode).toBe(1);
   }));
-  // The probe is sealed as a root seals: a deploy whose signer was built from TEST_SECRET signs it, and fails S4 (so the
-  // run); one built from any other canonical secret refuses it, invalid-session, and S4 passes.
+  // The probe is sealed as a root seals: a slice-01 deploy (the stand-in's signing) whose signer was built from
+  // TEST_SECRET signs it, and fails S4 (so the run); one built from any other canonical secret refuses it,
+  // invalid-session, and S4 passes.
   await fc.assert(fc.asyncProperty(canonicalSecret, latencies, async (secret, ms) => {
     const clock = fakeClock();
-    const deploy = fakeDeploy({ clock, secret, latencies: ms });
+    const deploy = fakeDeploy({ clock, secret, latencies: ms, signing: slice01Signing });
     const summary = await runSmoke(slice01Preview(), quietly(deploy, clock));
     const s4 = stepNamed(summary, 'S4');
     const [beforeS4, afterS4] = aroundStep(deploy.state()['network.requests'], s4);

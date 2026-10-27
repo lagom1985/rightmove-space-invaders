@@ -19,8 +19,8 @@ Feature: Every game gets its session as it starts, without waiting
     And my signing carried the session the table gave this game
     And the high-score table everyone reads has ALX with £50
 
-  # Not @pending: today's game asks for no session, so it starts at once; the session request DELIVER adds must not
-  # change that (a guard, as in the leaderboard's suite).
+  # Not @pending (a guard, as in the leaderboard's suite): every game asks for its session as it starts, and that
+  # request must not hold the start, however the table answers it.
   @US-02 @D2 @DDD-R10 @real-io @edge @kpi-K25
   Scenario Outline: The game starts at once while the table answers its session request <how>
     Given I have opened the game
@@ -49,7 +49,7 @@ Feature: Every game gets its session as it starts, without waiting
   # The table loaded with the page, so the deposit is still asked for initials. A signing waits for a session still on
   # its way, but no game here can end inside the session's 5 s timeout (a game lasts 10 s or more), so these are the
   # two outcomes a player can meet; the wait itself is DELIVER's test of the table client (DISTILL, Upstream findings).
-  @pending @US-02 @D11 @DDD-R10 @real-io @error
+  @US-02 @D11 @DDD-R10 @real-io @error
   Scenario Outline: A game whose session request <trouble> plays as usual, and its signing can't be confirmed
     Given the high-score table holds 3 signatures of £1,000
     And the table <trouble> when my next game asks for its session

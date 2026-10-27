@@ -20,7 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
 import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
-import { MAX_GAME_STEPS, readRecord } from '../../src/game/record.js';
+import { MAX_GAME_STEPS, RULES_VERSION, readRecord } from '../../src/game/record.js';
 import { replay } from '../../src/game/replay.js';
 import { createSessionSigner, readSessionSecret } from '../scores/sessions.mjs';
 
@@ -378,8 +378,8 @@ function notSaved(logLine) {
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'session-expired': 400,
-  'invalid-record': 400, 'game-too-long': 400, 'too-fast': 400, 'implausible-score': 400, 'replay-mismatch': 400,
-  'invalid-seed': 400,
+  'invalid-record': 400, 'rules-changed': 400, 'game-too-long': 400, 'too-fast': 400, 'implausible-score': 400,
+  'replay-mismatch': 400, 'invalid-seed': 400,
   'already-signed': 409,
 });
 // Bytes, counted as the body is read, since a Content-Length can lie (DDD-5): a session request is { seed } within
@@ -410,10 +410,14 @@ const allowanceOf = ({ clockAllowanceMs }) => clockAllowanceMs ?? CLOCK_ALLOWANC
 const fromTheFuture = ({ session }, options) => session.issuedAt - options.now() > allowanceOf(options);
 const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIFETIME_MS;
 
-// The record names its rules version before anything else of it is read (row 11), then reads whole (row 12b), so the
-// replay only ever plays a record readRecord accepts, and never throws; and it lasts at most an hour of game time (row
-// 13, D9), so no request keeps the table replaying for long. The hour is this check's, not readRecord's (C3).
+// The record names its rules version before anything else of it is read (row 11), and a record of other rules than the
+// table plays is refused as such whatever the rest of it is, never replayed (row 12, D10, DDD-R12): a page left open
+// across a deploy that changed how the game plays, which the owner can tell from a forgery and a reload puts right.
+// Then it reads whole (row 12b), so the replay only ever plays a record readRecord accepts, and never throws; and it
+// lasts at most an hour of game time (row 13, D9), so no request keeps the table replaying for long. The hour is this
+// check's, not readRecord's (C3).
 const namesItsRules = ({ record }) => typeof record === 'object' && record !== null && Number.isSafeInteger(record.rules);
+const onTheTablesRules = ({ record }) => record.rules === RULES_VERSION;
 const reads = ({ record }) => readRecord(record) !== null;
 const withinTheHour = ({ record }) => record.steps <= MAX_GAME_STEPS;
 
@@ -437,10 +441,10 @@ function replaysToTheClaim({ score, session, record }, { now }, logLine) {
   return over && steps === record.steps && deposit === score;
 }
 
-// What a parsed body must be, in order (Signing checks, rows 6 to 11, 12b and 13 to 16): a body without a session is
-// one no game asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't
-// seal is invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so
-// a session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
+// What a parsed body must be, in order (Signing checks, rows 6 to 16): a body without a session is one no game asked
+// for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal is
+// invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
+// session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
 // session's issue time is judged. Every check is cheaper than the replay, which comes last.
 const SIGNING_CHECKS = Object.freeze([
   ['session-required', hasSession],
@@ -450,6 +454,7 @@ const SIGNING_CHECKS = Object.freeze([
   ['invalid-session', (signing, options) => !fromTheFuture(signing, options)],
   ['session-expired', (signing, options) => !expired(signing, options)],
   ['invalid-record', namesItsRules],
+  ['rules-changed', onTheTablesRules],
   ['invalid-record', reads],
   ['game-too-long', withinTheHour],
   ['too-fast', notTooFast],

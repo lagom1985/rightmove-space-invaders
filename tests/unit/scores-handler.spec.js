@@ -5,7 +5,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
-import { MAX_GAME_STEPS, readRecord } from '../../src/game/record.js';
+import { MAX_GAME_STEPS, RULES_VERSION, readRecord } from '../../src/game/record.js';
 import { createTablePort, decodeKey, encodeKey, handleScores, handleSessions } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
@@ -506,4 +506,48 @@ test('any record longer than MAX_GAME_STEPS is game-too-long, never replayed, an
     expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'game-too-long', ms: expect.any(Number), ...LOCAL }]);
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 30, examples: [[[], 'FAB', scriptedGames(1)[0], 1, null]] });
+});
+
+// A record of other rules is rules-changed whatever the rest of it is (D10, DDD-R12, Signing checks row 12; the user,
+// 2026-10-27): an otherwise good signing, its session sealed, carrying a record that names any safe-integer rules
+// version other than RULES_VERSION, is 400 rules-changed, never kept, before the rest of the record is read and before
+// any replay. The rest is its game's own record, which on RULES_VERSION would sign; one readRecord refuses (any of the
+// faults above) or any fields at all; one longer than an hour (row 13); or up to an hour of standing still, signed the
+// moment its session was issued, faster than the clock (row 14). Every other session is issued as long before its
+// signing as its game lasted, plus a second. Its one log line is scores.rejected rules-changed, with no replay's steps
+// or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each rest is run as an example,
+// whatever the seed.
+const otherRules = fc.oneof(fc.constantFrom(RULES_VERSION - 1, RULES_VERSION + 1), fc.maxSafeInteger()).filter(rules => rules !== RULES_VERSION);
+const LONGEST_SIGNED_AT_ONCE = CLOCK_ALLOWANCE_MS * 120 / 1000;   // 1,200 steps: the longest game the clock lets sign at once
+const onTime = (game, record) => ({ record, session: onTimeFor(game) });
+const itsOwn = game => onTime(game, game.record);
+const broken = breaking => game => onTime(game, breaking(game.record, readRecord(game.record).changes));
+const anyFields = fields => game => onTime(game, fields);
+const longerThanAnHour = (by, change) => game => onTime(game, pastTheHour(game.record, by, change));
+const signedAtOnce = steps => game => ({ record: { rules: RULES_VERSION, steps, keys: '0A' }, session: sessionFor(game.seed, NOW) });
+const anyRest = fc.oneof(
+  fc.constant(itsOwn),
+  notARecord.map(broken),
+  fc.dictionary(fc.string({ maxLength: 8 }), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 4 }).map(anyFields),
+  fc.tuple(over, oneMoreChange).map(([by, change]) => longerThanAnHour(by, change)),
+  fc.integer({ min: LONGEST_SIGNED_AT_ONCE + 1, max: MAX_GAME_STEPS }).map(signedAtOnce),
+);
+const EACH_REST = [[RULES_VERSION + 1, itsOwn], [0, broken(CLARIFIED[0])], [-1, anyFields({})],
+  [Number.MAX_SAFE_INTEGER, longerThanAnHour(1, null)], [RULES_VERSION + 1, signedAtOnce(MAX_GAME_STEPS)]];
+
+test('a record of other rules is rules-changed whatever the rest of it is, never replayed, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, initials, played, otherRules, anyRest, async (rows, who, game, rules, rest) => {
+    const { record, session } = rest(game);
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+    const response = await handleScores(signing({ ...signingOf(who, game, session), record: { ...record, rules } }), createTablePort(store), options);
+    expect(response.status, `rules ${rules}`).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'rules-changed' });
+    expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'rules-changed', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 40, examples: EACH_REST.map(([rules, rest]) => [[], 'FAB', scriptedGames(1)[0], rules, rest]) });
 });

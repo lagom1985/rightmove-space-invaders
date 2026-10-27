@@ -108,7 +108,7 @@ function drawLives(ctx, g, sprites) {
 function drawHud(ctx, g) {
   text(ctx, 'Deposit saved', 24, 28, 8, COLORS.dim); text(ctx, pounds(g.score), 24, 52, 16, COLORS.text);
   text(ctx, 'Property ladder', W / 2, 28, 8, COLORS.dim, 'center'); text(ctx, ladderName(g.level), W / 2, 52, 16, COLORS.green, 'center');
-  text(ctx, 'Best', W - 24, 28, 8, COLORS.dim, 'right'); text(ctx, pounds(Math.max(g.best, g.score)), W - 24, 52, 16, COLORS.text, 'right');
+  text(ctx, 'Your best', W - 24, 28, 8, COLORS.dim, 'right'); text(ctx, pounds(Math.max(g.best, g.score)), W - 24, 52, 16, COLORS.text, 'right');
   const switchedOff = Object.keys(OFF_LABELS).filter(name => !g.settings[name]);
   switchedOff.forEach((name, i) => text(ctx, OFF_LABELS[name], W - 24, H - 14 - i * 16, 8, COLORS.dim, 'right'));
 }

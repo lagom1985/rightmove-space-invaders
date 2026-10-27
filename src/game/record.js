@@ -1,13 +1,16 @@
 // The game's record (ADR-013, DESIGN DDD-R5): what the player did, by simulation step, from the game's start to its game
 // over, so the function can replay the game (ADR-012). Pure: imports nothing (layering rule 8). Shared by both sides of
-// the wire, like high-scores.js (layering rule 5): the game records with it, the replay reads with it.
+// the wire, like high-scores.js (layering rule 5): the game records with it, the function and the replay read with it.
 //   record = exactly { rules: RULES_VERSION, steps, keys }
 //   keys: one entry per change of the held controls, the steps since the last change in lowercase base 36 with no
 //   leading zero, then one capital A-H for the three control bits (A holds none ... H holds left, right and fire). The
 //   first entry is at step 0 (its delta exactly 0), every later delta is at least 1, every entry changes the controls,
 //   every change comes before `steps`, and `steps` is a safe integer of at least 1, so a game has one record and the
-//   record carries nothing but the game (clarified in DELIVER). The 60-minute bound (MAX_GAME_STEPS) is the signing's
-//   next check, game-too-long, not the reader's (clarified in DISTILL, C3), so a longer record still reads.
+//   record carries nothing but the game (clarified in DELIVER).
+// The reader judges neither the rules version (only that it is a safe integer) nor the length: the signing judges both,
+// one on each side of the reader (DESIGN's Signing checks). A record of other rules than RULES_VERSION is refused as
+// rules-changed before it is read (row 12), and one longer than the 60-minute bound, MAX_GAME_STEPS, as game-too-long
+// once it has read (row 13; clarified in DISTILL, C3), so a longer record still reads.
 
 export const RULES_VERSION = 1;                    // raised by every change to how the game plays (D10)
 export const MAX_GAME_STEPS = 60 * 60 * 120;       // 432,000: 60 minutes of game time at 120 steps a second (D9)

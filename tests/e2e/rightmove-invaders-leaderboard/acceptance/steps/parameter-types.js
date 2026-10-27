@@ -39,12 +39,12 @@ phraseType('removals', {
 });
 
 // What reaches the table in a server scenario: a signature (possibly broken on purpose), or something that isn't one.
-//   the signature FAB with £1,000 [and a note | sent in the wrong format | stretched to 1 KB | stretched past 1 KB]
+//   the signature FAB with £1,000 [and a note | sent in the wrong format | stretched to 1 KB]
 //   the signature FAB with no deposit · the signature fab with £1,000 · something that isn't a signature at all
 //   a signature with initials on the word filter
-// "1 KB" is 1,024 bytes (DDD-5): "stretched to 1 KB" is exactly 1,024 bytes long, "stretched past 1 KB" is 1,025.
+// "1 KB" is 1,024 bytes (DDD-5): "stretched to 1 KB" is exactly 1,024 bytes long, which still fits the signing's cap.
 const KB = 1024;
-const SIGNATURE = /the signature [A-Za-z]{3} with (?:£[\d,]+|no deposit)(?: and a note| sent in the wrong format| stretched to 1 KB| stretched past 1 KB)?|something that isn't a signature at all|a signature with initials on the word filter/;
+const SIGNATURE = /the signature [A-Za-z]{3} with (?:£[\d,]+|no deposit)(?: and a note| sent in the wrong format| stretched to 1 KB)?|something that isn't a signature at all|a signature with initials on the word filter/;
 defineParameterType({
   name: 'signature',
   regexp: SIGNATURE,
@@ -57,7 +57,7 @@ defineParameterType({
       score: deposit === 'no deposit' ? undefined : money(deposit),
       note: extra.includes('and a note'),
       wrongFormat: extra.includes('in the wrong format'),
-      stretchTo: extra.includes('stretched to 1 KB') ? KB : extra.includes('stretched past 1 KB') ? KB + 1 : undefined,
+      stretchTo: extra.includes('stretched to 1 KB') ? KB : undefined,
     });
   },
 });

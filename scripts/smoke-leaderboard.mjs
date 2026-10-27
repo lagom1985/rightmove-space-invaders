@@ -208,6 +208,8 @@ const signerAt = i => SIGNERS[i % SIGNERS.length];
 const signature = i => ({ initials: signerAt(i), score: (i + 1) * SCORE_STEP });
 // The i-th signing of a game made in Node claims its deposit, or `score` when a step means it to claim another.
 const claimOf = (game, i, score = game.deposit) => ({ initials: signerAt(i), score });
+// The i-th signing of a game made in Node, in the run's slice's shape, with `session` and the game's own record.
+const gameSigning = (run, game, session, i = 0) => run.slice.signing(claimOf(game, i), session, game.record);
 // A seed of 32 hex digits, uppercase: the near miss of a seed that S4 sends, refused as invalid-seed.
 const MALFORMED_SEED = '0123456789ABCDEF0123456789ABCDEF';
 
@@ -226,6 +228,12 @@ const isoAt = ms => new Date(ms).toISOString();
 const toStderr = message => process.stderr.write(`${message}\n`);
 const until = async (run, time) => { if (time > run.clock.now()) await run.clock.sleep(time - run.clock.now()); };
 const coolDown = async run => { run.progress('waiting 61 s for the rate-limit window to clear'); await run.clock.sleep(COOL_DOWN_MS); };
+// A signing, sent to the target's table.
+const sendSigning = (run, body, options) => run.client.post(scoresAt(run.target), body, options);
+// An answer as a step's summary shows it.
+const briefOf = answer => ({ status: answer.status, error: answer.body?.error ?? null });
+// Whether the table's ids are the same in two listings; unknown (null) when either never came.
+const unchangedIds = (before, after) => (before !== null && after !== null ? isDeepStrictEqual(after, before) : null);
 
 // Cache-Status (RFC 9211): one member per cache, each with parameters; `hit` on any member means no function ran.
 const isHit = (cacheStatus = '') => cacheStatus.split(',')
@@ -317,6 +325,12 @@ function sessionFor(answer, seed) {
   return session?.seed === seed && Number.isSafeInteger(session.issuedAt) && typeof session.token === 'string' ? session : null;
 }
 
+// A session request for `seed` -> { answer, session: the session it carries for that seed, or null }.
+async function sessionAskedFor(run, seed, options) {
+  const answer = await askSession(run, seed, options);
+  return { answer, session: sessionFor(answer, seed) };
+}
+
 // A session sealed with the repository's public test secret, as a root seals one: with the 32 bytes readSessionSecret
 // decodes, as the Netlify entry reads SCORES_SESSION_SECRET (the base64 text itself would seal another token, which
 // even a deploy whose secret is the public value refuses). A deploy that signs with it has the public value.
@@ -331,8 +345,7 @@ async function sessionPhase(run, from, seeds) {
   const asked = [];
   for (const [i, seed] of seeds.entries()) {
     await until(run, from + i * PACE_MS);
-    const answer = await askSession(run, seed);
-    asked.push({ answer, session: sessionFor(answer, seed) });
+    asked.push(await sessionAskedFor(run, seed));
   }
   return asked;
 }
@@ -356,7 +369,7 @@ async function pairPhase(run, from, signings, { p95UnderMs = P95_UNDER_MS, notBe
   for (const [i, signing] of signings.entries()) {
     due = Math.max(due, notBefore[i] ?? -Infinity);
     await until(run, due);
-    const post = await run.client.post(scoresAt(run.target), signing);
+    const post = await sendSigning(run, signing);
     const get = await run.client.get(scoresAt(run.target, missQuery()));
     pairs.push({ ms: post.ms + get.ms, post, get });
     due += PACE_MS;
@@ -387,7 +400,7 @@ async function firstRequest(run) {
 const isRateLimited = statuses => statuses.includes(429);
 
 async function burstOfSignings(run, signings = Array.from({ length: BURST_SIZE }, (_, i) => signature(i))) {
-  const answers = await Promise.all(signings.map(signing => run.client.post(scoresAt(run.target), signing, OVER_LIMIT)));
+  const answers = await Promise.all(signings.map(signing => sendSigning(run, signing, OVER_LIMIT)));
   const statuses = answers.map(answer => answer.status);
   const rows = signings.map(({ initials, score }, i) => ({ initials, score, id: answers[i].body?.id }));
   const expected = [...rows].sort((a, b) => b.score - a.score).slice(0, TABLE_SIZE);
@@ -410,7 +423,7 @@ async function burstTable(run, burst) {
 
 // 4: initials on the word filter answer 400 initials-not-allowed, which only the bundled high-scores.js can give.
 async function wordFilter(run) {
-  const answer = await run.client.post(scoresAt(run.target), { initials: BLOCKED, score: SCORE_STEP });
+  const answer = await sendSigning(run, { initials: BLOCKED, score: SCORE_STEP });
   const outcome = passOrFail(answer.status === 400 && answer.body?.error === 'initials-not-allowed');
   return { step: '4', kpi: 'K12', outcome, status: answer.status, headers: answer.headers };
 }
@@ -540,9 +553,8 @@ async function productionRead(run) {
 // S2: the first session request, for a fresh seed, is the secret check. 200 { session, scores, listedAt }, the session
 // for the seed sent, also proves the bundle; its time is a warm K25 sample. A 500 stops the run (SECRET_MISSING).
 async function firstSession(run) {
-  const seed = freshSeed();
-  const answer = await askSession(run, seed);
-  return { step: 'S2', kpi: 'K25 K12', outcome: passOrFail(sessionFor(answer, seed) !== null), status: answer.status, ms: answer.ms, headers: answer.headers };
+  const { answer, session } = await sessionAskedFor(run, freshSeed());
+  return { step: 'S2', kpi: 'K25 K12', outcome: passOrFail(session !== null), status: answer.status, ms: answer.ms, headers: answer.headers };
 }
 
 const SECRET_MISSING = 'stopped: the first session request answered 500, so this deploy has no session secret, or one that'
@@ -564,14 +576,14 @@ const FORGERIES = Object.freeze({
 });
 const answersAs = (answer, [status, error]) => answer.status === status && (error === undefined || answer.body?.error === error);
 // A step's named answers, as its summary shows them.
-const inBrief = answers => Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, { status: answer.status, error: answer.body?.error ?? null }]));
+const inBrief = answers => Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, briefOf(answer)]));
 const PUBLIC_SECRET_FOUND = 'the deploy signed a session sealed with the public TEST_SECRET: its secret is the public value.'
   + ' Set a value of its own for this context (the owner guide, "The session secret") and deploy again';
 
 // S4: each answer as FORGERIES says, each no-store, and one row in all: session B's listing, after A's signings, shows
 // only A's game. tableIds are the ids of the table's last listing, which S4c is checked against.
 async function forgeries(run) {
-  const sign = body => run.client.post(scoresAt(run.target), body);
+  const sign = body => sendSigning(run, body);
   const game = signature(1);
   const seed = freshSeed();
   const answers = {};
@@ -582,7 +594,8 @@ async function forgeries(run) {
   answers.signed = await sign(run.slice.signing(game, sessionA));
   answers.signedAgain = await sign(run.slice.signing(game, sessionA));
   answers.sessionB = await askSession(run, seed);
-  answers.signedWithB = await sign(run.slice.signing(game, sessionFor(answers.sessionB, seed)));
+  const sessionB = sessionFor(answers.sessionB, seed);
+  answers.signedWithB = await sign(run.slice.signing(game, sessionB));
   answers.sessionsRead = await run.client.get(sessionsAt(run.target));
   answers.malformedSeed = await run.client.post(sessionsAt(run.target), { seed: MALFORMED_SEED });
   // Dated by the deploy's own clock (session A's issuedAt), so the probe is never refused for coming from the future.
@@ -590,7 +603,7 @@ async function forgeries(run) {
   const id = answers.signed.body?.id ?? null;
   const checks = {
     answered: Object.entries(FORGERIES).every(([name, expected]) => answersAs(answers[name], expected)),
-    issued: sessionA !== null && sessionFor(answers.sessionB, seed) !== null,
+    issued: sessionA !== null && sessionB !== null,
     allowsPost: answers.sessionsRead.headers.allow === 'POST',
     noStore: Object.values(answers).every(hasNoStore),
     oneRow: id !== null && isDeepStrictEqual(idsOf(answers.sessionB.body), [id]),
@@ -616,9 +629,8 @@ async function testRoute(run) {
 const ROUTE_ABSENT = Object.freeze([404, 405]);
 // The listings on either side, as ids: unknown (null) when one never came, which leaves a 404 or 405 inconclusive.
 function settleTestRoute(route, idsBefore, idsAfter) {
-  const known = idsBefore !== null && idsAfter !== null;
-  const noRowWritten = known ? isDeepStrictEqual(idsAfter, idsBefore) : null;
-  const outcome = !ROUTE_ABSENT.includes(route.status) ? 'fail' : known ? passOrFail(noRowWritten) : 'inconclusive';
+  const noRowWritten = unchangedIds(idsBefore, idsAfter);
+  const outcome = !ROUTE_ABSENT.includes(route.status) ? 'fail' : noRowWritten === null ? 'inconclusive' : passOrFail(noRowWritten);
   return { ...route, outcome, noRowWritten };
 }
 
@@ -628,10 +640,8 @@ const NO_RECORD = Object.freeze({});
 // A session, then blocked initials signed with it: 400 initials-not-allowed. The word filter (check 8) comes before the
 // token (check 9), and only the bundled high-scores.js can give it. -> { asked, session, answer, refused }
 async function blockedInitials(run) {
-  const seed = freshSeed();
-  const asked = await askSession(run, seed);
-  const session = sessionFor(asked, seed);
-  const answer = await run.client.post(scoresAt(run.target), run.slice.signing({ initials: BLOCKED, score: SCORE_STEP }, session, NO_RECORD));
+  const { answer: asked, session } = await sessionAskedFor(run, freshSeed());
+  const answer = await sendSigning(run, run.slice.signing({ initials: BLOCKED, score: SCORE_STEP }, session, NO_RECORD));
   return { asked, session, answer, refused: answersAs(answer, [400, 'initials-not-allowed']) };
 }
 
@@ -671,10 +681,9 @@ async function sessionFlood(run) {
   const acceptedBefore429 = first429 < 0 ? null : answers.slice(0, first429).filter(answer => answer.status === 200).length;
   const mostAcceptedInAWindow = mostAcceptedInAFullWindow(answers);
   await coolDown(run);
-  const seed = freshSeed();
-  const after = await askSession(run, seed);
+  const { answer: after, session } = await sessionAskedFor(run, freshSeed());
   const onTime = acceptedBefore429 !== null && acceptedBefore429 >= LIMIT && acceptedBefore429 <= LIMIT_WITH_LAG;
-  const outcome = passOrFail(onTime && sessionFor(after, seed) !== null);
+  const outcome = passOrFail(onTime && session !== null);
   return { step: '8c', kpi: 'K14', overLimit: true, outcome, acceptedBefore429, first429AfterMs, mostAcceptedInAWindow, afterStatus: after.status };
 }
 
@@ -699,8 +708,6 @@ const OVER_NETLIFY_BYTES = 7 * 1024 * 1024;   // above the 6 MB Netlify buffers 
 const HUMAN_CHANGES_A_SECOND = 15;      // D20: a fast human's pace of key changes
 const CONTROL_LETTERS = 'ABCDEFGH';     // record.js's letters: the controls held, 0 to 7
 const RACERS = 3;
-
-const signAt = run => body => run.client.post(scoresAt(run.target), body);
 
 // `body` with a padding field that brings its JSON to exactly `bytes` bytes (ASCII: a character is a byte).
 function paddedTo(body, bytes) {
@@ -736,19 +743,18 @@ function worstSpacedHour() {
 // 60-minute body of the worst spacing, with a session of its own, refused as replay-mismatch, its time recorded. The
 // first session request is the secret check (a 500 stops the run): then nothing more is sent.
 async function longGameAndHour(run, game) {
-  const asked = await askSession(run, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   if (asked.status === 500) return { step: 'S7', kpi: 'K22 K21', outcome: 'fail', sessionStatus: 500 };
-  const signed = await signAt(run)(run.slice.signing(claimOf(game, 0), sessionFor(asked, game.seed), game.record));
-  const hourSeed = freshSeed();
-  const hourSession = sessionFor(await askSession(run, hourSeed), hourSeed);
+  const signed = await sendSigning(run, gameSigning(run, game, session));
+  const { session: hourSession } = await sessionAskedFor(run, freshSeed());
   const hourBody = run.slice.signing(signature(1), hourSession, worstSpacedHour());
-  const hour = await signAt(run)(hourBody);
+  const hour = await sendSigning(run, hourBody);
   const inTime = signed.status === 200 && typeof signed.body?.id === 'string' && signed.ms < LONG_SIGNING_UNDER_MS;
   const toAnHour = Math.round((MAX_GAME_STEPS / game.steps) * 100) / 100;
   return {
     step: 'S7', kpi: 'K22 K21', outcome: passOrFail(inTime && hourSession !== null && answersAs(hour, [400, 'replay-mismatch'])),
     sessionStatus: asked.status, status: signed.status, ms: signed.ms, id: signed.body?.id ?? null, steps: game.steps, minutes: minutesOf(game),
-    hour: { bytes: JSON.stringify(hourBody).length, status: hour.status, error: hour.body?.error ?? null, ms: hour.ms },
+    hour: { bytes: JSON.stringify(hourBody).length, ...briefOf(hour), ms: hour.ms },
     next: `its scores.signed line's replayMs, times ${toAnHour} for 60 minutes of game time (its ${game.steps} steps of ${MAX_GAME_STEPS}): recorded, not gated (D21)`,
   };
 }
@@ -759,7 +765,7 @@ async function longGameAndHour(run, game) {
 async function tenMinuteGames(run, games) {
   const start = run.clock.now();
   const asked = await sessionPhase(run, start, games.map(game => game.seed));
-  const signings = games.map((game, i) => run.slice.signing(claimOf(game, i), asked[i].session, game.record));
+  const signings = games.map((game, i) => gameSigning(run, game, asked[i].session, i));
   const notBefore = games.map((game, i) => signableAt(run, asked[i].answer, game.record));
   const { passed, ...pairs } = await pairPhase(run, start + games.length * PACE_MS, signings, { p95UnderMs: D21_P95_UNDER_MS, notBefore });
   const issued = asked.every(({ session }) => session !== null);
@@ -785,11 +791,10 @@ const REFUSED = Object.freeze({
 // S9 (K20, K12): one session, then the 7 refused signings with it. Nothing kept is settled by the next listing (S9b's
 // session): tableIds are the ids its own session's listing showed.
 async function refusedSignings(run, game) {
-  const asked = await askSession(run, game.seed);
-  const session = sessionFor(asked, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   const shape = (claim, record) => run.slice.signing(claim, session, record);
   const answers = {};
-  for (const [name, [, forge]] of Object.entries(REFUSED)) answers[name] = await signAt(run)(forge(game, shape));
+  for (const [name, [, forge]] of Object.entries(REFUSED)) answers[name] = await sendSigning(run, forge(game, shape));
   const answered = Object.entries(REFUSED).every(([name, [expected]]) => answersAs(answers[name], expected));
   return {
     step: 'S9', kpi: 'K20 K12', outcome: passOrFail(session !== null && answered), answers: inBrief(answers), tableIds: session && idsOf(asked.body),
@@ -799,7 +804,7 @@ async function refusedSignings(run, game) {
 // The listings on either side of S9, as ids: unchanged, or S9 kept something; unknown (null) when one never came,
 // which leaves a pass inconclusive.
 function settleNothingKept(refused, idsAfter) {
-  const nothingKept = refused.tableIds !== null && idsAfter !== null ? isDeepStrictEqual(idsAfter, refused.tableIds) : null;
+  const nothingKept = unchangedIds(refused.tableIds, idsAfter);
   const outcome = refused.outcome === 'fail' || nothingKept === false ? 'fail' : nothingKept === null ? 'inconclusive' : 'pass';
   return { ...refused, outcome, nothingKept };
 }
@@ -810,12 +815,12 @@ function settleNothingKept(refused, idsAfter) {
 async function bundleAndPublicSecret(run) {
   const { asked, session, answer, refused } = await blockedInitials(run);
   const sealed = publicSession(freshSeed(), session?.issuedAt ?? run.clock.now());
-  const probe = await signAt(run)(run.slice.signing(signature(2), sealed, NO_RECORD));
+  const probe = await sendSigning(run, run.slice.signing(signature(2), sealed, NO_RECORD));
   const publicSecret = probe.body?.error === 'invalid-record';
   return {
     step: 'S9b', kpi: 'K12', outcome: passOrFail(session !== null && refused && answersAs(probe, [400, 'invalid-session'])),
     publicSecret, ...(publicSecret && { reason: PUBLIC_SECRET_FOUND }), statuses: [asked.status, answer.status, probe.status],
-    probe: { status: probe.status, error: probe.body?.error ?? null }, tableIds: session && idsOf(asked.body),
+    probe: briefOf(probe), tableIds: session && idsOf(asked.body),
   };
 }
 
@@ -823,7 +828,7 @@ async function bundleAndPublicSecret(run) {
 // status is recorded, with the time to look for no line of ours by.
 async function overNetlifysLimit(run) {
   const at = isoAt(run.clock.now());
-  const answer = await signAt(run)(paddedTo(signature(3), OVER_NETLIFY_BYTES));
+  const answer = await sendSigning(run, paddedTo(signature(3), OVER_NETLIFY_BYTES));
   return {
     step: 'S9c', kpi: 'K20', outcome: 'recorded', status: answer.status, bytes: OVER_NETLIFY_BYTES, at,
     next: 'the function\'s log has no scores line at that time: the platform refused the body before the function ran',
@@ -833,10 +838,10 @@ async function overNetlifysLimit(run) {
 // S10.2 (burst run, over-limit): a session for each of 20 scripted games with distinct deposits, all at once, then the
 // 20 signings at once (step 2's rule). A 429 is inconclusive, as in step 2.
 async function sessionsThenBurst(run, games) {
-  const asked = await Promise.all(games.map(game => askSession(run, game.seed, OVER_LIMIT)));
-  const sessions = asked.map((answer, i) => sessionFor(answer, games[i].seed));
-  const burst = await burstOfSignings(run, games.map((game, i) => run.slice.signing(claimOf(game, i), sessions[i], game.record)));
-  const sessionStatuses = asked.map(answer => answer.status);
+  const asked = await Promise.all(games.map(game => sessionAskedFor(run, game.seed, OVER_LIMIT)));
+  const sessions = asked.map(({ session }) => session);
+  const burst = await burstOfSignings(run, games.map((game, i) => gameSigning(run, game, sessions[i], i)));
+  const sessionStatuses = asked.map(({ answer }) => answer.status);
   const outcome = isRateLimited(sessionStatuses) ? 'inconclusive' : sessions.includes(null) ? 'fail' : burst.outcome;
   return { ...burst, kpi: 'K11', outcome, sessionStatuses };
 }
@@ -844,11 +849,11 @@ async function sessionsThenBurst(run, games) {
 // S10.4 (burst run, over-limit): 3 sessions for one game, then its 3 signings at once. Pass: at most one 200, the others
 // 409 (or 503, a key written at the same moment). A 429 is inconclusive.
 async function raceForOneGame(run, game) {
-  const asked = await Promise.all(Array.from({ length: RACERS }, () => askSession(run, game.seed, OVER_LIMIT)));
-  const sessions = asked.map(answer => sessionFor(answer, game.seed));
-  const answers = await Promise.all(sessions.map((session, i) => run.client.post(scoresAt(run.target), run.slice.signing(claimOf(game, i), session, game.record), OVER_LIMIT)));
+  const asked = await Promise.all(Array.from({ length: RACERS }, () => sessionAskedFor(run, game.seed, OVER_LIMIT)));
+  const sessions = asked.map(({ session }) => session);
+  const answers = await Promise.all(sessions.map((session, i) => sendSigning(run, gameSigning(run, game, session, i), OVER_LIMIT)));
   const statuses = answers.map(answer => answer.status);
-  const sessionStatuses = asked.map(answer => answer.status);
+  const sessionStatuses = asked.map(({ answer }) => answer.status);
   const oneAtMost = statuses.filter(status => status === 200).length <= 1 && statuses.every(status => [200, 409, 503].includes(status));
   const outcome = isRateLimited([...sessionStatuses, ...statuses]) ? 'inconclusive' : passOrFail(!sessions.includes(null) && oneAtMost);
   return { step: 'S10.4', kpi: 'K20', overLimit: true, outcome, sessionStatuses, statuses, gameId: gameIdOf(game.seed) };
@@ -880,19 +885,17 @@ const answersOneOf = (answer, alternatives) => alternatives.some(expected => ans
 // then a new session for the game, and the game signed once it has lasted: 200. No row written before then: the new
 // session's listing shows the first's. The first session request is the secret check (a 500 stops the run).
 async function tooFast(run, game) {
-  const asked = await askSession(run, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   if (asked.status === 500) return { step: 'S11', kpi: 'K20', outcome: 'fail', sessionStatus: 500 };
-  const session = sessionFor(asked, game.seed);
-  const atOnce = run.slice.signing(claimOf(game, 0), session, game.record);
+  const atOnce = gameSigning(run, game, session);
   const answers = {};
-  answers.signedAtOnce = await signAt(run)(atOnce);
-  answers.withLenientCookies = await run.client.post(scoresAt(run.target), atOnce, { headers: { cookie: LENIENT_COOKIES } });
+  answers.signedAtOnce = await sendSigning(run, atOnce);
+  answers.withLenientCookies = await sendSigning(run, atOnce, { headers: { cookie: LENIENT_COOKIES } });
   answers.testRoute = await postToTheTestRoute(run);
-  const askedAgain = await askSession(run, game.seed);
-  const later = sessionFor(askedAgain, game.seed);
+  const { answer: askedAgain, session: later } = await sessionAskedFor(run, game.seed);
   await until(run, signableAt(run, askedAgain, game.record));
-  answers.signedInTime = await signAt(run)(run.slice.signing(claimOf(game, 0), later, game.record));
-  const noRowWritten = session && later ? isDeepStrictEqual(idsOf(askedAgain.body), idsOf(asked.body)) : null;
+  answers.signedInTime = await sendSigning(run, gameSigning(run, game, later));
+  const noRowWritten = unchangedIds(session && idsOf(asked.body), later && idsOf(askedAgain.body));
   const id = answers.signedInTime.body?.id ?? null;
   const answered = Object.entries(CLOCK_CHECKED).every(([name, alternatives]) => answersOneOf(answers[name], alternatives));
   return {
@@ -905,15 +908,14 @@ async function tooFast(run, game) {
 // that changed them), signed with a session for its seed once the game has lasted: rules-changed, whatever the rest of
 // it is. Nothing kept: a cache-missing GET after it lists what its session's listing showed.
 async function otherRules(run, game) {
-  const asked = await askSession(run, game.seed);
-  const session = sessionFor(asked, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   const record = { ...game.record, rules: RULES_VERSION - 1 };
   await until(run, signableAt(run, asked, record));
-  const answer = await signAt(run)(run.slice.signing(claimOf(game, 0), session, record));
+  const answer = await sendSigning(run, run.slice.signing(claimOf(game, 0), session, record));
   const after = await run.client.get(scoresAt(run.target, missQuery()));
   const refused = {
     step: 'S12', kpi: 'K23', outcome: passOrFail(session !== null && answersAs(answer, [400, 'rules-changed'])),
-    status: answer.status, error: answer.body?.error ?? null, rules: record.rules, tableIds: session && idsOf(asked.body),
+    ...briefOf(answer), rules: record.rules, tableIds: session && idsOf(asked.body),
     next: 'its scores.rejected line (rules-changed) has no steps and no replayMs: it was never replayed',
   };
   return settleNothingKept(refused, after.status === 200 ? idsOf(after.body) : null);
@@ -927,6 +929,15 @@ async function tenMinuteGamesInTime(run, games) {
 
 // ---- the runs ----
 
+// The over-limit floods, in order, each after a 61 s wait: [takeStep, the step it is in this run when it is named
+// otherwise].
+async function floodsApart(run, record, floods) {
+  for (const [floodStep, step] of floods) {
+    await coolDown(run);
+    record(await timed(run, floodStep, step));
+  }
+}
+
 // The leaderboard's preview run, steps 1 and 4-10, for a deploy from before rightmove-invaders-replay-verified-scores.
 async function leaderboardPreview(run, record) {
   record(await timed(run, firstRequest));
@@ -936,10 +947,7 @@ async function leaderboardPreview(run, record) {
   const pairs = await timed(run, signingPairs);
   record(pairs);
   record(await timed(run, signed => productionUntouched(signed, pairs.ids)));
-  for (const floodStep of [steadyFlood, fastFlood, cachedFlood]) {
-    await coolDown(run);
-    record(await timed(run, floodStep));
-  }
+  await floodsApart(run, record, [[steadyFlood], [fastFlood], [cachedFlood]]);
   record(await timed(run, permalinkCopy));
 }
 
@@ -961,10 +969,7 @@ async function slice01Preview(run, record) {
   record(signed);
   record(await timed(run, sessionsOnAFullerTable));
   record(await timed(run, sharedCache, 'S6.5'));
-  for (const [floodStep, step] of [[steadyFlood, 'S6.8a'], [fastFlood, 'S6.8b'], [sessionFlood, 'S6.8c'], [mixedFlood, 'S6.8d'], [cachedFlood, 'S6.9']]) {
-    await coolDown(run);
-    record(await timed(run, floodStep, step));
-  }
+  await floodsApart(run, record, [[steadyFlood, 'S6.8a'], [fastFlood, 'S6.8b'], [sessionFlood, 'S6.8c'], [mixedFlood, 'S6.8d'], [cachedFlood, 'S6.9']]);
   record(await timed(run, read => productionUntouched(read, [forged.id, ...signed.ids]), 'S6b.7'));
   record(await timed(run, permalinkCopy, 'S6b.10'));
 }
@@ -1044,11 +1049,11 @@ const SLICES = Object.freeze({
 // scripted game made in Node, whose record a slice-02 signing carries, and which a slice-03 one signs once it has
 // lasted.
 async function signOnce(run) {
-  if (!run.slice.sessions) return run.client.post(scoresAt(run.target), signature(0));
+  if (!run.slice.sessions) return sendSigning(run, signature(0));
   const [game] = await gamesMade(run.games.scripted(1));
-  const asked = await askSession(run, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   await until(run, signableAt(run, asked, game.record));
-  return run.client.post(scoresAt(run.target), run.slice.signing(claimOf(game, 0), sessionFor(asked, game.seed), game.record));
+  return sendSigning(run, gameSigning(run, game, session));
 }
 
 // Rule 2's published deploy ID, never from a flag: Netlify's API with the owner's token, or the owner typing it back.

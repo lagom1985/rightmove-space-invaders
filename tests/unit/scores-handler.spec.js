@@ -419,14 +419,16 @@ test('a signing is session-expired exactly past 2 hours, and invalid-session exa
 
 // Only a record readRecord reads is ever replayed (DDD-R5, Signing checks rows 11 and 12b): an otherwise good signing,
 // its session sealed and its claim the deposit its game played to, carrying any record readRecord refuses (any JSON
-// value at all, or the game's own record with one rule of the reader broken: M4's seven faults, then the DELIVER
-// clarification's three, a field beside rules, steps and keys, an entry that changes nothing, a delta with a leading
-// zero) is 400 invalid-record, never kept. Its one log line is scores.rejected invalid-record, with no replay's steps
-// or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each fault is a breaker:
-// (record, changes) -> what is no longer a record; the clarification's three are also run as examples, whatever the
-// seed.
+// value at all but one naming a safe-integer rules version other than RULES_VERSION, which row 12 refuses as
+// rules-changed before the reader, or the game's own record with one rule of the reader broken: M4's seven faults,
+// then the DELIVER clarification's three, a field beside rules, steps and keys, an entry that changes nothing, a delta
+// with a leading zero) is 400 invalid-record, never kept. Its one log line is scores.rejected invalid-record, with no
+// replay's steps or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each fault is a
+// breaker: (record, changes) -> what is no longer a record; the clarification's three are also run as examples,
+// whatever the seed.
 const RECORD_LETTERS = 'ABCDEFGH';
 const RECORD_FIELDS = ['rules', 'steps', 'keys'];
+const namesOtherRules = value => typeof value === 'object' && value !== null && Number.isSafeInteger(value.rules) && value.rules !== RULES_VERSION;
 const inserted = (keys, index, text) => `${keys.slice(0, index)}${text}${keys.slice(index)}`;
 const entryEnds = keys => [...keys].flatMap((character, index) => (RECORD_LETTERS.includes(character) ? [index + 1] : []));
 const otherControls = (controls, by) => RECORD_LETTERS[(controls + by) % 8];
@@ -438,7 +440,7 @@ const anEntryChangingNothing = (which, gap) => (record, changes) => {
 const aLeadingZero = (which, zeros) => (record, changes) =>
   ({ ...record, keys: inserted(record.keys, [0, ...entryEnds(record.keys)][which % changes.length], '0'.repeat(zeros)) });
 const notARecord = fc.oneof(
-  fc.jsonValue({ maxDepth: 2 }).filter(value => readRecord(value) === null).map(value => () => value),
+  fc.jsonValue({ maxDepth: 2 }).filter(value => readRecord(value) === null && !namesOtherRules(value)).map(value => () => value),
   fc.constantFrom(12345, null, ['0A'], { keys: '0A' }).map(keys => record => ({ ...record, keys })),
   fc.constantFrom(...'IJXZ').map(letter => record => ({ ...record, keys: `0${letter}${record.keys.slice(2)}` })),
   fc.integer({ min: 1, max: 7 }).map(by => (record, changes) => ({ ...record, keys: inserted(record.keys, 2, `0${otherControls(changes[0][1], by)}`) })),

@@ -47,6 +47,8 @@ const tableOptions = Object.freeze({ now: Date.now, log: logToConsole, where: LO
 const lenientOptions = Object.freeze({ ...tableOptions, clockAllowanceMs: Infinity });
 const signer = createSessionSigner(randomBytes(32));
 const STOP_WITHIN_MS = 1000;   // a request still in flight can hold the emulator open; the directory goes regardless
+// The headers of this root's own JSON answers, the test route's and its 500.
+const JSON_NO_STORE = Object.freeze({ 'content-type': 'application/json', 'cache-control': 'no-store' });
 
 // The Blobs client finds the emulator through this context. Strong consistency needs `uncachedEdgeURL` as well.
 async function startBlobs() {
@@ -95,7 +97,7 @@ async function putRow(req, res) {
   const { initials, score } = JSON.parse(await textOf(req));
   const id = newId();
   const saved = await createTablePort(storeFor(req)).putIfNew(encodeKey({ initials, score, at: Date.now(), id }));
-  res.writeHead(saved ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ id }));
+  res.writeHead(saved ? 200 : 503, JSON_NO_STORE).end(JSON.stringify({ id }));
 }
 
 async function textOf(req) {
@@ -131,8 +133,7 @@ function bodyOf(req) {
 // under the path's event, as the function files its own.
 function failedLocally(path, res) {
   logToConsole({ event: path === SESSIONS_PATH ? 'sessions.error' : 'scores.error', reason: 'unexpected', ...LOCAL });
-  const headers = { 'content-type': 'application/json', 'cache-control': 'no-store', ...EVERY_ANSWER };
-  res.writeHead(500, headers).end(JSON.stringify({ error: 'unexpected' }));
+  res.writeHead(500, { ...JSON_NO_STORE, ...EVERY_ANSWER }).end(JSON.stringify({ error: 'unexpected' }));
 }
 
 // CONNECT never reaches the request listener: Node hands it to 'connect', and drops the connection when nobody listens
@@ -176,11 +177,9 @@ await startBlobs();
 createServer(async (req, res) => {
   const path = pathOf(req);
   if (path === null) { res.writeHead(400).end('Bad request'); return; }
-  if (TABLE_PATHS.includes(path) || putsRow(path, req)) {
-    try { await (putsRow(path, req) ? putRow(req, res) : serveTable(path, req, res)); } catch { failedLocally(path, res); }
-    return;
-  }
-  await serveFile(path, res);
+  const rowPut = putsRow(path, req);
+  if (!rowPut && !TABLE_PATHS.includes(path)) { await serveFile(path, res); return; }
+  try { await (rowPut ? putRow(req, res) : serveTable(path, req, res)); } catch { failedLocally(path, res); }
 }).on('connect', (req, socket) => {
   const path = pathOf(req);
   return TABLE_PATHS.includes(path) ? refuseConnect(path, socket) : socket.destroy();

@@ -35,7 +35,7 @@ Feature: No game signs faster than it could have been played
       | 10 seconds | saved        | the signature is saved as one new row                |
       | 11 seconds | refused      | the signature is refused as faster than the clock    |
 
-  @pending @US-05 @D8 @DDD-R11 @server @real-io @edge @kpi-K23
+  @US-05 @D8 @DDD-R11 @server @real-io @edge @kpi-K23
   Scenario Outline: An honest game is never too fast: <pace>
     Given the high-score table holds KIM with £2,000
     When Alex's game, <pace>, signs ALX with £1,250

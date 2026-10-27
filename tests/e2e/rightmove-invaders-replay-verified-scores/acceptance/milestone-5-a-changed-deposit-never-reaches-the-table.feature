@@ -5,7 +5,7 @@ Feature: A deposit changed in the browser never reaches the table
 
   # The 2026-10-26 forgery from the console (the RCA's Vector B), once the console can't reach the game: the same change
   # made to what the page sends, as a forger with the browser's tools would make it.
-  @pending @US-03 @D1 @D5 @DDD-R9 @real-io @error @kpi-K20
+  @US-03 @D1 @D5 @DDD-R9 @real-io @error @kpi-K20
   Scenario: A deposit changed on its way to the table is refused, and the game can't confirm the signing
     Given the high-score table holds 3 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -16,7 +16,7 @@ Feature: A deposit changed in the browser never reaches the table
     And the high-score table everyone reads has no row for HAX
 
   # Defence in depth (ADR-013): the page's modules expose no game in play.
-  @pending @US-03 @D1 @DDD-R7 @real-io @error
+  @US-03 @D1 @DDD-R7 @real-io @error
   Scenario: The console line of the 2026-10-26 forgery can't reach the game in play
     Given I have opened the game
     And I have started a new game

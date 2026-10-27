@@ -8,6 +8,7 @@ import { createTablePort, decodeKey, encodeKey, handleScores, planPrune, rankKey
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
+import { scriptedGames } from '../common/played-games.js';
 
 // A row's key is the persisted schema (ADR-004): s/{MAX_SCORE - score, 7 digits}-{epoch ms, 15 digits}-{initials}-{id},
 // so that the keys sort as strings into arcade order. Only keys of exactly this shape are rows: a store also lists
@@ -122,6 +123,8 @@ test('a tidy-up plans a game\'s other keys first, then the lowest winners beyond
 // - a signing keeps its key (200) only if its listing showed no other key of its game; otherwise it removes its own
 //   key and nothing else (409 already-signed);
 // - a 200 removes its listing's losers first, then its lowest winners beyond 20, and no signing removes more than 5.
+// Each game is one really played in Node (tests/common/played-games.js): every signing of it carries its record and
+// claims the deposit it played to, so the handler replays it and goes on to the store (DDD-R3, DDD-R9).
 // The universe: the keys held, and the rows a reading shows. The keys change by exactly the writes and removals the
 // requests made, and the rows are the first 10 winners of what is held, with every row shown before still held.
 const NOW = 1_767_225_600_000;
@@ -161,17 +164,15 @@ function noting(port) {
   };
 }
 
-const deposit = fc.integer({ min: 1, max: 5000 }).map(units => units * 50);
-const seeds = fc.uniqueArray(fc.stringMatching(/^[0-9a-f]{32}$/), { minLength: 1, maxLength: 3 });
-const interleaving = seeds.chain(games => fc.record({
+const played = fc.shuffledSubarray(scriptedGames(6), { minLength: 1, maxLength: 3 });
+const interleaving = played.chain(games => fc.record({
   games: fc.constant(games),
   // held: other games' keys, and sometimes a key of one of the games about to sign
-  held: fc.array(fc.tuple(fc.oneof(gameId, fc.constantFrom(...games.map(gameIdOf))), row), { maxLength: 28 })
+  held: fc.array(fc.tuple(fc.oneof(gameId, fc.constantFrom(...games.map(game => gameIdOf(game.seed)))), row), { maxLength: 28 })
     .map(rows => rankKeys(rows.map(([id, r]) => encodeKey({ ...r, at: r.at % NOW, id })))),
   signings: fc.array(fc.record({
     game: fc.constantFrom(...games),
     initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials),
-    score: deposit,
   }), { minLength: 1, maxLength: 6 }),
   readings: fc.integer({ min: 0, max: 2 }),
 }));
@@ -186,7 +187,9 @@ test('after any interleaving of signings, every answer shows the first 10 winner
     const before = snapshot(store.keys());
 
     const requests = [
-      ...signings.map(({ game, initials, score }) => ({ body: { initials, score, session: { seed: game, issuedAt: NOW, token: signer.sign(game, NOW) } } })),
+      ...signings.map(({ game, initials }) => ({
+        body: { initials, score: game.deposit, session: { seed: game.seed, issuedAt: NOW, token: signer.sign(game.seed, NOW) }, record: game.record },
+      })),
       ...Array.from({ length: readings }, () => ({ body: null })),
     ].map(request => ({ ...request, ...noting(port) }));
     const answered = Promise.all(requests.map(async ({ body, port: own }) => {

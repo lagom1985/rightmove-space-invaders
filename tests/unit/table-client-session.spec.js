@@ -6,6 +6,7 @@ import { assertStateDelta, appendedWith, setTo, unchanged } from '../common/stat
 import { createLeaderboard } from '../../src/platform/leaderboard.js';
 import { SCORE_STEP, TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
 import { GameEvent } from '../../src/game/events.js';
+import { RULES_VERSION } from '../../src/game/record.js';
 
 // Every game asks the table for its session as it starts (DDD-R10): startSession(seed) POSTs { seed } to /api/sessions,
 // once, and only an answer with rows, a listedAt and a session for that seed resolves, to its body as it came. Anything
@@ -137,10 +138,11 @@ test('a well-formed answer resolves to its body as it came, and its rows replace
 });
 
 // A signing waits for its game's session (DDD-R10, as clarified in DISTILL, 2026-10-27): sign({ initials, score,
-// session: pendingSession }) sends nothing until the pending session resolves, then POSTs { initials, score, session },
-// its own 5000 ms starting as it is sent. If the session fails (it can't be reached, answers an error or something other
-// than a session, or never answers), sign rejects at once and sends nothing. No game ends within the session's 5 s, so
-// no browser scenario can press a signing while its session is on its way: this is the wait's test.
+// session: pendingSession, record }) sends nothing until the pending session resolves, then POSTs { initials, score,
+// session, record }, the game's record as it was handed over, its own 5000 ms starting as it is sent. If the session
+// fails (it can't be reached, answers an error or something other than a session, or never answers), sign rejects at
+// once and sends nothing. No game ends within the session's 5 s, so no browser scenario can press a signing while its
+// session is on its way: this is the wait's test.
 // The client's ports are doubles the test holds: a network that answers each request when the test says, and timers on
 // a clock the test moves. Universe: the requests the network saw and when each was sent, the timers still set and when
 // each is due, and how the call to sign stands.
@@ -150,6 +152,8 @@ const TIMEOUT_MS = 5000;
 
 const withinTimeout = fc.integer({ min: 0, max: TIMEOUT_MS - 1 });
 const signedTable = fc.tuple(table, fc.uuid()).map(([listing, id]) => ({ ...listing, id }));
+// A game's record, as initialsEntered carries it (DDD-R5): the client sends it as it is, and only the table reads it.
+const record = fc.record({ rules: fc.constant(RULES_VERSION), steps: fc.integer({ min: 1, max: 432_000 }), keys: fc.stringMatching(/^0[A-H](?:[1-9a-z][A-H]){0,6}$/) }, { noNullPrototype: true });
 // When the session arrives, within its 5 s, and when the signing was pressed while it was on its way.
 const pressedWhileOnItsWay = withinTimeout.chain(sessionAt => fc.record({ sessionAt: fc.constant(sessionAt), pressAt: fc.integer({ min: 0, max: sessionAt }) }));
 // A seed, and every way its session fails, and when: it can't be reached, or answers an error or something other than
@@ -221,20 +225,20 @@ const TROUBLE = {
 const signingRequest = (body, sentAt) => ({ url: '/api/scores', method: 'POST', headers: { 'content-type': 'application/json' }, body, aborts: true, sentAt });
 
 test('a signing pressed while its session is on its way is sent as the session arrives, and its 5000 ms start then', async () => {
-  const run = fc.record({ given: answered, times: pressedWhileOnItsWay, answerAfter: fc.nat({ max: 2 * TIMEOUT_MS }), initials: threeLetters, score: deposit, signed: signedTable });
-  await fc.assert(fc.asyncProperty(run, async ({ given: { seed: sent, answer }, times: { sessionAt, pressAt }, answerAfter, initials, score, signed }) => {
+  const run = fc.record({ given: answered, times: pressedWhileOnItsWay, answerAfter: fc.nat({ max: 2 * TIMEOUT_MS }), initials: threeLetters, score: deposit, played: record, signed: signedTable });
+  await fc.assert(fc.asyncProperty(run, async ({ given: { seed: sent, answer }, times: { sessionAt, pressAt }, answerAfter, initials, score, played, signed }) => {
     const held = heldClient();
     const pendingSession = held.startSession(sent);
     await held.advanceTo(pressAt);
     const before = held.observe();
-    held.sign({ initials, score, session: pendingSession });
+    held.sign({ initials, score, session: pendingSession, record: played });
     await held.advanceTo(sessionAt);
     await held.answer(0, { status: 200, text: JSON.stringify(answer) });
     const whenSent = held.observe();
     assertStateDelta(before, whenSent, {
       universe: WAIT_UNIVERSE,
       expected: {
-        requests: appendedWith(signingRequest({ initials, score, session: answer.session }, sessionAt)),
+        requests: appendedWith(signingRequest({ initials, score, session: answer.session, record: played }, sessionAt)),
         timers: setTo([{ due: sessionAt + TIMEOUT_MS }]),
         sign: setTo('pending'),
       },
@@ -254,15 +258,15 @@ test('a signing pressed while its session is on its way is sent as the session a
 });
 
 test('a signing whose session fails fails at once, and is never sent', async () => {
-  const run = fc.record({ given: failedSession, pressAt: fc.nat({ max: 2 * TIMEOUT_MS }), initials: threeLetters, score: deposit });
-  await fc.assert(fc.asyncProperty(run, async ({ given: { seed: sent, failure }, pressAt, initials, score }) => {
+  const run = fc.record({ given: failedSession, pressAt: fc.nat({ max: 2 * TIMEOUT_MS }), initials: threeLetters, score: deposit, played: record });
+  await fc.assert(fc.asyncProperty(run, async ({ given: { seed: sent, failure }, pressAt, initials, score, played }) => {
     const held = heldClient();
     const pendingSession = held.startSession(sent);
     pendingSession.catch(() => {});   // main.js hands every session's failure to tableFailed
     await held.advanceTo(0);
     const before = held.observe();
     const moments = [
-      { at: pressAt, act: () => held.sign({ initials, score, session: pendingSession }) },
+      { at: pressAt, act: () => held.sign({ initials, score, session: pendingSession, record: played }) },
       { at: failure.at, act: () => TROUBLE[failure.trouble](held, failure) },   // never answering, it times out on the way
     ];
     for (const { at, act } of moments.toSorted((a, b) => a.at - b.at)) {

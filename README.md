@@ -55,9 +55,9 @@ The game is a static site on Netlify, built from this repo. `netlify.toml` holds
      curl -sS -X POST https://maketherightmove.fabiodamico.xyz/api/sessions -H 'content-type: application/json' -d '{"seed":"00000000000000000000000000000000"}'
      ```
    - Generate a new value as in step 4, set it for that context, and trigger a deploy of the context (production: **Deploys** → **Trigger deploy** → **Deploy project**). The new value applies only from that deploy: if its build fails, nothing has rotated, so rerun it.
-   - Once the new deploy is published, sign with the session you kept. It must answer 400 `{"error":"invalid-session"}`. The claim is over the plausible ceiling, so even a rotation that hasn't taken saves nothing (it answers `implausible-score` instead):
+   - Once the new deploy is published, sign with the session you kept. It must answer 400 `{"error":"invalid-session"}`. The claim is over the plausible ceiling and its record is a dummy, so even a rotation that hasn't taken saves nothing (it answers `invalid-record` instead):
      ```sh
-     curl -sS -X POST https://maketherightmove.fabiodamico.xyz/api/scores -H 'content-type: application/json' -d '{"initials":"FAB","score":9999950,"session":<the session object you kept>}'
+     curl -sS -X POST https://maketherightmove.fabiodamico.xyz/api/scores -H 'content-type: application/json' -d '{"initials":"FAB","score":9999950,"session":<the session object you kept>,"record":{}}'
      ```
    - Every session issued before the new deploy stops verifying, so a game in progress as it is published ends "Couldn't confirm" (the next game gets a new session): pick a quiet moment.
    - Rotating V: redeploy or delete every live preview and branch deploy, or each keeps the old value.

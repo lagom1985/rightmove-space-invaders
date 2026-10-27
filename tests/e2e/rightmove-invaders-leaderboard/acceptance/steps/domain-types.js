@@ -59,7 +59,7 @@ export const Limit = Object.freeze({
 //   SESSION_AND_RECORD   slice 02 on: the signing also carries the game's record, so every deposit signed in a server
 //                        scenario is a game really played in Node (tests/common/played-games.js) and replayed.
 export const TableProtocol = Object.freeze({ BARE: 'bare', SESSION: 'session', SESSION_AND_RECORD: 'session and record' });
-export const TABLE_PROTOCOL = TableProtocol.SESSION;
+export const TABLE_PROTOCOL = TableProtocol.SESSION_AND_RECORD;
 
 // Every scenario's clock starts here (page clock and server clock alike).
 export const START = new Date('2026-01-01T09:00:00Z');

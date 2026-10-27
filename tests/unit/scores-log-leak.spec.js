@@ -8,11 +8,13 @@ import { createTablePort, encodeKey, handleScores, logToConsole } from '../../ne
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
+import { createGameSupply } from '../common/played-games.js';
 
 // Nothing about a player reaches the function's log (DDD-17, DDD-R14), whatever fails: a store error's message can
 // carry a key, and so initials and an id, and Netlify logs whatever reaches the console. Every signing carries a session
-// for the player's game (rightmove-invaders-replay-verified-scores), so its seed, its game id (the new row's id) and its
-// token are the player's too. The handler is given the production console logger and the production port, over a real
+// and the record of the player's game (rightmove-invaders-replay-verified-scores), a game really played in Node to its
+// deposit (tests/common/played-games.js), so its seed, its game id (the new row's id), its token, the session and the
+// record are the player's too. The handler is given the production console logger and the production port, over a real
 // BlobsServer store whose list, set and delete (any of them) throw an error naming a score key, and the signing part of
 // a signer built as the roots build theirs, from a known test secret (DDD-R17). Every console method is captured, so a
 // line on any of them is seen.
@@ -64,14 +66,15 @@ async function capturingConsole(call) {
 
 // A player whose initials and an id of theirs appear in every key the store holds or names: the rows held are theirs
 // too, their ids starting with "zq", which no log line's fixed text contains, so finding one in a line means it leaked.
-// Their signing is their game's, with its seed and a session the table sealed for it; the row it writes has the game id.
+// Their signing is their game's: the deposit it played to, a session the table sealed for its seed, and its record,
+// whose keys change often enough to be text of their own. The row it writes has the game id.
+const GAMES = (supply => [350, 1000, 1250, 1500].map(deposit => supply.take(deposit)))(createGameSupply());
 const player = fc.record({
   // Never on the word filter: a POST with those is refused 400 before a row's time is read, so the clock test's 500 can't come.
   initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials),
   id: fc.stringMatching(/^zq[a-z0-9]{4,10}$/),
-  seed: fc.stringMatching(/^[0-9a-f]{32}$/),
-  score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50),
-});
+  game: fc.constantFrom(...GAMES),
+}).map(({ initials, id, game }) => ({ initials, id, seed: game.seed, score: game.deposit, record: game.record, steps: game.steps }));
 const sessionOf = ({ seed }) => ({ seed, issuedAt: NOW, token: signer.sign(seed, NOW) });
 const ownKey = who => encodeKey({ ...who, at: NOW, id: gameIdOf(who.seed) });
 const operations = fc.subarray(STORE_OPERATIONS, { minLength: 1 });
@@ -84,21 +87,34 @@ async function holdRows(store, { initials, id }, count) {
 
 const requestFor = (verb, who) => verb === 'GET'
   ? new Request(URL)
-  : new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initials: who.initials, score: who.score, session: sessionOf(who) }) });
+  : new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initials: who.initials, score: who.score, session: sessionOf(who), record: who.record }) });
 
 function expectSaysNothingAbout(who, lines) {
-  const { token } = sessionOf(who);
+  const session = sessionOf(who);
   for (const { text } of lines) {
     expect(text, 'a key reached the console').not.toMatch(A_KEY);
     expect(text, 'the initials reached the console').not.toContain(who.initials);
     expect(text, 'an id reached the console').not.toContain(who.id);
     expect(text, 'the seed reached the console').not.toContain(who.seed);
     expect(text, 'the game id reached the console').not.toContain(gameIdOf(who.seed));
-    expect(text, 'the session\'s token reached the console').not.toContain(token);
+    expect(text, 'the session\'s token reached the console').not.toContain(session.token);
+    expect(text, 'the session reached the console').not.toContain(JSON.stringify(session));
+    expect(text, 'the record reached the console').not.toContain(JSON.stringify(who.record));
+    expect(text, 'the record\'s keys reached the console').not.toContain(who.record.keys);
   }
 }
 
-test('whatever part of the store fails, every request is answered, the console says nothing about the player, and no row is lost', async () => {
+// A signing that reached its replay carries the replay's steps and replayMs on its line (DDD-R14); a GET, neither. This
+// player's signing passes every check before the replay, so every POST here replayed, whatever the store did after.
+function expectReplayNoted(verb, who, lines) {
+  for (const { text } of lines) {
+    const line = JSON.parse(text);
+    if (verb === 'POST') expect(line, 'a line that replayed').toMatchObject({ steps: who.steps, replayMs: expect.any(Number) });
+    else expect([Object.hasOwn(line, 'steps'), Object.hasOwn(line, 'replayMs')], 'a line that never replayed: no steps, no replayMs').toEqual([false, false]);
+  }
+}
+
+test('whatever part of the store fails, every request is answered and the console says nothing about the player, its record included, and no row is lost', async () => {
   await fc.assert(fc.asyncProperty(player, operations, method, held, async (who, broken, verb, count) => {
     const store = freshStore();
     await holdRows(store, who, count);
@@ -108,6 +124,7 @@ test('whatever part of the store fails, every request is answered, the console s
       handleScores(requestFor(verb, who), port, { now: () => NOW, log: logToConsole, where: LOCAL, sessions: SIGNING }));
     expect(response).toBeInstanceOf(Response);
     expectSaysNothingAbout(who, lines);
+    expectReplayNoted(verb, who, lines);
     expect(lines.map(({ method }) => method), 'the log is one line, on console.log').toEqual(lines.map(() => 'log'));
     if (response.status === 500) {
       expect(await response.json()).toEqual({ error: 'unexpected' });
@@ -121,7 +138,7 @@ test('whatever part of the store fails, every request is answered, the console s
       universe: UNIVERSE,
       expected: { 'table.keys': satisfying('none removed, at most one added', (was, now) => was.every(key => now.includes(key)) && now.length - was.length <= 1) },
     });
-  }), { numRuns: RUNS, examples: [[{ initials: 'FAB', id: 'zqt1', seed: '0123456789abcdef0123456789abcdef', score: 1000 }, ['list'], 'GET', 1]] });
+  }), { numRuns: RUNS, examples: [[{ initials: 'FAB', id: 'zqt1', seed: GAMES[0].seed, score: GAMES[0].deposit, record: GAMES[0].record, steps: GAMES[0].steps }, ['list'], 'GET', 1]] });
 });
 
 test('when the clock itself fails, the answer is 500 unexpected, logged once as unexpected, and the console says nothing about the player', async () => {

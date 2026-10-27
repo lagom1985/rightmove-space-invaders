@@ -102,8 +102,9 @@ async function send(res, response) {
   res.writeHead(response.status, Object.fromEntries(response.headers)).end(answer);
 }
 
-// The body as a stream the function reads itself, so its 1 KB cap (DDD-5) is how much is read here too. What it leaves
-// unread is drained, never destroyed: destroying the request would take the socket, and the answer, with it.
+// The body as a stream the function reads itself, so its caps (DDD-5: 128 KB for a signing, DDD-R3; 1 KB for a session
+// request, DDD-R1) are how much is read here too. What it leaves unread is drained, never destroyed: destroying the
+// request would take the socket, and the answer, with it.
 function bodyOf(req) {
   const chunks = req.iterator({ destroyOnReturn: false });
   return new ReadableStream({

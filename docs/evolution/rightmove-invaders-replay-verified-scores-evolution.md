@@ -1,6 +1,6 @@
 # Evolution: rightmove-invaders-replay-verified-scores
 
-**Feature**: replay-verified scores for the shared high-score table of *Make the Right Move* · **Delivered**: 2026-10-27 on branch `rightmove-invaders-replay-verified-scores` (from `eeec237`, the DELIVER roadmap, to `9977b14`) · **Status**: slices 01 and 02 released on 2026-10-27, by PR #8 (merge `8305208`) and PR #9 (merge `babe1db`), each after its preview gate, and checked in production the same day. Slice 03 is complete on the branch and not pushed: its pull request and preview run (`--slice 03`, about 20 minutes) wait for the user's OK · **Full record**: [feature-delta.md](../feature/rightmove-invaders-replay-verified-scores/feature-delta.md)
+**Feature**: replay-verified scores for the shared high-score table of *Make the Right Move* · **Delivered**: 2026-10-27 on branch `rightmove-invaders-replay-verified-scores` (from `eeec237`, the DELIVER roadmap, to `9977b14`) · **Status**: slices 01 and 02 released on 2026-10-27, by PR #8 (merge `8305208`) and PR #9 (merge `babe1db`), each after its preview gate, and checked in production the same day. Slice 03 was released the same evening by PR #11 (merge `c16cde7`), after its preview gate (S11, S12 and S13 pass; K10 p95 1,742 ms against D21's revised 1,750, a thin margin), and checked in production the same day (P1, P2, and the owner's game of £15,450, replayed and saved) · **Full record**: [feature-delta.md](../feature/rightmove-invaders-replay-verified-scores/feature-delta.md)
 
 ## Summary
 
@@ -86,11 +86,7 @@ The 25 steps ran from 09:51 to 18:18 UTC (the execution log), and the whole of D
 
 ## Still open
 
-- **Slice 03's release, with the user's OK** (the feature delta's [Pre-requisites](../feature/rightmove-invaders-replay-verified-scores/feature-delta.md#wave-deliver--ref-pre-requisites)):
-  1. Push the branch and open slice 03's pull request: 8 commits ahead of `main`, plus the record, and it merges cleanly.
-  2. Run `--slice 03` on its preview: S11–S13, about 20 minutes. The owner reads S13's `replayMs` for D21's 650 ms.
-  3. DoD 8 on that preview, Safari on a real Mac included, and the PO's check.
-  4. Merge, then P1–P3 and the owner's game the same day. K23's 30 days run from this release.
+- **Slice 03 is released** (PR #11, merge `c16cde7`, 2026-10-27): its preview gate passed (S11, S12, S13), and P1, P2 and the owner's game passed in production the same day. K23's 30 days run from this release. Still open from its list: DoD 8 by hand in Safari on a real Mac, and the PO's check (DoD 9).
 - **The owner**:
   - publish the release note, which covers all three releases;
   - delete `deploy-preview-6`'s deploy, and `deploy-preview-10`'s, which has no rate limit;

@@ -1,9 +1,6 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
-import {
-  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, applySeedSource,
-  tableAnswered, tableFailed, signingAnswered, signingFailed,
-} from './game/game.js';
+import { createGame } from './game/game.js';
 import { createRenderer } from './view/render.js';
 import { createStatus } from './view/status.js';
 import { createSynth } from './sound/synth.js';
@@ -12,9 +9,19 @@ import { loadSettings, saveSetting, loadBest, saveBest } from './platform/storag
 import { createLeaderboard } from './platform/leaderboard.js';
 import { GameEvent } from './game/events.js';
 
+// The page's one game, kept here: main.js exports nothing, so no module of the page holds a game in play (DDD-R7). Each
+// game's seed is drawn by the rules as it starts: 128 bits from Math.random, as 32 lowercase hex (DDD-R6).
+const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');   // 32 bits, 8 hex
+const newSeed = () => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`;
+const {
+  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore,
+  tableAnswered, tableFailed, signingAnswered, signingFailed, canPlayAgain, invaderX, invaderY,
+} = createGame({ newSeed });
+
 const keyboard = createKeyboard(window);
 const heldKeys = Object.freeze({ isDown: keyboard.isDown });   // all the rules' fixed step sees of the keyboard (DDD-T14)
-const renderer = createRenderer(document.getElementById('game'));
+// The canvas reads the game and can't control it (the user, 2026-10-27).
+const renderer = createRenderer(document.getElementById('game'), Object.freeze({ g, canPlayAgain, invaderX, invaderY }));
 const syncStatus = createStatus(document.getElementById('status'));
 
 // Sound: the rules publish events, the director turns them into cues, the synth plays them.
@@ -27,9 +34,6 @@ const synth = createSynth({
 });
 applySettings(loadSettings());   // before the first frame; g.settings is the one authority from here on
 applyBestStore({ load: loadBest, save: saveBest });   // the best score is read now and written when a game ends on a new best
-// Each game's seed, drawn by the rules as it starts: 128 bits from Math.random, as 32 lowercase hex (DDD-R6).
-const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');   // 32 bits, 8 hex
-applySeedSource(() => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`);
 const director = createSoundDirector({ ...g.settings });
 
 // The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between

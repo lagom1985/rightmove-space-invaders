@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { loadFreshGame, arrange } from './support/fresh-game.js';
+import { arrange } from './support/fresh-game.js';
 import { assertStateDelta, setTo } from '../common/state-delta.js';
 import { createChance } from '../../src/game/chance.js';
+import { createGame } from '../../src/game/game.js';
 import { GameEvent } from '../../src/game/events.js';
 
 // The game's chance (DDD-R6): createChance(seed) is sfc32 over the 32-hex seed's four 32-bit words, warmed up 12 draws,
@@ -56,18 +57,17 @@ test('two different seeds give different sequences', () => {
 });
 
 // ---- the game's seed ----
-// startGame draws one seed from the source main.js hands over (applySeedSource), creates the game's chance, publishes
+// startGame draws one seed from the game's source (createGame's newSeed), creates the game's chance, publishes
 // gameStarted { seed }, and only then starts the wave, whose Dream Home timer is the game's first draw. A game played
 // again starts a chance of its own: its first draw is its seed's first, not the next of the game before.
 // Universe: the seeds the source handed, the gameStarted events published, the screen and the Dream Home timer.
 const UNIVERSE = ['seeds handed', 'games started', 'screen', 'dreamTimer'];
 const firstDreamTimer = given => 12 + createChance(given).next() * 10;
 
-test('each game draws one seed as it starts, publishes it in gameStarted, and plays its own chance from that seed', async () => {
-  await fc.assert(fc.asyncProperty(fc.uniqueArray(seed, { minLength: 2, maxLength: 4 }), async seeds => {
-    const rules = await loadFreshGame();
+test('each game draws one seed as it starts, publishes it in gameStarted, and plays its own chance from that seed', () => {
+  fc.assert(fc.property(fc.uniqueArray(seed, { minLength: 2, maxLength: 4 }), seeds => {
     const handed = [];
-    rules.applySeedSource(() => { handed.push(seeds[handed.length]); return handed.at(-1); });
+    const rules = createGame({ newSeed: () => { handed.push(seeds[handed.length]); return handed.at(-1); } });
     let started = [];
     const observe = () => ({
       'seeds handed': [...handed], 'games started': [...started], screen: rules.snapshot().screen, dreamTimer: rules.g.dreamTimer,
@@ -96,9 +96,9 @@ test('each game draws one seed as it starts, publishes it in gameStarted, and pl
   }), { numRuns: 30 });
 });
 
-// bypass: one fixed condition, a module no seed source was handed to.
-test('without a seed source, Enter on the title throws and leaves the game on the title', async () => {
-  const rules = await import('../../src/game/game.js?no-seed-source');
+// bypass: one fixed condition, a game made without a seed source.
+test('without a seed source, Enter on the title throws and leaves the game on the title', () => {
+  const rules = createGame({});
   expect(() => rules.handlePresses(new Set(['Enter']))).toThrow(/seed source/);
   expect(rules.snapshot().screen).toBe('title');
   expect(rules.takeEvents()).toEqual([]);

@@ -16,7 +16,7 @@ Feature: A deposit changed in the browser never reaches the table
     And the high-score table everyone reads has no row for HAX
 
   # Defence in depth (ADR-013): the page's modules expose no game in play.
-  @pending @US-03 @D1 @DDD-R7 @real-io @error
+  @US-03 @D1 @DDD-R7 @real-io @error
   Scenario: The console line of the 2026-10-26 forgery can't reach the game in play
     Given I have opened the game
     And I have started a new game

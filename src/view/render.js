@@ -1,7 +1,7 @@
 import { W, H, PX } from '../game/config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, ladderName, pounds } from '../theme/theme.js';
 import { SW, SH, BRICK, WINDOW } from '../game/shields.js';
-import { g, canPlayAgain, invaderX, invaderY, IW, SHOT_W, SHOT_H } from '../game/game.js';
+import { IW, SHOT_W, SHOT_H } from '../game/game.js';
 import { INITIALS_LENGTH } from '../game/high-scores.js';
 import { INITIALS_NOTICES, PLAY_AGAIN, SIGNING_MESSAGES, SIGNING_SKIPPED, TABLE_UNAVAILABLE } from './messages.js';
 import { backdropPlan, createBackdropCache, showBackdrop } from './backdrop.js';
@@ -61,30 +61,30 @@ function outlinedText(ctx, s, x, y, size, color, align = 'left') {
   text(ctx, s, x, y, size, color, align);
 }
 
-const blink = () => (g.t * 2 | 0) % 2 === 0;
+const blink = g => (g.t * 2 | 0) % 2 === 0;
 
-function drawShields(ctx, shieldCanvas) {
+function drawShields(ctx, g, shieldCanvas) {
   for (const s of g.shields) ctx.drawImage(shieldCanvas(s), s.x, s.y, SW * PX, SH * PX);
 }
 
-function drawFormation(ctx, sprites) {
+function drawFormation(ctx, { g, invaderX, invaderY }, sprites) {
   for (const v of g.invaders) if (v.alive) blit(ctx, sprites.hurdles[v.type][g.formation.frame], invaderX(v), invaderY(v));
 }
 
-function drawDreamHome(ctx, sprites) {
+function drawDreamHome(ctx, g, sprites) {
   if (g.dream) blit(ctx, sprites.dream, g.dream.x, g.dream.y);
 }
 
-function drawPlayer(ctx, sprites) {
+function drawPlayer(ctx, g, sprites) {
   if (g.state !== 'dead' && !(g.state === 'over' && g.lives === 0)) blit(ctx, sprites.pin, g.player.x, g.player.y);
 }
 
-function drawShot(ctx) {
+function drawShot(ctx, g) {
   if (g.shot) { ctx.fillStyle = COLORS.green; ctx.fillRect(g.shot.x, g.shot.y, SHOT_W, SHOT_H); }
 }
 
 // A bolt is four dashes that zig-zag from side to side.
-function drawBolts(ctx) {
+function drawBolts(ctx, g) {
   const zig = (g.t * 16 | 0) % 2 ? 2 : -2;
   for (const b of g.bolts) {
     ctx.fillStyle = b.color;
@@ -92,20 +92,20 @@ function drawBolts(ctx) {
   }
 }
 
-function drawParticles(ctx) {
+function drawParticles(ctx, g) {
   for (const p of g.particles) { ctx.globalAlpha = p.life / p.max; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 3, 3); }
 }
 
-function drawFloatingTexts(ctx) {
+function drawFloatingTexts(ctx, g) {
   for (const m of g.texts) { ctx.globalAlpha = Math.min(1, m.life); text(ctx, m.text, m.x, m.y, 8, m.color, 'center'); }
 }
 
 // One small pin per life left.
-function drawLives(ctx, sprites) {
+function drawLives(ctx, g, sprites) {
   for (let i = 0; i < g.lives; i++) blit(ctx, sprites.pin, 24 + i * 34, H - 28, 2);
 }
 
-function drawHud(ctx) {
+function drawHud(ctx, g) {
   text(ctx, 'Deposit saved', 24, 28, 8, COLORS.dim); text(ctx, pounds(g.score), 24, 52, 16, COLORS.text);
   text(ctx, 'Property ladder', W / 2, 28, 8, COLORS.dim, 'center'); text(ctx, ladderName(g.level), W / 2, 52, 16, COLORS.green, 'center');
   text(ctx, 'Best', W - 24, 28, 8, COLORS.dim, 'right'); text(ctx, pounds(Math.max(g.best, g.score)), W - 24, 52, 16, COLORS.text, 'right');
@@ -113,21 +113,21 @@ function drawHud(ctx) {
   switchedOff.forEach((name, i) => text(ctx, OFF_LABELS[name], W - 24, H - 14 - i * 16, 8, COLORS.dim, 'right'));
 }
 
-const hasHighScores = () => g.table.status === 'available' && g.table.rows.length > 0;
+const hasHighScores = g => g.table.status === 'available' && g.table.rows.length > 0;
 
 // Arcade attract mode: while the table is available and has rows, every few seconds it takes the hurdles' place.
-const attractShowsTable = () => hasHighScores() && (g.t / ATTRACT_SECONDS | 0) % 2 === 1;
+const attractShowsTable = g => hasHighScores(g) && (g.t / ATTRACT_SECONDS | 0) % 2 === 1;
 
-function drawTitle(ctx, sprites) {
+function drawTitle(ctx, g, sprites) {
   text(ctx, 'Make the', W / 2, 150, 16, COLORS.text, 'center');
   text(ctx, 'Right Move', W / 2, 205, 40, COLORS.green, 'center');
   text(ctx, 'Defend your dream home from the hurdles', W / 2, 250, 8, COLORS.dim, 'center');
-  if (attractShowsTable()) drawHighScores(ctx, 300); else drawHurdleLegend(ctx, sprites);
-  if (blink()) text(ctx, 'Press Enter to start', W / 2, 620, 16, COLORS.green, 'center');
+  if (attractShowsTable(g)) drawHighScores(ctx, g, 300); else drawHurdleLegend(ctx, g, sprites);
+  if (blink(g)) text(ctx, 'Press Enter to start', W / 2, 620, 16, COLORS.green, 'center');
   text(ctx, 'Arrows / A D  move     Space  fire     P  pause     M  sound     N  music', W / 2, 660, 8, COLORS.dim, 'center');
 }
 
-function drawHurdleLegend(ctx, sprites) {
+function drawHurdleLegend(ctx, g, sprites) {
   HURDLES.forEach((h, i) => {
     const y = 290 + i * 44;
     blit(ctx, sprites.hurdles[i][(g.t * 2 | 0) % 2], 290, y);
@@ -140,7 +140,7 @@ function drawHurdleLegend(ctx, sprites) {
 
 // Rank, initials and deposit, a row each. The confirmed current signing's row is picked out in green, in any later game
 // too (its id is set once it is confirmed).
-function drawHighScores(ctx, y) {
+function drawHighScores(ctx, g, y) {
   text(ctx, 'High scores', W / 2, y, 16, COLORS.green, 'center');
   const mine = g.signing?.id ?? null;
   g.table.rows.forEach((row, i) => {
@@ -156,12 +156,12 @@ function drawHighScores(ctx, y) {
 // Messages): the too-few hint, or initials on the word filter refused in red.
 const NOTICE_COLORS = { 'too-few': COLORS.text, refused: COLORS.danger };
 
-function drawInitialsEntry(ctx, y) {
+function drawInitialsEntry(ctx, g, y) {
   const { letters, notice } = g.initials;
   text(ctx, 'New high score!', W / 2, y, 24, COLORS.green, 'center');
   for (let i = 0; i < INITIALS_LENGTH; i++) {
     const next = i === letters.length;
-    if (!next || blink()) text(ctx, letters[i] ?? '_', W / 2 + (i - 1) * 64, y + 80, 40, next ? COLORS.green : COLORS.text, 'center');
+    if (!next || blink(g)) text(ctx, letters[i] ?? '_', W / 2 + (i - 1) * 64, y + 80, 40, next ? COLORS.green : COLORS.text, 'center');
   }
   text(ctx, 'Type 3 letters   Enter sign   Backspace delete   Esc skip', W / 2, y + 130, 8, COLORS.dim, 'center');
   if (notice) text(ctx, INITIALS_NOTICES[notice.kind], W / 2, y + 160, 8, NOTICE_COLORS[notice.kind], 'center');
@@ -171,31 +171,31 @@ function drawInitialsEntry(ctx, y) {
 // only as its green row.
 const SIGNING_COLORS = { pending: COLORS.dim, confirmed: COLORS.green, 'off-table': COLORS.text, unconfirmed: COLORS.danger };
 
-function drawSigning(ctx, y) {
+function drawSigning(ctx, g, y) {
   const { status } = g.signing;
   text(ctx, SIGNING_MESSAGES[status](g.signing), W / 2, y, 8, SIGNING_COLORS[status], 'center');
 }
 
-function drawWaveCleared(ctx) {
+function drawWaveCleared(ctx, g) {
   text(ctx, 'Wave cleared!', W / 2, 300, 24, COLORS.green, 'center');
   text(ctx, 'Moving up the ladder to', W / 2, 345, 8, COLORS.dim, 'center');
   text(ctx, ladderName(g.level + 1), W / 2, 385, 24, COLORS.text, 'center');
 }
 
-function drawGameOver(ctx) {
+function drawGameOver(ctx, { g, canPlayAgain }) {
   ctx.fillStyle = 'rgba(20,20,32,0.78)'; ctx.fillRect(0, 0, W, H);
-  const { top, again } = OVER_LAYOUTS[g.initials || hasHighScores() ? 'compact' : 'classic'];
+  const { top, again } = OVER_LAYOUTS[g.initials || hasHighScores(g) ? 'compact' : 'classic'];
   text(ctx, g.overReason, W / 2, top, 40, COLORS.danger, 'center');
   text(ctx, 'Deposit saved  ' + pounds(g.score), W / 2, top + 70, 16, COLORS.text, 'center');
   text(ctx, 'Reached  ' + ladderName(g.level), W / 2, top + 110, 16, COLORS.green, 'center');
   if (g.newBest) text(ctx, 'New best!', W / 2, top + 160, 16, COLORS.dream, 'center');
-  if (g.initials) { drawInitialsEntry(ctx, top + 230); return; }   // open until Enter signs or Esc skips
-  if (g.signedThisGame) drawSigning(ctx, top + 182);   // between "New best!" and the list
+  if (g.initials) { drawInitialsEntry(ctx, g, top + 230); return; }   // open until Enter signs or Esc skips
+  if (g.signedThisGame) drawSigning(ctx, g, top + 182);   // between "New best!" and the list
   if (g.skipped) text(ctx, SIGNING_SKIPPED, W / 2, top + 182, 8, COLORS.dim, 'center');   // where the signing line goes
-  if (hasHighScores()) drawHighScores(ctx, top + 200);
+  if (hasHighScores(g)) drawHighScores(ctx, g, top + 200);
   // Only a table that can't be reached is mentioned; while it is unknown, nothing is (DISTILL, Messages).
   if (g.table.status === 'unavailable') text(ctx, TABLE_UNAVAILABLE, W / 2, top + 200, 8, COLORS.dim, 'center');
-  if (canPlayAgain() && blink()) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
+  if (canPlayAgain() && blink(g)) text(ctx, PLAY_AGAIN, W / 2, again, 16, COLORS.green, 'center');
 }
 
 function drawPaused(ctx) {
@@ -204,7 +204,9 @@ function drawPaused(ctx) {
   text(ctx, 'Press P to resume', W / 2, 390, 16, COLORS.dim, 'center');
 }
 
-export function createRenderer(canvas) {
+// view: the game, read only, as main.js hands it over: { g, canPlayAgain, invaderX, invaderY }. No control method of the
+// game reaches the canvas (DDD-R7).
+export function createRenderer(canvas, view) {
   const ctx = canvas.getContext('2d');
   const sprites = {
     hurdles: HURDLES.map(h => h.frames.map(f => sprite(f, h.color))),
@@ -228,23 +230,24 @@ export function createRenderer(canvas) {
   }
 
   function draw() {
+    const { g } = view;
     showBackdrop(ctx, backdropPlan({ level: g.level, state: g.state, banner: g.banner }), store.canvasFor);
-    if (g.state === 'title') { drawTitle(ctx, sprites); drawHud(ctx); return; }
+    if (g.state === 'title') { drawTitle(ctx, g, sprites); drawHud(ctx, g); return; }
 
-    drawShields(ctx, shieldCanvas);
-    drawFormation(ctx, sprites);
-    drawDreamHome(ctx, sprites);
-    drawPlayer(ctx, sprites);
-    drawShot(ctx);
-    drawBolts(ctx);
-    drawParticles(ctx);
-    drawFloatingTexts(ctx);
+    drawShields(ctx, g, shieldCanvas);
+    drawFormation(ctx, view, sprites);
+    drawDreamHome(ctx, g, sprites);
+    drawPlayer(ctx, g, sprites);
+    drawShot(ctx, g);
+    drawBolts(ctx, g);
+    drawParticles(ctx, g);
+    drawFloatingTexts(ctx, g);
     ctx.globalAlpha = 1;   // particles and floating texts fade by alpha: everything after draws solid
-    drawLives(ctx, sprites);
-    drawHud(ctx);
+    drawLives(ctx, g, sprites);
+    drawHud(ctx, g);
 
-    if (g.state === 'clear') drawWaveCleared(ctx);
-    if (g.state === 'over') drawGameOver(ctx);
+    if (g.state === 'clear') drawWaveCleared(ctx, g);
+    if (g.state === 'over') drawGameOver(ctx, view);
     if (g.paused) drawPaused(ctx);
   }
 

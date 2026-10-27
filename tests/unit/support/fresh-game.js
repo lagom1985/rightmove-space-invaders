@@ -1,15 +1,14 @@
 import { expect } from '@playwright/test';
+import * as module from '../../../src/game/game.js';
 
-// The rules module (src/game/game.js) keeps one game's state, so every property run plays a fresh copy of it. Each copy
-// gets its seed source as main.js hands it over (applySeedSource): 128 bits from Math.random, as 32 lowercase hex.
-let copies = 0;
+// Every property run plays a game of its own: the module's exports (its sizes and pure rules) merged with a fresh game
+// from createGame (DDD-R7), so the harnesses keep reading rules.g, rules.update and rules.IW. Its seeds are drawn as
+// main.js draws them: 128 bits from Math.random, as 32 lowercase hex.
 const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');
 const newSeed = () => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`;
 
 export async function loadFreshGame() {
-  const rules = await import(`../../../src/game/game.js?copy=${++copies}`);
-  rules.applySeedSource(newSeed);
-  return rules;
+  return { ...module, ...module.createGame({ newSeed }) };
 }
 
 // Plays with a deterministic Math.random, which picks each game's seed and so every draw it plays (enemy fire, the Dream

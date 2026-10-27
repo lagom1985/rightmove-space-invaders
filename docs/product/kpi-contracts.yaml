@@ -197,7 +197,7 @@ kpis:
   # and DEVOPS "Monitoring contracts"). The smoke steps S1-S13 are specified in that feature delta (DEVOPS, "Preview
   # smoke test, extended"); DELIVER implements them in scripts/smoke-leaderboard.mjs. DISTILL adds local_scenarios.
   # Release-check triggers grow: a change to anything the function bundles (src/game/**, src/theme/**,
-  # netlify/scores/**) re-runs K10 and K22 on a preview. K10's budget for signings that replay is D21's (1,250 ms).
+  # netlify/scores/**) re-runs K10 and K22 on a preview. K10's budget for signings that replay is D21's: 1,750 ms, as the user revised it after slice 02's preview (2026-10-27; first 1,250 ms, measured 1,459 ms).
   - id: K20
     feature: rightmove-invaders-replay-verified-scores
     name: Forgeries are refused
@@ -219,11 +219,11 @@ kpis:
   - id: K22
     feature: rightmove-invaders-replay-verified-scores
     name: A long game is verified in time on Netlify
-    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line), scaled to 60 minutes of game time, under 1 s. A 60-minute worst-spacing body (about 119 KB) is posted too, for its upload and parsing time only: its junk inputs end the game early, so its replay is short"
+    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line) recorded and scaled to 60 minutes of game time (its 1 s target dropped by the user after slice 02's preview, 2026-10-27: 1,299 ms for 110,583 steps, about 5 s scaled; a game near 60 minutes may end saved but unconfirmed, accepted, D21). A 60-minute worst-spacing body (about 119 KB) is posted too, for its upload and parsing time only: its junk inputs end the game early, so its replay is short"
     measured_by: "smoke step S7, and the owner reading the log line"
     window: "slice 02's preview, before the clock check lands; again on the release-check triggers (after slice 03, each session is asked at least its game's length ahead, 60 minutes for the 60-minute body)"
     gate: hard
-    local_scenarios: "@kpi-K22 (DISTILL, 2026-10-26, revised 2026-10-27; @pending until E5 and slice 02): milestone-7 'The longest recorded game signs, and is saved with its deposit' (at least 15 minutes, with its scores.signed line's steps and replayMs) and 'The largest record a human could make in an hour is read and played back, not refused as too long' (about 119 KB: it shows the 60-minute record fits, not a 60-minute replay, since its made-up changes end the game within minutes). No local scenario plays back an honest 60-minute game: none exists to play. K22's target, a 60-minute replay under 1 s on Netlify, is S7's alone, scaled from the longest recorded game"
+    local_scenarios: "@kpi-K22 (DISTILL, 2026-10-26, revised 2026-10-27; @pending until E5 and slice 02): milestone-7 'The longest recorded game signs, and is saved with its deposit' (at least 15 minutes, with its scores.signed line's steps and replayMs) and 'The largest record a human could make in an hour is read and played back, not refused as too long' (about 119 KB: it shows the 60-minute record fits, not a 60-minute replay, since its made-up changes end the game within minutes). No local scenario plays back an honest 60-minute game: none exists to play. K22's 60-minute figure is S7's alone, scaled from the longest recorded game"
     baseline: "probe: about 50 ms for 10 minutes in Node 22 on an M4 Pro, so about 0.3 s for 60 minutes; not measured on Netlify"
   - id: K23
     feature: rightmove-invaders-replay-verified-scores

@@ -356,3 +356,43 @@ test('a signing whose session the table didn\'t seal is invalid-session, logged 
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 25 });
 });
+
+// A session lasts 2 hours, on the handler's own clock (D18; DDD-R2's lifetime; Signing checks rows 9b and 10, C8): verify
+// takes no clock, so the handler judges a sealed session's issue time with its now and the roots' clockAllowanceMs
+// (10 s). For any issue time, an otherwise good signing is 400 session-expired exactly when its session is more than 2
+// hours old (now - issuedAt > 7,200,000), and 400 invalid-session exactly when it was issued more than 10 s after now.
+// Either is never kept, is logged scores.rejected with its reason and nothing of the player, and saves nothing; any
+// other issue time signs. The issue times crowd both edges, so a check one millisecond off is caught.
+const CLOCK_ALLOWANCE_MS = 10_000;
+const LIFETIME_MS = 2 * HOUR;
+const issuedFromNow = fc.oneof(
+  fc.integer({ min: -3 * HOUR, max: 60_000 }),
+  fc.integer({ min: -LIFETIME_MS - 2, max: -LIFETIME_MS + 2 }),
+  fc.integer({ min: CLOCK_ALLOWANCE_MS - 2, max: CLOCK_ALLOWANCE_MS + 2 }),
+);
+const lifetimeRefusal = fromNow => {
+  if (fromNow > CLOCK_ALLOWANCE_MS) return 'invalid-session';
+  return -fromNow > LIFETIME_MS ? 'session-expired' : null;
+};
+
+test('a signing is session-expired exactly past 2 hours, and invalid-session exactly when issued more than 10 s ahead, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, signature, seed, issuedFromNow, async (rows, signed, game, fromNow) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+    const response = await handleScores(signing({ ...signed, session: sessionFor(game, NOW + fromNow) }), createTablePort(store), options);
+    const refused = lifetimeRefusal(fromNow);
+    const ownRow = encodeKey({ ...signed, at: NOW, id: gameIdOf(game) });
+    expect(response.status, `issued ${fromNow} ms from now`).toBe(refused ? 400 : 200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toMatchObject(refused ? { error: refused } : { id: gameIdOf(game) });
+    expect(logs.map(({ event, reason }) => ({ event, reason })), 'one line, its reason').toEqual([refused ? { event: 'scores.rejected', reason: refused } : { event: 'scores.signed', reason: 'ok' }]);
+    if (refused) expect(logs[0], 'nothing of the player').toEqual({ event: 'scores.rejected', reason: refused, ms: expect.any(Number), ...LOCAL });
+    assertStateDelta(before, await snapshot(store), {
+      universe: UNIVERSE,
+      expected: refused ? {} : { 'table.keys': setTo([...before['table.keys'], ownRow].sort()) },
+    });
+  }), { numRuns: 40, examples: [[[], { initials: 'FAB', score: 1000 }, '0123456789abcdef0123456789abcdef', -LIFETIME_MS - 1], [[], { initials: 'FAB', score: 1000 }, '0123456789abcdef0123456789abcdef', CLOCK_ALLOWANCE_MS + 1]] });
+});

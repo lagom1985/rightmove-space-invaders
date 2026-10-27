@@ -71,7 +71,7 @@ Feature: Only a game the table sealed can sign it, and only once
     And what the owner sees says nothing about the player
     And the high-score table now shows ALX with £1,250 once
 
-  @pending @US-01 @D7 @D16 @D18 @DDD-R2 @DDD-R4 @server @real-io @error @edge @kpi-K20
+  @US-01 @D7 @D16 @D18 @DDD-R2 @DDD-R4 @server @real-io @error @edge @kpi-K20
   Scenario Outline: A session lasts 2 hours: <history>, then signed with a session issued <when>
     Given the high-score table holds KIM with £2,000
     And Alex's game has <history>

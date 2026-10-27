@@ -10,10 +10,10 @@
 // sort as strings into arcade order: higher score first, then the earlier entry. One row per game (DDD-R4): the
 // table shows only the key each game signed first.
 // The handlers reach the store only through the restricted table port (createTablePort, DDD-4), which a composition
-// root builds and hands them, with the session signer it builds from its secret (DDD-R2), the clock, the logger and
-// where the table is kept: the default export below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one
-// store per test board), and the acceptance harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/
-// table-service.js). Each handler is handed only its part of the port and of the signer (dispatch, below).
+// root builds and hands them, with the session signer it builds from its secret (DDD-R2), the clock and its allowance,
+// the logger and where the table is kept: the default export below on Netlify, scripts/serve.mjs locally (the Blobs
+// emulator, one store per test board), and the acceptance harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/
+// steps/table-service.js). Each handler is handed only its part of the port and of the signer (dispatch, below).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
 import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
@@ -39,7 +39,7 @@ const STORES = Object.freeze({
 export default async function scores(request, context) {
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
-  const options = { now: Date.now, log: logToConsole, where };
+  const options = { now: Date.now, log: logToConsole, where, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
   const path = pathOf(request);
   const refused = refuseBeforeTheTable(path, request.method, options);
   if (refused) return refused;
@@ -48,6 +48,10 @@ export default async function scores(request, context) {
   if (!port) return failed(record, 'store-unavailable', PATHS.get(path).error);
   return dispatch(request, port, options, signerFrom(process.env.SCORES_SESSION_SECRET));
 }
+
+// How far ahead of a root's clock a session may have been issued, by another instance's (DDD-R2, DDD-R11): 10 s, the
+// same for both roots.
+export const CLOCK_ALLOWANCE_MS = 10_000;
 
 // The session signer a secret's value makes, or null.
 function signerFrom(value) {
@@ -208,10 +212,11 @@ function failed(record, reason, event = SCORES.error) {
   return answer(500, { error: 'unexpected' });
 }
 
-// options, from the composition root: now () -> ms (a new row's time, and listedAt), log (receives one entry per
-// request), where ({ scope, context, published }, logged as given) and sessions (the signer's verify and gameId, or
-// null when the root has no secret). A GET is handed the port's list alone. Nothing escapes the handler (DDD-17):
-// whatever throws is answered 500 unexpected and logged as unexpected, so the promise always resolves.
+// options, from the composition root: now () -> ms (a new row's time, listedAt, and a session's age), log (receives one
+// entry per request), where ({ scope, context, published }, logged as given), sessions (the signer's verify and gameId,
+// or null when the root has no secret) and clockAllowanceMs (how far ahead of now a session may have been issued). A
+// GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws is answered 500
+// unexpected and logged as unexpected, so the promise always resolves.
 export async function handleScores(request, port, options) {
   const record = journal(options);
   try {
@@ -287,7 +292,7 @@ function table(keys) {
 
 // A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
 async function sign(request, port, options, record) {
-  const { signing, refused } = await readSigning(request, options.sessions);
+  const { signing, refused } = await readSigning(request, options);
   if (refused) return refuse(record, refused);
   return save(signing, port, options, record);
 }
@@ -360,8 +365,8 @@ function notSaved(record) {
 // £9,999,950. The one after its write, already-signed, removes what it wrote, or leaves it to pruning (save).
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
-  'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
-  'invalid-seed': 400, 'already-signed': 409,
+  'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'session-expired': 400,
+  'implausible-score': 400, 'invalid-seed': 400, 'already-signed': 409,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
@@ -379,24 +384,35 @@ const isSigning = signing => {
     && isValidSignature({ initials: signing.initials, score: signing.score });
 };
 
-// What a parsed body must be, in order (Signing checks, rows 6 to 9 and 15): a body without a session is one no game
+// A session lasts 2 hours (D18), judged on the handler's own clock, since verify takes none (DDD-R2, C8): one issued
+// more than clockAllowanceMs after now is one the table didn't seal (row 9b), and one more than 2 hours old has expired
+// (row 10).
+const SESSION_LIFETIME_MS = 7_200_000;   // 2 hours
+const fromTheFuture = ({ session }, { now, clockAllowanceMs }) => session.issuedAt - now() > clockAllowanceMs;
+const expired = ({ session }, { now }) => now() - session.issuedAt > SESSION_LIFETIME_MS;
+
+// What a parsed body must be, in order (Signing checks, rows 6 to 10 and 15): a body without a session is one no game
 // asked for (a page loaded before sessions, or a forgery sent from a terminal). A session the table didn't seal is
 // invalid-session, whatever it carries: verify looks at its shape before its seal and never throws (DDD-R2), so a
-// session changed, cut short or made up, or a value that isn't a session at all, stops at row 9.
+// session changed, cut short or made up, or a value that isn't a session at all, stops at row 9, and only a sealed
+// session's issue time is judged.
 const SIGNING_CHECKS = Object.freeze([
   ['session-required', hasSession],
   ['invalid-signature', isSigning],
   ['initials-not-allowed', signing => isAllowedInitials(signing.initials)],
-  ['invalid-session', (signing, { verify }) => verify(signing.session)],
+  ['invalid-session', (signing, { sessions }) => sessions.verify(signing.session)],
+  ['invalid-session', (signing, options) => !fromTheFuture(signing, options)],
+  ['session-expired', (signing, options) => !expired(signing, options)],
   ['implausible-score', signing => isPlausibleScore(signing.score)],
 ]);
 
-// { signing } or { refused: the error code }.
-async function readSigning(request, sessions) {
+// { signing } or { refused: the error code }. options as the handler's: the checks use sessions, now and
+// clockAllowanceMs.
+async function readSigning(request, options) {
   const { json: signing, refused: unread } = await readJson(request, BODY_CAP);
   if (unread) return { refused: unread };
   if (signing === undefined) return { refused: 'invalid-signature' };
-  const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, sessions)) ?? [];
+  const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, options)) ?? [];
   return refused ? { refused } : { signing };
 }
 

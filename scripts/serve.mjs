@@ -5,8 +5,9 @@
 // real @netlify/blobs client, against the Blobs emulator in a fresh temporary directory, so every start begins with
 // empty tables and needs no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side);
 // without one, the table is `local`. This is a composition root: it chooses the store, builds the port and the session
-// signer, and dispatches as the Netlify entry does, handing each handler its part, the clock, the logger and where the
-// table is kept (scope local). Its secret is 32 random bytes of its own at each start, never production's (DDD-R2, E1).
+// signer, and dispatches as the Netlify entry does, handing each handler its part, the clock and its allowance, the
+// logger and where the table is kept (scope local). Its secret is 32 random bytes of its own at each start, never
+// production's (DDD-R2, E1).
 // For the tests only, a test board can also be handed rows without a game (POST /__test/rows, DDD-R17).
 import { STATUS_CODES, createServer } from 'node:http';
 import { rmSync } from 'node:fs';
@@ -19,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import {
-  EVERY_ANSWER, createTablePort, dispatch, encodeKey, logToConsole, newId, refuseBeforeTheTable,
+  CLOCK_ALLOWANCE_MS, EVERY_ANSWER, createTablePort, dispatch, encodeKey, logToConsole, newId, refuseBeforeTheTable,
 } from '../netlify/functions/scores.mjs';
 import { createSessionSigner } from '../netlify/scores/sessions.mjs';
 
@@ -35,7 +36,8 @@ const TABLE_PATHS = Object.freeze(['/api/scores', SESSIONS_PATH]);
 const TEST_ROWS = '/__test/rows';
 // What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
-const tableOptions = Object.freeze({ now: Date.now, log: logToConsole, where: LOCAL });   // the production clock and logger
+// The production clock, its allowance and the production logger.
+const tableOptions = Object.freeze({ now: Date.now, log: logToConsole, where: LOCAL, clockAllowanceMs: CLOCK_ALLOWANCE_MS });
 const signer = createSessionSigner(randomBytes(32));
 const STOP_WITHIN_MS = 1000;   // a request still in flight can hold the emulator open; the directory goes regardless
 

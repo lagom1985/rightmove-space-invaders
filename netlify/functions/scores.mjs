@@ -219,13 +219,15 @@ export async function handleSessions(request, port, options) {
   }
 }
 
-// A session can only be asked for, and only of a table with a secret, which is checked before the body is read. All
-// or nothing: a session is issued only with its own listing's rows, so a listing that fails issues none (500,
-// list-failed). The issued line carries how long the request took (ms), and never the seed, the token or a game id.
+// A session can only be asked for, and only of a table with a secret, which is checked before the body is read; then
+// the body must be exactly { seed } (readSeed). All or nothing: a session is issued only with its own listing's rows,
+// so a listing that fails issues none (500, list-failed). The issued line carries how long the request took (ms), and
+// never the seed, the token or a game id; a refused line, its reason alone.
 async function issue(request, { list }, { now, sessions }, record) {
   if (!takes(SESSIONS, request.method)) return methodRefused(record, SESSIONS);
   if (!sessions) return failed(record, 'secret-missing', SESSIONS.error);
-  const { seed } = await request.json();
+  const { seed, refused } = await readSeed(request);
+  if (refused) return refuse(record, refused, NEVER_KEPT, SESSIONS.rejected);
   const issuedAt = now();
   const listed = await listing(list, now);
   if (!listed) return failed(record, 'list-failed', SESSIONS.error);
@@ -321,12 +323,14 @@ function notSaved(record) {
 }
 
 // ---- refusals: a path the function doesn't serve, a method its path doesn't take, then what a POST must be
-// (ADR-007, DDD-5; DESIGN's Signing checks), checked in this order, the first that fails deciding ----
-// A refusal saves nothing. The last, a score above the plausible ceiling, is S1 of
+// (ADR-007, DDD-5; DESIGN's Signing checks; DDD-R1 for the session request), checked in this order, the first that
+// fails deciding ----
+// A refusal saves nothing and issues no session. The signing's last, a score above the plausible ceiling, is S1 of
 // docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged £9,999,950.
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
+  'invalid-seed': 400,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
@@ -354,15 +358,35 @@ const SIGNING_CHECKS = Object.freeze([
   ['implausible-score', signing => isPlausibleScore(signing.score)],
 ]);
 
-// { signing } or { refused: the error code }. The body is read only once the format is right.
+// { signing } or { refused: the error code }.
 async function readSigning(request, sessions) {
-  if (mediaType(request) !== 'application/json') return { refused: 'json-required' };
-  const body = await readUpTo(BODY_CAP, request.body);
-  if (body === null) return { refused: 'payload-too-large' };
-  const signing = parsed(body);
+  const { json: signing, refused: unread } = await readJson(request, BODY_CAP);
+  if (unread) return { refused: unread };
   if (signing === undefined) return { refused: 'invalid-signature' };
   const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, sessions)) ?? [];
   return refused ? { refused } : { signing };
+}
+
+// A session request is exactly { seed }, its seed 32 lowercase hex characters (DDD-R1, C4): another field, a body that
+// isn't JSON, or any other seed is invalid-seed. { seed } or { refused: the error code }.
+const SEED = /^[0-9a-f]{32}$/;
+const isSeedRequest = body => typeof body === 'object' && body !== null && Object.keys(body).length === 1
+  && Object.hasOwn(body, 'seed') && typeof body.seed === 'string' && SEED.test(body.seed);
+
+async function readSeed(request) {
+  const { json, refused } = await readJson(request, BODY_CAP);
+  if (refused) return { refused };
+  return isSeedRequest(json) ? { seed: json.seed } : { refused: 'invalid-seed' };
+}
+
+// What both POSTs check first, in this order: the format, then the size. The body is read only once the format is
+// right, and never past `cap`. { json: the JSON value, undefined when the body isn't JSON } or { refused: the error
+// code }.
+async function readJson(request, cap) {
+  if (mediaType(request) !== 'application/json') return { refused: 'json-required' };
+  const body = await readUpTo(cap, request.body);
+  if (body === null) return { refused: 'payload-too-large' };
+  return { json: parsed(body) };
 }
 
 // The media type alone, its parameters (a charset, say) ignored; media types are case-insensitive.

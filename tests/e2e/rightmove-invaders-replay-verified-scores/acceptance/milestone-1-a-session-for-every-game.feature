@@ -17,7 +17,7 @@ Feature: The table issues a session for every game
     And the owner can see a session was issued, and how long it took
     And what the owner sees says nothing about the player
 
-  @pending @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
+  @US-02 @DDD-R1 @DDD-R14 @server @real-io @error
   Scenario Outline: A request for a session with <what> is refused <why>, and no session is issued
     Given nobody has signed the high-score table yet
     When a game asks the high-score table for a session with <what>

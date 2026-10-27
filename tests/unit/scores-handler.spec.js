@@ -228,3 +228,42 @@ test('each handler is handed only its part of the port and of the signer, and th
     });
   }), { numRuns: 15 });
 });
+
+// A session request is exactly { seed }, its seed 32 lowercase hex characters (DDD-R1, C4). Any other body sent as JSON
+// within 1 KB is 400 invalid-seed: any JSON value but that one, the near misses of it (its seed in capitals, cut short
+// or run long, not hex, not text, or with another field beside it), and a body that isn't JSON at all. The refusal
+// issues no session, is never kept, is logged sessions.rejected invalid-seed and never with the seed, and the table is
+// as it was.
+const isExactlyASeedRequest = body => typeof body === 'object' && body !== null && !Array.isArray(body)
+  && Object.keys(body).length === 1 && typeof body.seed === 'string' && /^[0-9a-f]{32}$/.test(body.seed);
+const isJson = text => { try { JSON.parse(text); return true; } catch { return false; } };
+const notASeed = fc.oneof(
+  seed.filter(game => /[a-f]/.test(game)).map(game => game.toUpperCase()),
+  fc.stringMatching(/^[0-9a-f]{0,31}$/),
+  fc.stringMatching(/^[0-9a-f]{33,40}$/),
+  fc.string({ minLength: 32, maxLength: 32 }).filter(text => !/^[0-9a-f]{32}$/.test(text)),
+  fc.oneof(fc.integer(), fc.boolean(), fc.constant(null), seed.map(game => [game]), seed.map(game => ({ seed: game }))),
+);
+const anotherField = fc.dictionary(fc.string({ maxLength: 8 }).filter(field => field !== 'seed'), fc.jsonValue({ maxDepth: 1 }), { minKeys: 1, maxKeys: 3 });
+const notASeedRequest = fc.oneof(
+  notASeed.map(wrong => JSON.stringify({ seed: wrong })),
+  fc.tuple(seed, anotherField).map(([game, extra]) => JSON.stringify({ seed: game, ...extra })),
+  fc.jsonValue({ maxDepth: 2 }).filter(body => !isExactlyASeedRequest(body)).map(body => JSON.stringify(body)),
+  fc.string().filter(text => !isJson(text)),
+).filter(body => new TextEncoder().encode(body).length <= KB);
+
+test('any session request whose body isn\'t exactly { seed } with 32 lowercase hex characters is invalid-seed, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, notASeedRequest, async (rows, body) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const request = new Request(SESSIONS_URL, { method: 'POST', headers: JSON_TYPE, body });
+    const response = await handleSessions(request, Object.freeze({ list: createTablePort(store).list }), { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: ISSUING });
+    expect(response.status).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json(), 'no session is issued').toEqual({ error: 'invalid-seed' });
+    expect(logs, 'one line, its reason, never the seed').toEqual([{ event: 'sessions.rejected', reason: 'invalid-seed', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 25, examples: [[[], JSON.stringify({ seed: 'ABCDEF0123456789ABCDEF0123456789' })], [[], '']] });
+});

@@ -135,7 +135,7 @@ platform_coverage:
 
 function:
   file: netlify/functions/scores.mjs
-  path: /api/scores
+  path: ['/api/scores', '/api/sessions']   # amended by rightmove-invaders-replay-verified-scores, 2026-10-27 (was /api/scores alone; an array since its step 01-02, one rate-limit rule for both)
   rate_limit:   # user, 2026-10-24; set in the function's config (Netlify doesn't accept function rate limits in netlify.toml)
     config: "{ windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] }"
     action: "429 from Netlify (default); the function doesn't run"

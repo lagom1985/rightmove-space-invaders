@@ -696,6 +696,11 @@ Since every signing needs its game's session (amended by rightmove-invaders-repl
 - **To shut every open session at once**, rotate the secret (README, Deploy). It also ends the 2 hours in which a deleted row can come back.
 - **A row's id is its game id**: the last field of the key, the SHA-256 of the game's seed cut to 32 hex characters (ADR-004 as amended). Deleting by key is unchanged.
 
+Since the table replays every game (amended by rightmove-invaders-replay-verified-scores, DELIVER, 2026-10-27; that feature's D16 and ADR-012):
+- **Every row was played**: the function replays each signed game and keeps the deposit it reached, refuses a record of other rules, and takes no game sooner than it lasted after its session was issued.
+- **What still gets through**: a program that plays well, in real time or by searching offline for the inputs and seeds that do best. It is still held to the rules of the game, to its own length in real time (D8), to one row per game (D7), to its session's 2 hours (D18), to the rate limit per IP and hostname, and to £500,000.
+- **The owner still deletes by hand** any row they judge forged, as above; the bullets before these say how to keep it off the table.
+
 **Before DISTILL and DELIVER**:
 - **DISTILL**:
   - no 429 scenario (Netlify only), and no paused scenario, since the fallback was rejected

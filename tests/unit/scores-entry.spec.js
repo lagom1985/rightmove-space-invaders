@@ -312,5 +312,5 @@ test('a request carrying test-board or test-clock cookies gets the same answer, 
 
 // bypass: the exported config is one literal, which Netlify reads statically.
 test('the function is mounted at /api/scores and /api/sessions, and Netlify allows each client 10 requests a minute on the two together (by IP and domain)', () => {
-  expect(config).toEqual({ path: ['/api/scores', '/api/sessions'], rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } });
+  expect(config).toEqual({ path: ['/api/scores', '/api/sessions'] }); // PROBE: no rate-limit rule, for S10 only
 });

@@ -26,7 +26,8 @@ import { createSessionSigner, readSessionSecret } from '../scores/sessions.mjs';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
 // a minute per client, by IP and domain (DEVOPS), counted once for both paths (DEVOPS's config.path probe).
-export const config = { path: ['/api/scores', '/api/sessions'], rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
+// PROBE, never to be merged: slice 02's burst run (S10) needs a deploy without the rate-limit rule.
+export const config = { path: ['/api/scores', '/api/sessions'] };
 
 const MISSING = 'missing';
 const NOWHERE = Object.freeze({ scope: MISSING, context: MISSING, published: MISSING });

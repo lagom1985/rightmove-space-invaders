@@ -1,6 +1,8 @@
 import { W, H, PX, GROUND, BANNER_TIME } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
+import { createChance } from './chance.js';
+import { burst, updateParticles } from './particles.js';
 import { GameEvent } from './events.js';
 import { INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
 
@@ -17,7 +19,7 @@ const SHIELD_Y = H - 190;
 export const PLAYER_SPEED = 330;
 export const RESPAWN_TIME = 1.4;   // seconds the pin is gone after losing a home
 export { BANNER_TIME };   // lives in config.js; re-exported because tests read the banner's length from the rules
-const SHOT_SPEED = 720, LIVES = 3, MAX_PARTICLES = 2000;
+const SHOT_SPEED = 720, LIVES = 3;
 const EDGE_MARGIN = 16;   // the gap the pin and the formation keep from the sides of the screen
 const FORMATION_STRIDE = 9, FORMATION_DROP = 18;   // how far the formation steps sideways, and drops at an edge
 const CEILING = 64;   // the top of the playfield, under the HUD
@@ -70,9 +72,19 @@ export function applyBestStore(store) {
   g.best = store.load();
 }
 
+// Each game's seed comes from the source main.js hands over (newSeed() -> 32 lowercase hex), and the rules draw no luck
+// of their own: every gameplay draw takes the game's chance, created from its seed as the game starts (DDD-R6). No game
+// starts before the source is handed over. createGame will take the source in place of this hand-over (DDD-R7).
+let newSeed = null;
+let chance = null;
+
+export function applySeedSource(source) {
+  newSeed = source;
+}
+
 // The rules' side of the table outcomes (DESIGN, "Rules operations"). main.js hands every outcome over between frames,
 // from the promise callbacks (DDD-11); only these functions write the table state and settle a signing.
-//   tableAnswered({ scores, listedAt })            a load answered (page load, or the refresh on every gameStarted)
+//   tableAnswered({ scores, listedAt })            a load answered on page load, or the session asked for on gameStarted
 //   tableFailed()                                  a load failed (not OK, network error, or the 5000 ms timeout)
 //   signingAnswered(n, { scores, id, listedAt })   the answer to signing n (n is in initialsEntered's `signing`)
 //   signingFailed(n)                               signing n failed (not OK, network error, or the 5000 ms timeout)
@@ -274,11 +286,15 @@ function setPaused(paused) {
   emit(paused ? GameEvent.PAUSED : GameEvent.RESUMED);
 }
 
+// One seed per game, and a chance of its own: the Dream Home timer startWave(0) sets is the game's first draw (DDD-R6).
 function startGame() {
+  if (!newSeed) throw new Error('No seed source: main.js hands one over with applySeedSource before the first game');
+  const seed = newSeed();
+  chance = createChance(seed);
   g.score = 0; g.lives = LIVES; g.newBest = false;
   g.initials = null; g.signedThisGame = false; g.skipped = false;   // the signing is kept
+  emit(GameEvent.GAME_STARTED, { seed });
   startWave(0);
-  emit(GameEvent.GAME_STARTED);
 }
 
 function startWave(level) {
@@ -289,7 +305,7 @@ function startWave(level) {
   g.shields = [0, 1, 2, 3].map(i => makeShield(Math.round(houseCentreX(i) - SW * PX / 2), SHIELD_Y));
   g.player.x = W / 2 - PW / 2;
   g.shot = null; g.bolts = []; g.dream = null;
-  g.dreamTimer = 12 + Math.random() * 10; g.fireTimer = 1;
+  g.dreamTimer = 12 + chance.next() * 10; g.fireTimer = 1;
   g.state = 'play';
 }
 
@@ -297,7 +313,7 @@ function startWave(level) {
 // keys.isDown(code) (DDD-T14).
 export function update(dt, keys) {
   g.t += dt;
-  updateParticles(dt);
+  updateParticles(g, dt);
   switch (g.state) {
     case 'title': return;
     case 'over': g.overT += dt; return;
@@ -364,13 +380,13 @@ function stepFormation(dt) {
 function enemyFire(dt) {
   g.fireTimer -= dt;
   if (g.fireTimer > 0 || g.bolts.length >= Math.min(3 + g.level, 7)) return;
-  g.fireTimer = Math.max(0.3, 1.0 - g.level * 0.12) * (0.5 + Math.random());
+  g.fireTimer = Math.max(0.3, 1.0 - g.level * 0.12) * (0.5 + chance.next());
   const bottom = [];   // lowest living invader in each column
   for (const v of g.invaders) if (v.alive && (!bottom[v.c] || v.r > bottom[v.c].r)) bottom[v.c] = v;
   const shooters = bottom.filter(Boolean);
   if (!shooters.length) return;
-  let v = shooters[(Math.random() * shooters.length) | 0];
-  if (Math.random() < 0.4) {   // sometimes aim at the player
+  let v = shooters[(chance.next() * shooters.length) | 0];
+  if (chance.next() < 0.4) {   // sometimes aim at the player
     const px = g.player.x + PW / 2;
     v = shooters.reduce((a, b) => Math.abs(invaderX(b) - px) < Math.abs(invaderX(a) - px) ? b : a);
   }
@@ -390,20 +406,20 @@ function moveShot(dt) {
     if (v.alive && overlap(s.x, s.y, SHOT_W, SHOT_H, invaderX(v), invaderY(v), IW, IH)) { killInvader(v); g.shot = null; return; }
   }
   if (g.dream && overlap(s.x, s.y, SHOT_W, SHOT_H, g.dream.x, g.dream.y, DW, DH)) { saveDream(); g.shot = null; return; }
-  if (s.y < CEILING) { burst(s.x, CEILING, COLORS.green, 4, 60); g.shot = null; }
+  if (s.y < CEILING) { burst(g, s.x, CEILING, COLORS.green, 4, 60); g.shot = null; }
 }
 
 // A shot or a bolt chips a house; the sound system hears which of the two it was.
 function chipHouse(hit, radius, source) {
-  const p = erode(hit, radius);
-  burst(p.x, p.y, COLORS.brick, 6, 90);
+  const p = erode(hit, radius, chance);
+  burst(g, p.x, p.y, COLORS.brick, 6, 90);
   emit(GameEvent.SHIELD_HIT, { source });
 }
 
 // The player's shot meets bolt number `index`: both are gone.
 function stopBolt(index) {
   const bolt = g.bolts.splice(index, 1)[0];
-  burst(bolt.x, bolt.y, COLORS.green, 8);
+  burst(g, bolt.x, bolt.y, COLORS.green, 8);
   emit(GameEvent.BOLT_STOPPED);
 }
 
@@ -412,7 +428,7 @@ function killInvader(v) {
   v.alive = false;
   g.score += hurdle.value;
   emit(GameEvent.HURDLE_HIT, { value: hurdle.value });
-  burst(invaderX(v) + IW / 2, invaderY(v) + IH / 2, hurdle.color, 14);
+  burst(g, invaderX(v) + IW / 2, invaderY(v) + IH / 2, hurdle.color, 14);
   if (!g.invaders.some(other => other.alive)) clearWave();
 }
 
@@ -431,12 +447,12 @@ function dismissDream() {
 }
 
 function saveDream() {
-  const d = g.dream, bonus = DREAM_BONUSES[(Math.random() * DREAM_BONUSES.length) | 0];
+  const d = g.dream, bonus = DREAM_BONUSES[(chance.next() * DREAM_BONUSES.length) | 0];
   g.score += bonus;
   emit(GameEvent.DREAM_SAVED, { bonus });
-  burst(d.x + DW / 2, d.y + DH / 2, COLORS.dream, 40, 220);
+  burst(g, d.x + DW / 2, d.y + DH / 2, COLORS.dream, 40, 220);
   g.texts.push({ text: 'Dream home saved +' + pounds(bonus), x: clamp(d.x + DW / 2, 150, W - 150), y: d.y + DH + 18, life: 1.8, color: COLORS.dream });
-  g.dream = null; g.dreamTimer = 18 + Math.random() * 10;
+  g.dream = null; g.dreamTimer = 18 + chance.next() * 10;
 }
 
 function moveBolts(dt) {
@@ -446,14 +462,14 @@ function moveBolts(dt) {
     const hit = sweep(g.shields, b.x + 1, y0, b.y + BOLT_H);
     if (hit) { chipHouse(hit, 2.8, 'bolt'); g.bolts.splice(i, 1); continue; }
     if (g.state === 'play' && overlap(b.x, b.y, 3, BOLT_H, g.player.x + 4, g.player.y + 2, PW - 8, PH - 8)) { killPlayer(); return; }
-    if (b.y + BOLT_H >= GROUND) { burst(b.x, GROUND, b.color, 5, 60); g.bolts.splice(i, 1); }
+    if (b.y + BOLT_H >= GROUND) { burst(g, b.x, GROUND, b.color, 5, 60); g.bolts.splice(i, 1); }
   }
 }
 
 function killPlayer() {
   g.lives--; g.state = 'dead'; g.respawn = RESPAWN_TIME; g.shot = null; g.bolts = [];
   emit(GameEvent.HOME_LOST, { livesLeft: g.lives });
-  burst(g.player.x + PW / 2, g.player.y + PH / 2, COLORS.green, 50, 240);
+  burst(g, g.player.x + PW / 2, g.player.y + PH / 2, COLORS.green, 50, 240);
 }
 
 function moveDream(dt) {
@@ -461,14 +477,14 @@ function moveDream(dt) {
   if (!g.dream) {
     g.dreamTimer -= dt;
     if (g.dreamTimer <= 0 && formationInfo().alive > 6) {
-      const dir = Math.random() < 0.5 ? 1 : -1;
+      const dir = chance.next() < 0.5 ? 1 : -1;
       g.dream = { x: dir > 0 ? -DW : W, y: 66, vx: dir * 150 };
       emit(GameEvent.DREAM_APPEARED);
     }
     return;
   }
   g.dream.x += g.dream.vx * dt;
-  if (g.dream.x < -DW - 4 || g.dream.x > W + 4) { dismissDream(); g.dreamTimer = 18 + Math.random() * 10; }
+  if (g.dream.x < -DW - 4 || g.dream.x > W + 4) { dismissDream(); g.dreamTimer = 18 + chance.next() * 10; }
 }
 
 function gameOver(reason) {
@@ -478,27 +494,4 @@ function gameOver(reason) {
   if (makesTheTable(g.table, g.score)) g.initials = blankInitials();
   dismissDream();
   emit(GameEvent.GAME_OVER, { reason });
-}
-
-function burst(x, y, color, n, speed = 160) {
-  for (let i = 0; i < n && g.particles.length < MAX_PARTICLES; i++) {
-    const a = Math.random() * Math.PI * 2, s = speed * (0.3 + Math.random()), life = 0.4 + Math.random() * 0.4;
-    g.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life, max: life, color });
-  }
-}
-
-function updateParticles(dt) {
-  const ps = g.particles;
-  for (let i = ps.length - 1; i >= 0; i--) {
-    const p = ps[i];
-    p.life -= dt;
-    if (p.life <= 0) { ps[i] = ps[ps.length - 1]; ps.pop(); continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt;
-    p.vx *= 0.985; p.vy = p.vy * 0.985 + 120 * dt;
-  }
-  for (let i = g.texts.length - 1; i >= 0; i--) {
-    const m = g.texts[i];
-    m.life -= dt; m.y -= 24 * dt;
-    if (m.life <= 0) g.texts.splice(i, 1);
-  }
 }

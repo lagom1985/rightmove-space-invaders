@@ -10,7 +10,8 @@ import './support/seed.js';
 // module has: import … from '…', bare import '…', export … from '…' and dynamic import('…'). It reads source text,
 // not a syntax tree, so a comment or string that looks like an import counts as one: it can over-report, never miss.
 // The token rule reads the same folders as text, every file in them, and finds no name that only the tests may use,
-// comments included (the platform review, PL-2).
+// comments included (the platform review, PL-2). Rule 9, the determinism scan (DDD-R13), reads the gameplay's modules
+// as text too.
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SCANNED = ['src', 'netlify'];
@@ -175,4 +176,85 @@ test('no test-only name (test-clock, test-board, __test, TEST_SECRET) appears in
   const files = (await Promise.all(SCANNED.map(filesUnder))).flat();
   expect(files.map(({ file }) => file), 'the scan reads the game, the function and the signer').toEqual(expect.arrayContaining(['src/main.js', 'netlify/functions/scores.mjs', 'netlify/scores/sessions.mjs']));
   expect(testOnlyNames(files)).toEqual([]);
+});
+
+// ---- rule 9, the determinism scan ----
+// The function replays every game (ADR-013), so the gameplay must play the same in every engine. In src/game/, but for
+// particles.js (the sparks, which nothing in the gameplay reads), and in src/theme/, every Math is one of the functions
+// ECMAScript defines exactly, so a bare Math (destructured, aliased, Math['random'], globalThis.Math) fails, and none of
+// **, Date, performance or crypto appears (DDD-R13). It reads text, like the import scan: it can over-report, never miss
+// the forms it names. Each finding is "file: what", what being the Math as written (Math.random, or Math when bare) or
+// the word found.
+const DETERMINED = ['src/game', 'src/theme'];
+const SPARKS = 'src/game/particles.js';
+const EXACT_MATH = /^Math\.(?:floor|ceil|round|trunc|abs|min|max|sign|imul)(?![\w$])/;
+const NEVER = ['**', 'Date', 'performance', 'crypto'];
+
+const determined = file => file !== SPARKS && DETERMINED.some(folder => inside(file, folder));
+
+// Every inexact form a module of the gameplay holds, as "file: what".
+function inexact(modules) {
+  return modules.filter(({ file }) => determined(file)).flatMap(({ file, source }) => [
+    ...[...source.matchAll(/Math[\w$.]*/g)].filter(({ index }) => !EXACT_MATH.test(source.slice(index))).map(([math]) => `${file}: ${math}`),
+    ...NEVER.flatMap(word => source.split(word).slice(1).map(() => `${file}: ${word}`)),
+  ]);
+}
+
+// Each form rule 9 forbids, with what the scan reports for it.
+const INEXACT = [
+  ['Math.random()', 'Math.random'],
+  ['Math.hypot(dx, dy)', 'Math.hypot'],
+  ['Math.cos(angle) * Math.PI', 'Math.cos', 'Math.PI'],
+  ['const { random } = Math;', 'Math'],
+  ['const maths = Math;', 'Math'],
+  ["Math['random']()", 'Math'],
+  ['globalThis.Math', 'Math'],
+  ['globalThis.Math.random()', 'Math.random'],
+  ['side ** 2', '**'],
+  ['Date.now()', 'Date'],
+  ['new Date()', 'Date'],
+  ['performance.now()', 'performance'],
+  ['crypto.getRandomValues(words)', 'crypto'],
+];
+const EXACT = ['Math.floor(x)', 'Math.ceil(x)', 'Math.round(x)', 'Math.trunc(x)', 'Math.abs(x)', 'Math.min(a, b)', 'Math.max(a, b)', 'Math.sign(x)', 'Math.imul(a, b)', 'Math.max.apply(null, list)'];
+
+// bypass: DDD-R13's forms, each broken once, and the allowed ones kept once.
+test('rule 9 reports each form it forbids, and lets exact maths, particles.js and the rest of src through', () => {
+  for (const [source, ...found] of INEXACT) expect(inexact([{ file: 'src/game/game.js', source }]), source).toEqual(found.map(what => `src/game/game.js: ${what}`));
+  expect(inexact([{ file: 'src/theme/theme.js', source: 'Math.random()' }])).toEqual(['src/theme/theme.js: Math.random']);
+  const kept = [
+    ...EXACT.map(source => ({ file: 'src/game/shields.js', source })),
+    { file: 'src/theme/theme.js', source: 'export const neighbourhood = level => NEIGHBOURHOODS[Math.min(level, NEIGHBOURHOODS.length - 1)];' },
+    { file: SPARKS, source: 'const a = Math.random() * Math.PI * 2; vx = Math.cos(a); vy = Math.sin(a);' },
+    { file: 'src/main.js', source: 'Math.floor(Math.random() * 0x1_0000_0000); performance.now();' },
+  ];
+  expect(inexact(kept)).toEqual([]);
+});
+
+// Code with no inexact form in it, exact maths included, and the places a form can be written into it.
+const exactCode = fc.oneof(fc.constantFrom(...EXACT), fc.string({ maxLength: 30 }))
+  .filter(text => inexact([{ file: 'src/game/game.js', source: text }]).length === 0);
+const WRITTEN = [form => form, form => `// ${form}`, form => `/* ${form} */`, form => `'${form}'`];
+const plantedForm = fc.tuple(fc.constantFrom(...INEXACT), fc.constantFrom(...WRITTEN)).map(([[form, ...found], written]) => ({ text: written(form), found }));
+const gameplayFile = fc.record({
+  file: fc.constantFrom('src/game/game.js', 'src/game/shields.js', 'src/game/chance.js', 'src/theme/theme.js', SPARKS, 'src/main.js', 'src/view/render.js'),
+  lines: fc.array(fc.oneof(exactCode.map(text => ({ text, found: [] })), plantedForm), { maxLength: 6 }),
+});
+
+test('the determinism scan reports every forbidden form in src/game and src/theme, in code, a string or a comment, once each', () => {
+  fc.assert(fc.property(fc.uniqueArray(gameplayFile, { selector: ({ file }) => file, maxLength: 4 }), files => {
+    const report = inexact(files.map(({ file, lines }) => ({ file, source: lines.map(({ text }) => text).join('\n') })));
+    for (const { file, lines } of files) {
+      const found = determined(file) ? lines.flatMap(line => line.found) : [];
+      const reported = report.filter(line => line.startsWith(`${file}: `)).map(line => line.slice(file.length + 2));
+      expect(reported.toSorted(), file).toEqual(found.toSorted());
+    }
+  }));
+});
+
+// bypass: the repository is one fixed tree.
+test('the determinism scan passes on the code: src/game, but particles.js, and src/theme use only exact maths', async () => {
+  const modules = (await Promise.all(DETERMINED.map(modulesUnder))).flat();
+  expect(modules.map(({ file }) => file), 'the scan reads the rules, the chance, the houses, the particles and the theme').toEqual(expect.arrayContaining(['src/game/game.js', 'src/game/chance.js', 'src/game/shields.js', SPARKS, 'src/theme/theme.js']));
+  expect(inexact(modules)).toEqual([]);
 });

@@ -37,12 +37,16 @@ export function sweep(shields, px, y0, y1) {
   return null;
 }
 
-// Blast a ragged hole of radius r cells around a hit. Returns the hit point in screen units.
-export function erode({ s, cx, cy }, r) {
+// Blast a ragged hole of radius r cells around a hit: every cell within r goes, but one further out than r - 1.2 goes
+// only on a draw of the game's chance of 0.5 or more, one draw per such cell, row by row. Squared distances decide each
+// cell exactly as the hypot distance did for r >= 1.2 (the radii are 2.2 and 2.8), and every engine computes them alike
+// (DDD-R6). Returns the hit point in screen units.
+export function erode({ s, cx, cy }, r, chance) {
+  const inner = r - 1.2, outerSquared = r * r, innerSquared = inner * inner;
   for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-    const d = Math.hypot(dx, dy), x = cx + dx, y = cy + dy;
-    if (d > r || x < 0 || y < 0 || x >= SW || y >= SH) continue;
-    if (d > r - 1.2 && Math.random() < 0.5) continue;
+    const squared = dx * dx + dy * dy, x = cx + dx, y = cy + dy;
+    if (squared > outerSquared || x < 0 || y < 0 || x >= SW || y >= SH) continue;
+    if (squared > innerSquared && chance.next() < 0.5) continue;
     s.cells[y * SW + x] = EMPTY;
   }
   s.dirty = true;

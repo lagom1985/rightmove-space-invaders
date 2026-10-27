@@ -1,7 +1,7 @@
 import { STEP, MAX_FRAME } from './game/config.js';
 import { createKeyboard } from './platform/input.js';
 import {
-  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore,
+  g, update, handlePresses, pause, takeEvents, applySettings, applyBestStore, applySeedSource,
   tableAnswered, tableFailed, signingAnswered, signingFailed,
 } from './game/game.js';
 import { createRenderer } from './view/render.js';
@@ -27,6 +27,9 @@ const synth = createSynth({
 });
 applySettings(loadSettings());   // before the first frame; g.settings is the one authority from here on
 applyBestStore({ load: loadBest, save: saveBest });   // the best score is read now and written when a game ends on a new best
+// Each game's seed, drawn by the rules as it starts: 128 bits from Math.random, as 32 lowercase hex (DDD-R6).
+const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');   // 32 bits, 8 hex
+applySeedSource(() => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`);
 const director = createSoundDirector({ ...g.settings });
 
 // The shared high-score table. Its answers arrive in promise callbacks and are handed to the rules there, between
@@ -41,15 +44,13 @@ const leaderboard = createLeaderboard({
 // Read on page load (DDD-7); never awaited (ADR-008).
 leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
 
-// Every game asks the table for its session as it starts, in the background (DDD-R10): the answer's rows refresh the
-// table, and the rules never see the session. Its seed is 128 bits from Math.random, as 32 lowercase hex. The pending
-// session is kept for that game, whose signing carries it: a signing is always for the game just over, since a new
-// game can't start while the entry is open.
-const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');   // 32 bits, 8 hex
-const newSeed = () => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`;
+// Every game asks the table for its session as it starts, in the background (DDD-R10), for the seed gameStarted carries:
+// the answer's rows refresh the table, and the rules never see the session. The pending session is kept for that game,
+// whose signing carries it: a signing is always for the game just over, since a new game can't start while the entry is
+// open.
 let pendingSession = null;
-function startSession() {
-  pendingSession = leaderboard.startSession(newSeed());
+function startSession(seed) {
+  pendingSession = leaderboard.startSession(seed);
   pendingSession.then(({ scores, listedAt }) => tableAnswered({ scores, listedAt }), () => tableFailed());
 }
 // Signing n is sent once and never retried (ADR-008): its answer or its failure settles it. The table client sends it
@@ -66,7 +67,7 @@ function handleEvents() {
   for (const event of takeEvents()) {
     const setting = SAVED_WHEN_TOGGLED[event.type];
     if (setting) saveSetting(setting, event.on);
-    if (event.type === GameEvent.GAME_STARTED) startSession();
+    if (event.type === GameEvent.GAME_STARTED) startSession(event.seed);
     if (event.type === GameEvent.INITIALS_ENTERED) signTable(event);
     for (const cue of director.handle(event)) synth.perform(cue);
   }

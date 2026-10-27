@@ -8,7 +8,7 @@ Feature: Every game gets its session as it starts, without waiting
   # game showed (K21): every browser signing in the suite is replayed the same way. DISCUSS's example is Alex's £1,250
   # at #3; the browser player can only score £0 or £50 (one shot at the Damp), so the table is arranged around £50.
   # The pending line is announced before the outcome, and the live-region recorder keeps both.
-  @pending @US-02 @US-03 @D2 @DDD-R10 @driving_port @real-io @kpi-K21
+  @US-02 @US-03 @D2 @DDD-R10 @driving_port @real-io @kpi-K21
   Scenario: Typed initials sign the table through the game's own session
     Given the high-score table holds 3 signatures of £1,000
     And my deposit of £50 makes the high-score table
@@ -36,7 +36,7 @@ Feature: Every game gets its session as it starts, without waiting
       | with a failure  |
       | never           |
 
-  @pending @US-02 @D2 @D19 @DDD-R10 @real-io
+  @US-02 @D2 @D19 @DDD-R10 @real-io
   Scenario: Starting a game asks the table's server once, and its answer refreshes the table
     Given the high-score table holds 9 signatures of £1,000
     And I have opened the game

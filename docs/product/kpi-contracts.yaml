@@ -243,7 +243,7 @@ kpis:
     window: "weekly for 30 days after release"
     gate: soft
     on_miss: "investigate, then decide whether the accepted residual risk (ADR-012) needs more"
-    baseline: "2026-10-26: forged rows of about 9999950, deleted by the owner at S0; the owner records their count before release"
+    baseline: "2026-10-26: 3 forged rows of about 9999950, deleted by the owner at S0 (count recorded by the owner, 2026-10-27, after slice 01's release). The production table after slice 01's release, 2026-10-27: 6 rows, then 7 after the owner's own test game"
   - id: K25
     feature: rightmove-invaders-replay-verified-scores
     name: A game's session comes back quickly

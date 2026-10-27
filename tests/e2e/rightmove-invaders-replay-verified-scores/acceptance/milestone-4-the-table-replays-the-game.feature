@@ -32,7 +32,7 @@ Feature: The table saves only the deposit it replays
       | £1,250 | £1,300   |
       | £1,250 | £1,200   |
 
-  @pending @US-03 @D1 @DDD-R9 @server @real-io @error @kpi-K20
+  @US-03 @D1 @DDD-R9 @server @real-io @error @kpi-K20
   Scenario: A record made up by hand is refused, whatever it claims
     Given the high-score table holds KIM with £2,000
     When HAX signs with £249,950, carrying a session issued over 30 seconds before, and a made-up record of 30 seconds standing still
@@ -40,7 +40,7 @@ Feature: The table saves only the deposit it replays
     And the owner can see the game was replayed, and how long the replay took
     And the table is left as it was
 
-  @pending @US-03 @D1 @DDD-R9 @server @real-io @error @kpi-K20
+  @US-03 @D1 @DDD-R9 @server @real-io @error @kpi-K20
   Scenario Outline: A record that <twist> is refused
     Given the high-score table holds KIM with £2,000
     When Alex's game signs ALX with £1,250, carrying its session and a record that <twist>

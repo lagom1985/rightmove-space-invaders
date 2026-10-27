@@ -7,7 +7,7 @@ Feature: The same game, played back anywhere
 
   # Through the table itself: each recorded game signs, with a session issued as long before as it lasted. A game on
   # other rules would be refused as such, so this also catches a version bump without a new recording.
-  @pending @corpus @US-03 @US-06 @D10 @D13 @DDD-R12 @server @real-io @kpi-K21
+  @corpus @US-03 @US-06 @D10 @D13 @DDD-R12 @server @real-io @kpi-K21
   Scenario: The table saves every recorded game at its recorded deposit, having played it back to its last step
     Given the recorded games, from about a minute to at least 15 minutes long
     When each of them signs the high-score table, as long after its session was issued as it lasted
@@ -23,7 +23,7 @@ Feature: The same game, played back anywhere
 
   # Stands for a change to how the game plays made without a new rules version: a recorded game no longer replays to
   # what was recorded, its deposit or its game-over step.
-  @pending @corpus @US-06 @D10 @DDD-R12 @server @real-io @error @kpi-K21
+  @corpus @US-06 @D10 @DDD-R12 @server @real-io @error @kpi-K21
   Scenario Outline: A recorded game that now ends <how> is refused by the table, by name
     Given the recorded games, one of them changed to end <how>
     When each of them signs the high-score table, as long after its session was issued as it lasted

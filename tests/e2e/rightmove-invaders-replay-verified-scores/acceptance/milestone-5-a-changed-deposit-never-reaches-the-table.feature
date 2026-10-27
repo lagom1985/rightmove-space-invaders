@@ -5,7 +5,7 @@ Feature: A deposit changed in the browser never reaches the table
 
   # The 2026-10-26 forgery from the console (the RCA's Vector B), once the console can't reach the game: the same change
   # made to what the page sends, as a forger with the browser's tools would make it.
-  @pending @US-03 @D1 @D5 @DDD-R9 @real-io @error @kpi-K20
+  @US-03 @D1 @D5 @DDD-R9 @real-io @error @kpi-K20
   Scenario: A deposit changed on its way to the table is refused, and the game can't confirm the signing
     Given the high-score table holds 3 signatures of £1,000
     And my deposit of £50 makes the high-score table

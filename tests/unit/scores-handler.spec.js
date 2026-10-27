@@ -39,14 +39,15 @@ test.afterAll(() => emulator.stop());
 const freshStore = () => emulator.freshStore();
 const snapshot = async store => ({ 'table.keys': (await store.list()).blobs.map(blob => blob.key).sort() });
 
-// Rows as they are held; no two share a score and a moment, so arcade order has one answer.
+// Rows as they are held; no two share a score and a moment, so arcade order has one answer, and each is a game of its
+// own, so every key held is a row (one row per game, DDD-R4).
 const row = fc.record({
   initials: fc.stringMatching(/^[A-Z]{3}$/),
   score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50),
   at: fc.integer({ min: NOW - 86_400_000, max: NOW }),
   id: fc.stringMatching(/^[a-z0-9]{1,12}$/),
 });
-const held = fc.uniqueArray(row, { maxLength: 14, selector: r => `${r.score}-${r.at}` });
+const held = fc.uniqueArray(row, { maxLength: 14, comparator: (a, b) => a.id === b.id || (a.score === b.score && a.at === b.at) });
 const arcadeOrder = (a, b) => b.score - a.score || a.at - b.at;
 const bestTen = rows => [...rows].sort(arcadeOrder).slice(0, TABLE_SIZE).map(({ initials, score, id }) => ({ initials, score, id }));
 const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
@@ -146,6 +147,40 @@ test('with a stopped clock, the same game signed again with the same initials an
     expect(await response.json()).toEqual({ error: 'not-saved' });
     expect(logs.slice(1).map(({ event, reason }) => ({ event, reason }))).toEqual([{ event: 'scores.not_saved', reason: 'key-exists' }]);
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 15 });
+});
+
+// One row per game (DDD-R4, the user's decision of 2026-10-27): a game signed again, with the session it signed with or
+// another for the same seed, is 409 already-signed even when the store fails to remove its key. Its one log line is
+// scores.rejected already-signed with removed: false, and nothing of the player. The key is left to pruning: it is the
+// game's loser, so the table a reading shows is as it was.
+const readingOf = async store => (await (await handleScores(new Request(URL), Object.freeze({ list: createTablePort(store).list }), ONLY_THE_CLOCK_LOG_AND_WHERE)).json()).scores;
+const snapshotWithRows = async store => ({ ...(await snapshot(store)), 'table.rows': await readingOf(store) });
+
+test('a game signed again whose own key the store fails to remove is still 409 already-signed, in one line with removed: false', async () => {
+  await fc.assert(fc.asyncProperty(held, signature, signature, seed, fc.boolean(), async (rows, first, again, game, anotherSession) => {
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const options = { now: movingClock(NOW).now, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING };
+    const session = sessionFor(game);
+    expect((await handleScores(signing({ ...first, session }), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
+    const before = await snapshotWithRows(store);
+    const real = createTablePort(store);
+    const port = Object.freeze({ ...real, remove: async () => { throw new Error('The store could not delete a key'); } });
+    const response = await handleScores(signing({ ...again, session: anotherSession ? sessionFor(game, NOW - 1000) : session }), port, options);
+    expect(response.status).toBe(409);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'already-signed' });
+    expect(logs.slice(1), 'one line, its reason and removed: false, nothing of the player').toEqual([{ event: 'scores.rejected', reason: 'already-signed', ms: expect.any(Number), removed: false, ...LOCAL }]);
+    const leftBehind = (was, now) => {
+      const added = now.filter(key => !was.includes(key)).map(decodeKey);
+      return was.every(key => now.includes(key)) && added.length === 1 && added[0].id === gameIdOf(game) && added[0].initials === again.initials;
+    };
+    assertStateDelta(before, await snapshotWithRows(store), {
+      universe: [...UNIVERSE, 'table.rows'],
+      expected: { 'table.keys': satisfying('its key left to pruning, nothing else changed', leftBehind) },
+    });
   }), { numRuns: 15 });
 });
 

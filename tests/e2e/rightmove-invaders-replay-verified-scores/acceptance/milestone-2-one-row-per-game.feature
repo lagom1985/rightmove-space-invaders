@@ -24,7 +24,7 @@ Feature: Only a game the table sealed can sign it, and only once
       | a session made up from nothing                        |
       | something that isn't a session at all                |
 
-  @pending @US-01 @D7 @DDD-R4 @DDD-R14 @server @real-io @error @kpi-K20
+  @US-01 @D7 @DDD-R4 @DDD-R14 @server @real-io @error @kpi-K20
   Scenario Outline: A game has one row on the table: signing it again with <carrying> is refused
     Given the high-score table holds KIM with £2,000
     And Alex's game has signed ALX with £1,250
@@ -44,14 +44,14 @@ Feature: Only a game the table sealed can sign it, and only once
   # The race only a forger runs. The answers and the readings are what anyone sees; the store itself may hold a game's
   # other keys for a moment, which the ranking never shows and pruning removes first (DDD-R4). Signings that all arrive
   # together may all be refused, leaving no row (DDD-R4 allows it); one that arrives just ahead keeps its row.
-  @pending @US-01 @D7 @DDD-R4 @server @real-io @property @error @kpi-K20
+  @US-01 @D7 @DDD-R4 @server @real-io @property @error @kpi-K20
   Scenario: However many signings of one game arrive at once, nobody ever sees two rows for it
     Given nobody has signed the high-score table yet
     When any burst of 2 to 5 signings of one game arrives, all at once or just after a first one, while the table is being read
     Then no answer and no reading ever shows more than one row for that game
     And a signing that arrived just ahead of the others kept its row
 
-  @pending @US-01 @D7 @DDD-R4 @server @real-io @error @edge
+  @US-01 @D7 @DDD-R4 @server @real-io @error @edge
   Scenario: A refused attempt doesn't use up the session
     Given the high-score table holds KIM with £2,000
     And Alex's game tried to sign ALX with £1,250, but saving to the high-score table failed
@@ -61,7 +61,7 @@ Feature: Only a game the table sealed can sign it, and only once
     And what the owner sees says nothing about the player
 
   # ADR-008's saved-but-unconfirmed case: the row was saved, so the game has signed.
-  @pending @US-01 @D7 @DDD-R4 @server @real-io @error @edge
+  @US-01 @D7 @DDD-R4 @server @real-io @error @edge
   Scenario: A game saved just before the table couldn't be looked at has signed, though nobody was told
     Given the high-score table holds KIM with £2,000
     And Alex's game has signed ALX with £1,250, saved just before the table couldn't be looked at

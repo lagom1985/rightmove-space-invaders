@@ -2,11 +2,13 @@
 //   GET  /api/scores                                 -> { scores: [{ initials, score, id }], listedAt }   best first, at most 10
 //   POST /api/sessions { seed }                      -> { session: { seed, issuedAt, token }, scores, listedAt }   a game's
 //                                                       session, sealed by the table, with the table as it stands (DDD-R1)
-//   POST /api/scores { initials, score, session }    -> { scores, id, listedAt }   id = the new row's: its game id (DDD-R4)
+//   POST /api/scores { initials, score, session }    -> { scores, id, listedAt }   id = the new row's: its game id (DDD-R4);
+//                                                       409 already-signed for a game whose row is on the table
 //   any other path, or a method its path doesn't take -> 404 not-found, or 405 method-not-allowed with Allow
 // One blob per score, with everything in its key and an empty body (spike findings, strategy D). Every write
 // goes to a key of its own, so players signing at the same moment never overwrite each other, and the keys
-// sort as strings into arcade order: higher score first, then the earlier entry.
+// sort as strings into arcade order: higher score first, then the earlier entry. One row per game (DDD-R4): the
+// table shows only the key each game signed first.
 // The handlers reach the store only through the restricted table port (createTablePort, DDD-4), which a composition
 // root builds and hands them, with the session signer it builds from its secret (DDD-R2), the clock, the logger and
 // where the table is kept: the default export below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one
@@ -127,17 +129,30 @@ export function rankKeys(keys) {
   return keys.filter(key => KEY.test(key)).sort();
 }
 
-// The accepted prune rule (DDD-1): the keys a signing tidies away from `ranked`, the well-formed keys listed after its
-// write. None up to 20 keys; above that k = min(5, n - 20), so a burst of signings never becomes a storm of deletes and
-// the store stays at about 20 keys. They are the lowest ranked, so always 11th or lower: a key ranked below 10th can
-// never climb back (rows only ever leave the table), and a short or stale listing only ever ranks a key higher than it
-// really is, so any instance may delete them without coordinating with the others.
-const KEEP = 20;                // keys kept before pruning starts
-const PRUNE_AT_MOST = 5;        // per signing
+// One row per game (DDD-R4), the one ranking for every answer and for pruning: per game id, the winner is the key
+// signed first (the earliest at, then arcade order), and the game's other keys are its losers, which never show.
+// { winners, losers } of `ranked`, the well-formed keys in arcade order, each kept in that order.
+function byGame(ranked) {
+  const first = new Map();   // game id -> the key it signed first, so far
+  for (const key of ranked) {
+    const { id, at } = decodeKey(key);
+    if (!first.has(id) || at < decodeKey(first.get(id)).at) first.set(id, key);
+  }
+  const winners = new Set(first.values());
+  return { winners: ranked.filter(key => winners.has(key)), losers: ranked.filter(key => !winners.has(key)) };
+}
+
+// The prune rule (DDD-R4): the keys a signing tidies away from `ranked`, the well-formed keys listed after its write.
+// A game's losers first, whatever the count, then the lowest winners beyond 20; at most 5, so a burst of signings never
+// becomes a storm of deletes and the store stays at about 20 games. None of them is a row: a loser never shows, and a
+// winner beyond 20 can never climb back into the top 10 (rows only ever leave the table), while a short or stale
+// listing only ever ranks a key higher than it really is, so any instance may delete them without coordinating.
+const KEEP = 20;                // winners kept before pruning starts
+const PRUNE_AT_MOST = 5;        // per signing, the 409's removal of its own key included
 
 export function planPrune(ranked) {
-  const count = Math.min(PRUNE_AT_MOST, ranked.length - KEEP);
-  return count > 0 ? ranked.slice(-count) : [];
+  const { winners, losers } = byGame(ranked);
+  return [...losers, ...winners.slice(KEEP).reverse()].slice(0, PRUNE_AT_MOST);
 }
 
 // ---- the restricted table port (DDD-4, ADR-004) ----
@@ -184,7 +199,7 @@ const answer = (status, body, headers = NEVER_KEPT) => Response.json(body, { sta
 function journal({ now, log, where = NOWHERE }) {
   const reading = () => { try { return now(); } catch { return NaN; } };
   const started = reading();
-  return (event, reason, counts = {}) => log({ event, reason, ms: reading() - started, ...counts, ...where });
+  return (event, reason, fields = {}) => log({ event, reason, ms: reading() - started, ...fields, ...where });
 }
 
 // 500 unexpected, logged with its fixed reason and never with the error, whose message can carry a key (DDD-17).
@@ -265,8 +280,9 @@ async function listing(list, now) {
   return { keys, listedAt: now() };
 }
 
+// The rows every answer carries: the first 10 winners (DDD-R4).
 function table(keys) {
-  return keys.slice(0, TABLE_SIZE).map(decodeKey).map(({ initials, score, id }) => ({ initials, score, id }));
+  return byGame(keys).winners.slice(0, TABLE_SIZE).map(decodeKey).map(({ initials, score, id }) => ({ initials, score, id }));
 }
 
 // A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
@@ -277,20 +293,34 @@ async function sign(request, port, options, record) {
 }
 
 // A key that already exists is turned away (503, no second row). A save that throws may or may not have written its
-// row, and a listing that throws after the save leaves the row there: both are 500 unexpected, and the signer's game
-// shows the signing as unconfirmed (ADR-008). Tidying up is best effort: the answer is the listing's top ten whatever
-// the tidy-up does, and a store failure while tidying is only logged (prune-failed). The rows are logged as a count.
-// The new row's id is its game id, so every session for one seed names the same row (DDD-R4).
+// row, and a listing that throws after the save leaves the row there: both are 500, and the signer's game shows the
+// signing as unconfirmed (ADR-008); a row so saved has signed its game. The new row's id is its game id, so every
+// session for one seed names the same row, and a signing keeps its key only if its own listing shows no other key of
+// its game (Signing checks row 18, DDD-R4). Tidying up is best effort: the answer is the listing's top ten whatever the
+// tidy-up does, and a store failure while tidying is only logged (prune-failed). The rows are logged as a count.
 async function save({ initials, score, session }, port, { now, sessions }, record) {
   const id = sessions.gameId(session.seed);
-  const saved = await saving(port, encodeKey({ initials, score, at: now(), id }));
+  const key = encodeKey({ initials, score, at: now(), id });
+  const saved = await saving(port, key);
   if (saved === null) return failed(record, 'put-failed');
   if (!saved) return notSaved(record);
   const listed = await listing(port.list, now);
   if (!listed) return failed(record, 'list-failed');
-  const tidied = await prune(port, planPrune(listed.keys));
+  if (hasAnotherKey(id, key, listed.keys)) return alreadySigned(port, key, record);
+  const tidied = await removeAll(port, planPrune(listed.keys));
   record('scores.signed', tidied ? 'ok' : 'prune-failed', { keys: listed.keys.length });
   return answer(200, { scores: table(listed.keys), id, listedAt: listed.listedAt });
+}
+
+// Whether `keys` hold a key of game `id` other than `own`: its row is on the table.
+const hasAnotherKey = (id, own, keys) => keys.some(key => key !== own && decodeKey(key).id === id);
+
+// A game whose row is on the table removes the key it has just written, and is 409 whether or not the store removed
+// it: a key left behind is its game's loser, which never shows and is pruned first, and its one log line says so with
+// removed: false (the user, 2026-10-27).
+async function alreadySigned(port, key, record) {
+  const removed = await removeAll(port, [key]);
+  return refuse(record, 'already-signed', NEVER_KEPT, SCORES.rejected, removed ? {} : { removed: false });
 }
 
 // true if saved, false if the key already existed, null when the store failed. A key the port refuses is no store
@@ -309,8 +339,8 @@ function passOnRefusal(error) {
   if (error instanceof KeyRefused) throw error;
 }
 
-// Removes every planned key it can: true if all of them went, false if the store failed on any.
-async function prune(port, keys) {
+// Removes every key it can: true if all of them went, false if the store failed on any.
+async function removeAll(port, keys) {
   const outcomes = await Promise.allSettled(keys.map(key => port.remove(key)));
   const failures = outcomes.filter(outcome => outcome.status === 'rejected').map(outcome => outcome.reason);
   failures.forEach(passOnRefusal);
@@ -325,17 +355,18 @@ function notSaved(record) {
 // ---- refusals: a path the function doesn't serve, a method its path doesn't take, then what a POST must be
 // (ADR-007, DDD-5; DESIGN's Signing checks; DDD-R1 for the session request), checked in this order, the first that
 // fails deciding ----
-// A refusal saves nothing and issues no session. The signing's last, a score above the plausible ceiling, is S1 of
-// docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged £9,999,950.
+// A refusal saves nothing and issues no session. The signing's last before its write, a score above the plausible
+// ceiling, is S1 of docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged
+// £9,999,950. The one after its write, already-signed, removes what it wrote, or leaves it to pruning (save).
 const REFUSAL_STATUS = Object.freeze({
   'not-found': 404, 'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400,
   'session-required': 400, 'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
-  'invalid-seed': 400,
+  'invalid-seed': 400, 'already-signed': 409,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
-function refuse(record, error, headers = NEVER_KEPT, event = SCORES.rejected) {
-  record(event, error);
+function refuse(record, error, headers = NEVER_KEPT, event = SCORES.rejected, fields = {}) {
+  record(event, error, fields);
   return answer(REFUSAL_STATUS[error], { error }, headers);
 }
 

@@ -6,8 +6,8 @@ Feature: The high-score table keeps only games that were played
   changed. This scenario adds the table's own side: the 2026-10-26 forgery, sent with no game at all.
 
   # Slice 01's first scenario. The real function and the real Blobs client, on the emulator, through the handler (the
-  # build gate). @pending until DELIVER's first step: today the table saves it.
-  @pending @walking_skeleton @driving_port @server @real-io @error @US-01 @D6 @DDD-R3 @DDD-R14 @kpi-K20
+  # build gate).
+  @walking_skeleton @driving_port @server @real-io @error @US-01 @D6 @DDD-R3 @DDD-R14 @kpi-K20
   Scenario: The owner's table turns away a signing that no game asked for
     Given the high-score table holds KIM with £2,000
     When the high-score table receives HAX's signature of £249,950 with no session

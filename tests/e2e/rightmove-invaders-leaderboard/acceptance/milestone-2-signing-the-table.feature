@@ -111,11 +111,3 @@ Feature: Signing the shared high-score table
     And the signature is saved as one new row
     And the owner can see it was a failed look at the table
     And what the owner sees says nothing about the player
-
-  @OUT-8 @DDD-4 @server @real-io @error @edge
-  Scenario: A new row the table can't file is refused, and nothing is written
-    Given the high-score table makes new rows it can't file
-    When the high-score table receives the signature FAB with £1,000
-    Then the answer is that the table failed unexpectedly
-    And the owner can see it was an unexpected failure
-    And the table is left as it was

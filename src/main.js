@@ -38,12 +38,24 @@ const leaderboard = createLeaderboard({
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
   clearTimeout: id => window.clearTimeout(id),
 });
-// Read on page load and again, in the background, whenever a game starts (DDD-7): never awaited (ADR-008).
-const loadTable = () => leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
-loadTable();
-// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it.
+// Read on page load (DDD-7); never awaited (ADR-008).
+leaderboard.load().then(answer => tableAnswered(answer), () => tableFailed());
+
+// Every game asks the table for its session as it starts, in the background (DDD-R10): the answer's rows refresh the
+// table, and the rules never see the session. Its seed is 128 bits from Math.random, as 32 lowercase hex. The pending
+// session is kept for that game, whose signing carries it: a signing is always for the game just over, since a new
+// game can't start while the entry is open.
+const randomWord = () => Math.floor(Math.random() * 0x1_0000_0000).toString(16).padStart(8, '0');   // 32 bits, 8 hex
+const newSeed = () => `${randomWord()}${randomWord()}${randomWord()}${randomWord()}`;
+let pendingSession = null;
+function startSession() {
+  pendingSession = leaderboard.startSession(newSeed());
+  pendingSession.then(({ scores, listedAt }) => tableAnswered({ scores, listedAt }), () => tableFailed());
+}
+// Signing n is sent once and never retried (ADR-008): its answer or its failure settles it. The table client sends it
+// once the game's session has arrived, and fails it unsent if the session never comes.
 const signTable = ({ initials, score, signing }) =>
-  leaderboard.sign({ initials, score }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
+  leaderboard.sign({ initials, score, session: pendingSession }).then(answer => signingAnswered(signing, answer), () => signingFailed(signing));
 addEventListener('keydown', () => synth.unlock());
 window.makeTheRightMove = Object.freeze({ audio: synth.diagnostics });
 
@@ -54,7 +66,7 @@ function handleEvents() {
   for (const event of takeEvents()) {
     const setting = SAVED_WHEN_TOGGLED[event.type];
     if (setting) saveSetting(setting, event.on);
-    if (event.type === GameEvent.GAME_STARTED) loadTable();
+    if (event.type === GameEvent.GAME_STARTED) startSession();
     if (event.type === GameEvent.INITIALS_ENTERED) signTable(event);
     for (const cue of director.handle(event)) synth.perform(cue);
   }

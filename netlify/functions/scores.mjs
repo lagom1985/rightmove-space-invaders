@@ -1,20 +1,24 @@
 // The shared high-score table: a Netlify Function (v2) over Netlify Blobs (ADR-004).
-//   GET  /api/scores                        -> { scores: [{ initials, score, id }], listedAt }   best first, at most 10
-//   POST /api/scores { initials, score }    -> { scores, id, listedAt }   id = the new row's, so the game can find it
+//   GET  /api/scores                                 -> { scores: [{ initials, score, id }], listedAt }   best first, at most 10
+//   POST /api/sessions { seed }                      -> { session: { seed, issuedAt, token }, scores, listedAt }   a game's
+//                                                       session, sealed by the table, with the table as it stands (DDD-R1)
+//   POST /api/scores { initials, score, session }    -> { scores, id, listedAt }   id = the new row's: its game id (DDD-R4)
 // One blob per score, with everything in its key and an empty body (spike findings, strategy D). Every write
 // goes to a key of its own, so players signing at the same moment never overwrite each other, and the keys
 // sort as strings into arcade order: higher score first, then the earlier entry.
-// The handler reaches the store only through the restricted table port (createTablePort, DDD-4), which a composition
-// root builds and hands it with the clock, the id source, the logger and where the table is kept: the default export
-// below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one store per test board), and the acceptance
-// harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/table-service.js).
+// The handlers reach the store only through the restricted table port (createTablePort, DDD-4), which a composition
+// root builds and hands them, with the session signer it builds from its secret (DDD-R2), the clock, the logger and
+// where the table is kept: the default export below on Netlify, scripts/serve.mjs locally (the Blobs emulator, one
+// store per test board), and the acceptance harness (tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/
+// table-service.js). Each handler is handed only its part of the port and of the signer (dispatch, below).
 import { randomUUID } from 'node:crypto';
 import { getDeployStore, getStore } from '@netlify/blobs';
 import { MAX_SCORE, TABLE_SIZE, isAllowedInitials, isPlausibleScore, isValidSignature } from '../../src/game/high-scores.js';
+import { createSessionSigner, readSessionSecret } from '../scores/sessions.mjs';
 
 // Netlify reads this statically, so it stays a plain literal. The rate limit is the platform's (ADR-007): 10 requests
-// a minute per client, by IP and domain (DEVOPS).
-export const config = { path: '/api/scores', rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
+// a minute per client, by IP and domain (DEVOPS), counted once for both paths (DEVOPS's config.path probe).
+export const config = { path: ['/api/scores', '/api/sessions'], rateLimit: { windowLimit: 10, windowSize: 60, aggregateBy: ['ip', 'domain'] } };
 
 const MISSING = 'missing';
 const NOWHERE = Object.freeze({ scope: MISSING, context: MISSING, published: MISSING });
@@ -26,16 +30,39 @@ const STORES = Object.freeze({
 // The Netlify entry (ADR-005): the published production deploy keeps the site-wide table, and every other deploy a
 // table of its own, which Netlify deletes with the deploy. A deploy store needs a deploy ID: without one the table is
 // unavailable, and the site-wide table is never used instead. A method the table doesn't take is refused before any
-// store is opened, so it is told what the table takes whether or not there is one.
+// store is opened, so it is told what the table takes whether or not there is one. The session signer is built from
+// SCORES_SESSION_SECRET, and none from a value that isn't canonical base64 of exactly 32 bytes (DDD-R2): the handlers
+// then issue no session and save no signing.
 export default async function scores(request, context) {
   const scope = chooseStore(context);
   const where = { scope, context: context?.deploy?.context ?? MISSING, published: context?.deploy?.published ?? MISSING };
-  const options = { now: Date.now, newId, log: logToConsole, where };
-  if (!isReadOrSign(request.method)) return refuseMethod(options);
+  const options = { now: Date.now, log: logToConsole, where };
+  const asking = asksForSession(request);
+  if (!asking && !isReadOrSign(request.method)) return refuseMethod(options);
   const record = journal(options);
   const port = openTable(scope);
-  if (!port) return failed(record, 'store-unavailable');
-  return handleScores(request, port, options);
+  if (!port) return failed(record, 'store-unavailable', asking ? SESSIONS_ERROR : SCORES_ERROR);
+  return dispatch(request, port, options, signerFrom(process.env.SCORES_SESSION_SECRET));
+}
+
+// The session signer a secret's value makes, or null.
+function signerFrom(value) {
+  const secret = readSessionSecret(value);
+  return secret && createSessionSigner(secret);
+}
+
+// The roots' dispatch by path (DDD-R1): the session request to handleSessions, the table to handleScores. Each is handed
+// only its part (the user, 2026-10-27): a GET and the session request the port's listing alone, the session request the
+// signer's sign, the signing its verify and gameId. signer is null for a root with no secret, and so is each part.
+const SESSIONS_PATH = '/api/sessions';
+const asksForSession = request => new URL(request.url).pathname === SESSIONS_PATH;
+const listingOnly = port => Object.freeze({ list: port.list });
+const issuingPart = signer => signer && Object.freeze({ sign: signer.sign });
+const signingPart = signer => signer && Object.freeze({ verify: signer.verify, gameId: signer.gameId });
+
+export function dispatch(request, port, options, signer) {
+  if (asksForSession(request)) return handleSessions(request, listingOnly(port), { ...options, sessions: issuingPart(signer) });
+  return handleScores(request, request.method === 'POST' ? port : listingOnly(port), { ...options, sessions: signingPart(signer) });
 }
 
 // 'site' only for the published production deploy; anything else, however close, gets 'deploy' (ADR-005).
@@ -48,7 +75,8 @@ function openTable(scope) {
   try { return createTablePort(STORES[scope]()); } catch { return null; }   // MissingBlobsEnvironmentError, for one
 }
 
-// The production id source: a new row's id, [a-z0-9]+ as the key codec wants it (also scripts/serve.mjs's).
+// A random row id, [a-z0-9]+ as the key codec wants it: only the local seeding route's (scripts/serve.mjs, DDD-R17),
+// since a signed row's id is its game id (DDD-R4).
 export const newId = () => randomUUID().replaceAll('-', '');
 
 // The production logger: one JSON line per entry on the console, which Netlify keeps as the function's log (DDD-17).
@@ -136,15 +164,18 @@ function journal({ now, log, where = NOWHERE }) {
 }
 
 // 500 unexpected, logged with its fixed reason and never with the error, whose message can carry a key (DDD-17).
-function failed(record, reason) {
-  record('scores.error', reason);
+const SCORES_ERROR = 'scores.error';
+const SESSIONS_ERROR = 'sessions.error';
+
+function failed(record, reason, event = SCORES_ERROR) {
+  record(event, reason);
   return answer(500, { error: 'unexpected' });
 }
 
-// options, from the composition root: now () -> ms (a new row's time, and listedAt), newId () -> a new row's id
-// ([a-z0-9]+), log (receives one entry per request) and where ({ scope, context, published }, logged as given).
-// A GET is handed the port's list alone. Nothing escapes the handler (DDD-17): whatever throws is answered 500
-// unexpected and logged as unexpected, so the promise always resolves.
+// options, from the composition root: now () -> ms (a new row's time, and listedAt), log (receives one entry per
+// request), where ({ scope, context, published }, logged as given) and sessions (the signer's verify and gameId, or
+// null when the root has no secret). A GET is handed the port's list alone. Nothing escapes the handler (DDD-17):
+// whatever throws is answered 500 unexpected and logged as unexpected, so the promise always resolves.
 export async function handleScores(request, port, options) {
   const record = journal(options);
   try {
@@ -154,13 +185,27 @@ export async function handleScores(request, port, options) {
   }
 }
 
-// The session request (rightmove-invaders-replay-verified-scores, DDD-R1): POST /api/sessions { seed } -> 200
-// { session: { seed, issuedAt, token }, scores, listedAt }, no-store, from the same function, dispatched by path. Both
-// handlers will take today's options plus `sessions` (the session signer, or null when the root has no secret) and
-// `clockAllowanceMs` (DDD-R11).
-// RED scaffold (DISTILL): it throws until DELIVER builds it (slice 01); nothing routes to it yet.
+// The session request (DDD-R1): POST /api/sessions { seed } -> 200 { session: { seed, issuedAt, token }, scores,
+// listedAt }, no-store, with the rows and listedAt of its own listing. issuedAt is the root's clock as the request
+// came in, before the listing (C5). options as handleScores's, but sessions is the signer's sign; port is the listing
+// alone. Nothing escapes it either: whatever throws is answered 500 unexpected, logged as sessions.error unexpected.
 export async function handleSessions(request, port, options) {
-  throw new Error('__SCAFFOLD__: handleSessions is not yet implemented (DDD-R1)');
+  const record = journal(options);
+  try {
+    return await issue(request, port, options, record);
+  } catch {
+    return failed(record, 'unexpected', SESSIONS_ERROR);
+  }
+}
+
+async function issue(request, { list }, { now, sessions }, record) {
+  const { seed } = await request.json();
+  const issuedAt = now();
+  const session = { seed, issuedAt, token: sessions.sign(seed, issuedAt) };
+  const keys = await list();
+  const listedAt = now();
+  record('sessions.issued', 'ok');
+  return answer(200, { session, scores: table(keys), listedAt });
 }
 
 // The table can only be read or signed (DDD-6): any other method is refused before anything else is looked at, and by
@@ -172,9 +217,11 @@ export const isReadOrSign = method => METHODS.includes(method);
 const methodRefused = record => refuse(record, 'method-not-allowed', READ_OR_SIGN_ONLY);
 export const refuseMethod = options => methodRefused(journal(options));
 
+// A signing needs the root's secret, and is refused without one before its body is read (Signing checks, row 2).
 async function route(request, port, options, record) {
   if (!isReadOrSign(request.method)) return methodRefused(record);
   if (request.method === 'GET') return read(port, options, record);
+  if (!options.sessions) return failed(record, 'secret-missing');
   return sign(request, port, options, record);
 }
 
@@ -199,17 +246,18 @@ function table(keys) {
 
 // A signing: one new row, then the table as it now stands, with the new row's id so the signer can find it (DDD-12).
 async function sign(request, port, options, record) {
-  const { signature, refused } = await readSignature(request);
+  const { signing, refused } = await readSigning(request, options.sessions);
   if (refused) return refuse(record, refused);
-  return save(signature, port, options, record);
+  return save(signing, port, options, record);
 }
 
 // A key that already exists is turned away (503, no second row). A save that throws may or may not have written its
 // row, and a listing that throws after the save leaves the row there: both are 500 unexpected, and the signer's game
 // shows the signing as unconfirmed (ADR-008). Tidying up is best effort: the answer is the listing's top ten whatever
 // the tidy-up does, and a store failure while tidying is only logged (prune-failed). The rows are logged as a count.
-async function save({ initials, score }, port, { now, newId }, record) {
-  const id = newId();
+// The new row's id is its game id, so every session for one seed names the same row (DDD-R4).
+async function save({ initials, score, session }, port, { now, sessions }, record) {
+  const id = sessions.gameId(session.seed);
   const saved = await saving(port, encodeKey({ initials, score, at: now(), id }));
   if (saved === null) return failed(record, 'put-failed');
   if (!saved) return notSaved(record);
@@ -249,12 +297,13 @@ function notSaved(record) {
   return answer(503, { error: 'not-saved' });
 }
 
-// ---- refusals: a method the table doesn't take, then what a POST must be (ADR-007, DDD-5), checked in this order ----
+// ---- refusals: a method the table doesn't take, then what a POST must be (ADR-007, DDD-5; DESIGN's Signing checks),
+// checked in this order, the first that fails deciding ----
 // A refusal saves nothing. The last, a score above the plausible ceiling, is S1 of
 // docs/analysis/root-cause-analysis-forged-high-scores.md: the key's 7-digit field alone takes a forged £9,999,950.
 const REFUSAL_STATUS = Object.freeze({
-  'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400, 'initials-not-allowed': 400,
-  'implausible-score': 400,
+  'method-not-allowed': 405, 'json-required': 415, 'payload-too-large': 413, 'invalid-signature': 400, 'session-required': 400,
+  'initials-not-allowed': 400, 'invalid-session': 400, 'implausible-score': 400,
 });
 const BODY_CAP = 1024;   // bytes (1 KB, DDD-5): counted as the body is read, since a Content-Length can lie
 
@@ -263,15 +312,34 @@ function refuse(record, error, headers = NEVER_KEPT) {
   return answer(REFUSAL_STATUS[error], { error }, headers);
 }
 
-// { signature } or { refused: the error code }. The body is read only once the format is right.
-async function readSignature(request) {
+// A signing is exactly { initials, score, session }, { initials, score } being a valid signature (ADR-006).
+const SIGNING_FIELDS = Object.freeze(['initials', 'score', 'session']);
+const hasSession = signing => typeof signing === 'object' && signing !== null && Object.hasOwn(signing, 'session');
+const isSigning = signing => {
+  const fields = Object.keys(signing).sort();
+  return fields.length === SIGNING_FIELDS.length && fields.every((field, at) => field === SIGNING_FIELDS[at])
+    && isValidSignature({ initials: signing.initials, score: signing.score });
+};
+
+// What a parsed body must be, in order (Signing checks, rows 6 to 9 and 15): a body without a session is one no game
+// asked for (a page loaded before sessions, or a forgery sent from a terminal).
+const SIGNING_CHECKS = Object.freeze([
+  ['session-required', hasSession],
+  ['invalid-signature', isSigning],
+  ['initials-not-allowed', signing => isAllowedInitials(signing.initials)],
+  ['invalid-session', (signing, { verify }) => verify(signing.session)],
+  ['implausible-score', signing => isPlausibleScore(signing.score)],
+]);
+
+// { signing } or { refused: the error code }. The body is read only once the format is right.
+async function readSigning(request, sessions) {
   if (mediaType(request) !== 'application/json') return { refused: 'json-required' };
   const body = await readUpTo(BODY_CAP, request.body);
   if (body === null) return { refused: 'payload-too-large' };
-  const signature = parsed(body);
-  if (!isValidSignature(signature)) return { refused: 'invalid-signature' };
-  if (!isAllowedInitials(signature.initials)) return { refused: 'initials-not-allowed' };
-  return isPlausibleScore(signature.score) ? { signature } : { refused: 'implausible-score' };
+  const signing = parsed(body);
+  if (signing === undefined) return { refused: 'invalid-signature' };
+  const [refused] = SIGNING_CHECKS.find(([, passes]) => !passes(signing, sessions)) ?? [];
+  return refused ? { refused } : { signing };
 }
 
 // The media type alone, its parameters (a charset, say) ignored; media types are case-insensitive.
@@ -291,6 +359,7 @@ async function readUpTo(cap, stream) {
   return text + decoder.decode();
 }
 
+// The JSON value, or undefined when the body isn't JSON.
 function parsed(body) {
   try { return JSON.parse(body); } catch { return undefined; }
 }

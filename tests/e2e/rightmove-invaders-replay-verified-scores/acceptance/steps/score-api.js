@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
 import fc from 'fast-check';
-import { createSessionSigner } from '../../../../../netlify/scores/sessions.mjs';
+import { createSessionSigner, readSessionSecret } from '../../../../../netlify/scores/sessions.mjs';
 import { createTablePort, handleScores } from '../../../../../netlify/functions/scores.mjs';
 import { TableService, TEST_SECRET } from '../../../rightmove-invaders-leaderboard/acceptance/steps/table-service.js';
 import { loadRecordedGames } from '../../../../common/recorded-games.js';
@@ -143,7 +143,7 @@ export class ScoreApi extends TableService {
 
   // The signer is built at the first session a scenario needs, as the roots build it (null once the secret is lost).
   signer() {
-    if (this.table.sessions === undefined) this.table.sessions = createSessionSigner(TEST_SECRET);
+    if (this.table.sessions === undefined) this.table.sessions = createSessionSigner(readSessionSecret(TEST_SECRET));
     return this.table.sessions;
   }
 
@@ -427,7 +427,7 @@ export class ScoreApi extends TableService {
 
   async burst({ size, ownSessions, readers, firstAhead }) {
     const table = this.newTable();
-    table.sessions = createSessionSigner(TEST_SECRET);
+    table.sessions = createSessionSigner(readSessionSecret(TEST_SECRET));
     const withRecord = recordsByDefault();
     const entry = { game: withRecord ? table.games.take(CAST.Alex) : { seed: freshSeed(), record: null, deposit: CAST.Alex }, sessions: [], withRecord };
     const lead = entry.game.record ? gameMs(entry.game.steps) + 1000 : 0;

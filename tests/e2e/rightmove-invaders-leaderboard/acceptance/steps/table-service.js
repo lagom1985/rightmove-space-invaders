@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import { handleScores, handleSessions, createTablePort } from '../../../../../netlify/functions/scores.mjs';
-import { createSessionSigner } from '../../../../../netlify/scores/sessions.mjs';
+import { createSessionSigner, readSessionSecret } from '../../../../../netlify/scores/sessions.mjs';
 import { assertStateDelta, satisfying } from '../../../../common/state-delta.js';
 import { createGameSupply, scriptedGames } from '../../../../common/played-games.js';
 import { TEST_SECRET } from '../../../../common/session-secret.js';
@@ -172,7 +172,7 @@ export class Table {
     this.logs = [];
     this.test = wrapStore(store, this.clock);
     // undefined before sessions exist (BARE); null for a root with no secret (set by a scenario)
-    this.sessions = TABLE_PROTOCOL === TableProtocol.BARE ? undefined : createSessionSigner(TEST_SECRET);
+    this.sessions = TABLE_PROTOCOL === TableProtocol.BARE ? undefined : createSessionSigner(readSessionSecret(TEST_SECRET));
     this.games = createGameSupply();
     this.sameGame = false;
     this.lastGame = null;
@@ -312,9 +312,6 @@ export class TableService {
     this.table.ids.fixed = 'dup1';
     this.table.sameGame = true;
   }
-
-  // An id that can't be part of a well-formed key, so the port must refuse the row (DDD-4).
-  makeRowsItCantFile() { this.table.ids.fixed = 'NOT-AN-ID'; }
 
   async saved(signature) {
     await this.receive(signature);

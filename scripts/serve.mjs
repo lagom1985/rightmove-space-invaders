@@ -1,23 +1,27 @@
-// Local server for play and the acceptance tests: the game's static files, plus the high-score table at
-// /api/scores. ES modules don't load from file:// URLs, so the game has to be served over http.
-// The table is the real Netlify Function's handler (netlify/functions/scores.mjs) behind its restricted port, and the
+// Local server for play and the acceptance tests: the game's static files, plus the high-score table at /api/scores
+// and a game's session request at /api/sessions. ES modules don't load from file:// URLs, so the game has to be served
+// over http.
+// The table is the real Netlify Function's handlers (netlify/functions/scores.mjs) behind its restricted port, and the
 // real @netlify/blobs client, against the Blobs emulator in a fresh temporary directory, so every start begins with
 // empty tables and needs no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side);
-// without one, the table is `local`. This is a composition root: it chooses the store, builds the port, and hands the
-// handler the clock, the id source, the logger and where the table is kept (scope local).
+// without one, the table is `local`. This is a composition root: it chooses the store, builds the port and the session
+// signer, and dispatches as the Netlify entry does, handing each handler its part, the clock, the logger and where the
+// table is kept (scope local). Its secret is 32 random bytes of its own at each start, never production's (DDD-R2, E1).
+// For the tests only, a test board can also be handed rows without a game (POST /__test/rows, DDD-R17).
 import { STATUS_CODES, createServer } from 'node:http';
 import { rmSync } from 'node:fs';
 import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
 import {
-  EVERY_ANSWER, createTablePort, handleScores, isReadOrSign, logToConsole, newId, refuseMethod,
+  EVERY_ANSWER, createTablePort, dispatch, encodeKey, isReadOrSign, logToConsole, newId, refuseMethod,
 } from '../netlify/functions/scores.mjs';
+import { createSessionSigner } from '../netlify/scores/sessions.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const port = Number(process.env.PORT) || 4173;
@@ -26,9 +30,13 @@ const types = {
   '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
 };
 const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
+const SCORES_PATH = '/api/scores';
+const TABLE_PATHS = Object.freeze([SCORES_PATH, '/api/sessions']);
+const TEST_ROWS = '/__test/rows';
 // What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
-const tableOptions = Object.freeze({ now: Date.now, newId, log: logToConsole, where: LOCAL });   // the production clock, ids and logger
+const tableOptions = Object.freeze({ now: Date.now, log: logToConsole, where: LOCAL });   // the production clock and logger
+const signer = createSessionSigner(randomBytes(32));
 const STOP_WITHIN_MS = 1000;   // a request still in flight can hold the emulator open; the directory goes regardless
 
 // The Blobs client finds the emulator through this context. Strong consistency needs `uncachedEdgeURL` as well.
@@ -53,18 +61,35 @@ function removeWhenStopped(blobs, directory) {
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, stop);
 }
 
+const boardOf = req => BOARD.exec(req.headers.cookie ?? '')?.[1] ?? null;
+
 function storeFor(req) {
-  const board = BOARD.exec(req.headers.cookie ?? '')?.[1] ?? 'local';
-  return getStore({ name: `leaderboard-${board}`, consistency: 'strong' });
+  return getStore({ name: `leaderboard-${boardOf(req) ?? 'local'}`, consistency: 'strong' });
 }
 
 // Node request -> Web Request -> the function -> Node response, with the function's own headers (DDD-6). A method the
 // table doesn't take is refused first, as on Netlify, and before a Request is built: one can't carry TRACE.
-async function serveScores(req, res) {
-  if (!isReadOrSign(req.method)) return send(res, refuseMethod(tableOptions));
+async function serveTable(path, req, res) {
+  if (path === SCORES_PATH && !isReadOrSign(req.method)) return send(res, refuseMethod(tableOptions));
   const body = req.method === 'POST' ? bodyOf(req) : undefined;
   const request = new Request(new URL(req.url, `http://localhost:${port}`), { method: req.method, headers: req.headers, body, duplex: 'half' });
-  return send(res, await handleScores(request, createTablePort(storeFor(req)), tableOptions));
+  return send(res, await dispatch(request, createTablePort(storeFor(req)), tableOptions, signer));
+}
+
+// Another house-hunter's row on a test board, with no game (DDD-R17): { initials, score } written as one key through
+// that board's port, with a random id. Only the port's own check of the key's shape stands in its way, so no ceiling.
+// The function has no such route.
+async function putRow(req, res) {
+  const { initials, score } = JSON.parse(await textOf(req));
+  const id = newId();
+  const saved = await createTablePort(storeFor(req)).putIfNew(encodeKey({ initials, score, at: Date.now(), id }));
+  res.writeHead(saved ? 200 : 503, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ id }));
+}
+
+async function textOf(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 async function send(res, response) {
@@ -123,14 +148,17 @@ async function serveFile(path, res) {
   }
 }
 
+// The test route answers only a POST from a test board; any other request for it is a file, and there is none.
+const putsRow = (path, req) => path === TEST_ROWS && req.method === 'POST' && boardOf(req) !== null;
+
 await startBlobs();
 createServer(async (req, res) => {
   const path = pathOf(req);
   if (path === null) { res.writeHead(400).end('Bad request'); return; }
-  if (path === '/api/scores') {
-    try { await serveScores(req, res); } catch { failedLocally(res); }
+  if (TABLE_PATHS.includes(path) || putsRow(path, req)) {
+    try { await (putsRow(path, req) ? putRow(req, res) : serveTable(path, req, res)); } catch { failedLocally(res); }
     return;
   }
   await serveFile(path, res);
-}).on('connect', (req, socket) => (pathOf(req) === '/api/scores' ? refuseConnect(socket) : socket.destroy()))
+}).on('connect', (req, socket) => (pathOf(req) === SCORES_PATH ? refuseConnect(socket) : socket.destroy()))
   .listen(port, '127.0.0.1', () => console.log(`Make the Right Move: http://localhost:${port}`));

@@ -5,13 +5,18 @@ import { assertStateDelta, setTo } from '../common/state-delta.js';
 import { createKeyboard, preventsDefault } from '../../src/platform/input.js';
 
 // The keyboard (src/platform/input.js, ADR-009) over a plain EventTarget. Node has EventTarget but no KeyboardEvent, so
-// each keydown is an Event with the fields the keyboard reads set on it (DDD-T11: key, code, repeat and the modifiers).
+// each key event is an Event with the fields the keyboard reads set on it (DDD-T11: key, code, repeat and the modifiers),
+// and isTrusted: true for a person's key, false for a script's. Node's Event answers isTrusted false from a getter, so a
+// person's key gets an isTrusted of its own, as a browser's has.
 // Its two channels: the typed presses, every keydown in order as { key }, except repeats and chords (Cmd, Ctrl or
-// Alt/Option held; DDD-T1, DDD-T4), and the positions, as they always were (Cmd and Ctrl left alone, Alt not). On every
-// keydown it applies the default policy (DDD-T8), a pure function of the event's fields.
+// Alt/Option held; DDD-T1, DDD-T4), a script's keydowns included, and the positions, as they always were (Cmd and Ctrl
+// left alone, Alt not), from a person's keys only (ADR-009, 2026-10-27). On every keydown, a script's too, it applies the
+// default policy (DDD-T8), a pure function of the event's fields.
 // Universe: what the keyboard reports, `typed` (takeTyped()), `pressed` (takePressed(), sorted) and `held` (the codes
 // isDown answers true for), read before and after each batch of keydowns, and `prevented`, what it left the browser to
-// do with the batch's keydowns (each event's defaultPrevented, in order; none before the batch).
+// do with the batch's keydowns (each event's defaultPrevented, in order; none before the batch). The script's property
+// reads the same four after each key event and fixed step, `prevented` then being that event's own defaultPrevented,
+// from a keyboard that heard the script's events as the script sent them and from one that heard them as a person's.
 
 const KEYS = ['a', 'Z', 'm', 'é', 'ß', ' ', '/', "'", 'Enter', 'Backspace', 'Escape', 'ArrowUp', 'Dead', 'Shift'];
 const CODES = ['KeyA', 'KeyZ', 'KeyM', 'KeyQ', 'Digit2', 'Minus', 'Space', 'Slash', 'Enter', 'Backspace', 'Escape', 'ArrowUp', 'ShiftLeft'];
@@ -27,10 +32,11 @@ const A_KEYDOWN = { key: 'a', code: 'KeyA', repeat: false, metaKey: false, ctrlK
 // example that reaches it first, on top of these.
 const GENERATED_RUNS = 100;
 
-// Dispatches one event and tells whether its default was prevented.
-function dispatchKey(target, type, fields) {
+// Dispatches one event, a person's unless isTrusted is false, and tells whether its default was prevented.
+function dispatchKey(target, type, { isTrusted = true, ...fields }) {
   const event = new Event(type, { cancelable: true });
   Object.assign(event, fields);
+  Object.defineProperty(event, 'isTrusted', { value: isTrusted });
   target.dispatchEvent(event);
   return event.defaultPrevented;
 }
@@ -107,9 +113,10 @@ const keyEvent = fc.oneof(
   { arbitrary: fc.constant({ type: 'endStep' }), weight: 1 },
 );
 
+// Tells whether a key event's default was prevented; a fixed step has none.
 function hear({ target, keyboard }, { type, fields }) {
-  if (type === 'endStep') keyboard.endStep();
-  else dispatchKey(target, type, fields);
+  if (type === 'endStep') return keyboard.endStep();
+  return dispatchKey(target, type, fields);
 }
 
 const listening = () => {
@@ -146,6 +153,64 @@ test('releaseAll() forgets every key held and drops every press not yet taken, a
     if (before.pressed.length) seen.add('a position pressed');
   }), { examples, numRuns: GENERATED_RUNS + examples.length });
   expect(RELEASE_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
+});
+
+// ---- a script's keys (ADR-009, 2026-10-27) ----
+// An autopilot pasted in the devtools console plays with synthetic key events, whose isTrusted is false. The positions
+// ignore a script's keydowns and keyups, so it can't move, fire, start, pause or play again, nor release a key a person
+// holds. The typed presses take its keydowns as they take a person's, so the tests can stand in for other layouts
+// (DDD-T11), and the default policy answers them as it answers a person's. Three keyboards hear the same keydowns, keyups
+// and fixed steps, a script's among them: one as the script sent them, one as if a person had pressed every key, and one
+// never hears the script's. After each, the first reports what the second does but for the positions, which are the
+// third's. One key event in four is a script's.
+const personOrScript = fc.tuple(keyEvent, sometimes)
+  .map(([event, scripted]) => (scripted && event.fields ? { ...event, fields: { ...event.fields, isTrusted: false } } : event));
+const fromAScript = ({ fields }) => fields?.isTrusted === false;
+const asAPerson = event => (fromAScript(event) ? { ...event, fields: { ...event.fields, isTrusted: true } } : event);
+
+const SCRIPT_WITNESSES = [
+  "a script's key typed", "a script's default prevented", "a script's keydown kept from the positions",
+  "a script's keyup kept from a key a person holds",
+];
+
+function noteScriptMoments(seen, event, asIfAPerson, personAlone) {
+  if (!fromAScript(event)) return;
+  if (event.type === 'keydown' && asIfAPerson.typed.length) seen.add("a script's key typed");
+  if (asIfAPerson.prevented) seen.add("a script's default prevented");
+  if (event.type === 'keydown' && asIfAPerson.pressed.length) seen.add("a script's keydown kept from the positions");
+  const { code } = event.fields;
+  if (event.type === 'keyup' && personAlone.held.includes(code) && !asIfAPerson.held.includes(code)) {
+    seen.add("a script's keyup kept from a key a person holds");
+  }
+}
+
+// A script's keyup kept from a key a person holds takes a person's keydown, a fixed step that sees it, then the script's
+// keyup of that code, and about one test run in three (648 in 2000) generated none. So A held by a person, then released
+// and pressed again by a script, is tried first on every test run: it reaches every one of the moments above, so the
+// witness check holds by construction for all four and no longer shows that the generated events reach any of them.
+const A_HELD_THEN_RELEASED_AND_PRESSED_BY_A_SCRIPT = [
+  { type: 'keydown', fields: A_KEYDOWN }, { type: 'endStep' },
+  { type: 'keyup', fields: { code: 'KeyA', isTrusted: false } }, { type: 'keydown', fields: { ...A_KEYDOWN, isTrusted: false } },
+];
+
+test("a script's keydowns and keyups never change the positions, and its keydowns type and get the default policy as a person's would", () => {
+  const seen = new Set();
+  const examples = [[A_HELD_THEN_RELEASED_AND_PRESSED_BY_A_SCRIPT]];
+  fc.assert(fc.property(fc.array(personOrScript, { minLength: 1, maxLength: 12 }), events => {
+    const heard = listening(), asIfAPerson = listening(), withoutTheScript = listening();
+    for (const event of events) {
+      const after = { prevented: hear(heard, event), ...observe(heard.keyboard) };
+      const before = { prevented: hear(asIfAPerson, asAPerson(event)), ...observe(asIfAPerson.keyboard) };
+      if (!fromAScript(event)) hear(withoutTheScript, event);
+      const personAlone = observe(withoutTheScript.keyboard);
+      assertStateDelta(before, after, {
+        universe: ['typed', 'pressed', 'held', 'prevented'],
+        expected: { pressed: setTo(personAlone.pressed), held: setTo(personAlone.held) },
+      });
+      noteScriptMoments(seen, event, before, personAlone);
+    }
+  }), { examples, numRuns: GENERATED_RUNS + examples.length });
+  expect(SCRIPT_WITNESSES.filter(witness => !seen.has(witness)), 'moments no run reached').toEqual([]);
 });
 
 // ---- the default policy (DDD-T8) ----

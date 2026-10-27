@@ -38,6 +38,12 @@ What still holds it back:
 
 The user re-accepted this with these numbers on 2026-10-26: with 10 rows on the table, the pace changes little, because every row still needs a game that really plays to its deposit. The owner still deletes rows by hand; within its session's 2 hours, the same request can put a deleted row back, and after that only a new session and a new wait can. Ruling the risk out would take anti-bot measures (reaction-time heuristics, captchas, a seed revealed wave by wave from the server, which would put the network on the frame path), far beyond this project. **Revisit when** a row the owner judges forged appears on the production table (K24).
 
+**Seen in the wild, 2026-10-27**: a published autopilot, pasted into the devtools console, read the game's state from its modules and played it with synthetic key events. It is the program this section accepts: its games are real, so the replay verifies them. Two things now stand in its way, neither of which rules it out:
+- the rules no longer keep one game in a module (ADR-013), so the state it read is gone;
+- the keyboard's positions ignore key events a page script dispatches, those whose `isTrusted` is false (ADR-009, 2026-10-27).
+
+Browser automation, which sends trusted keys, and a program that plays in Node and signs with a plain request, are unaffected.
+
 ## Alternatives considered
 - **The ceiling alone (S1, PR #4)**: free and already shipped, but a forged £249,950 still lands at #1.
 - **A session with an elapsed-time rule and no replay** (the RCA's S2: refuse a deposit above R × elapsed seconds): needs a calibrated R and still trusts the claim. A forger who waits gets any deposit under R × the wait.

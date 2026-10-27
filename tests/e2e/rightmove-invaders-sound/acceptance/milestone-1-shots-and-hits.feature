@@ -52,3 +52,22 @@ Feature: Hear your shots (US-01)
     Then the deposit saved shows £50
     And the game's sound is unavailable
     And no errors or audio warnings are reported
+
+  # A script on the page, such as an autopilot pasted in the devtools console, presses keys with synthetic key events,
+  # whose isTrusted is false: the game doesn't play them (ADR-009, 2026-10-27). A person's key press is trusted, and so is
+  # each of Playwright's.
+  @US-01 @real-io @error
+  Scenario: A key pressed by a script on the page starts no game
+    Given I have just opened the game
+    When a script on the page presses Enter
+    Then the game announces "Press Enter to start"
+    When I start a game
+    Then the game announces "Game started"
+
+  @US-01 @real-io @error
+  Scenario: A key pressed by a script on the page fires no shot
+    Given I am playing with sound on
+    When a script on the page presses Space
+    Then I don't hear a shot
+    When I press Space
+    Then I hear a shot

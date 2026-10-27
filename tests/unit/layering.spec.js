@@ -9,6 +9,8 @@ import './support/seed.js';
 // a hand-rolled import scan over src/** and netlify/** (no dependency-cruiser: seven rules don't need it). The scan recognises every import form an ES
 // module has: import … from '…', bare import '…', export … from '…' and dynamic import('…'). It reads source text,
 // not a syntax tree, so a comment or string that looks like an import counts as one: it can over-report, never miss.
+// The token rule reads the same folders as text, every file in them, and finds no name that only the tests may use,
+// comments included (the platform review, PL-2).
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SCANNED = ['src', 'netlify'];
@@ -55,11 +57,23 @@ function violations(modules) {
     .map(({ rule }) => `${file} -> ${specifier} (${rule})`)));
 }
 
-async function modulesUnder(folder) {
+// The names only the tests may use (the platform review, PL-2): the local server's test cookies and test route, and the
+// public test secret. Each one is plain text, so a file holds it wherever it is written, a comment or a string included.
+const TEST_ONLY = ['test-clock', 'test-board', '__test', 'TEST_SECRET'];
+
+// Every test-only name a file holds, as "file: name".
+function testOnlyNames(files) {
+  return files.flatMap(({ file, source }) => TEST_ONLY.filter(name => source.includes(name)).map(name => `${file}: ${name}`));
+}
+
+// Every file under a folder, read as text.
+async function filesUnder(folder) {
   const entries = await readdir(join(ROOT, folder), { recursive: true, withFileTypes: true });
-  const files = entries.filter(entry => entry.isFile() && MODULE.test(entry.name)).map(entry => join(entry.parentPath, entry.name));
+  const files = entries.filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name));
   return Promise.all(files.map(async path => ({ file: relative(ROOT, path).split(/[\\/]/).join('/'), source: await readFile(path, 'utf8') })));
 }
+
+const modulesUnder = async folder => (await filesUnder(folder)).filter(({ file }) => MODULE.test(file));
 
 // ---- the scanner ----
 const segment = fc.stringMatching(/^[a-z][a-z0-9-]{0,8}$/);
@@ -125,4 +139,40 @@ test('src and netlify keep the seven layering rules of ADR-006, ADR-009 and ADR-
   const modules = (await Promise.all(SCANNED.map(modulesUnder))).flat();
   expect(modules.map(({ file }) => file), 'the scan reads the rules module, the keyboard, the backdrops and the function').toEqual(expect.arrayContaining(['src/game/high-scores.js', 'src/platform/input.js', 'src/view/backdrop.js', 'netlify/functions/scores.mjs']));
   expect(violations(modules)).toEqual([]);
+});
+
+// ---- the token rule ----
+// Code with no test-only name in it, and the places a name could be written into it.
+const clean = fc.string({ maxLength: 40 }).filter(text => !TEST_ONLY.some(name => text.includes(name)));
+const PLACES = [
+  name => `// ${name}`,
+  name => `/* the ${name} */`,
+  name => `'${name}'`,
+  name => `\`/${name}/rows\``,
+  name => `import { ${name} } from './secrets.js';`,
+  name => name,
+];
+const planted = fc.tuple(fc.constantFrom(...TEST_ONLY), fc.constantFrom(...PLACES), clean).map(([name, place, after]) => ({ name, text: `${place(name)}${after}` }));
+const fileWithNames = fc.record({
+  file: fc.constantFrom('src/main.js', 'src/platform/leaderboard.js', 'netlify/functions/scores.mjs', 'netlify/scores/sessions.mjs'),
+  before: clean,
+  names: fc.array(planted, { maxLength: 3 }),
+});
+
+test('the token scan reports each test-only name planted in a file, in code, a string or a comment, and nothing in a file without one', () => {
+  fc.assert(fc.property(fc.uniqueArray(fileWithNames, { selector: ({ file }) => file, maxLength: 4 }), files => {
+    const sources = files.map(({ file, before, names }) => ({ file, source: `${before}\n${names.map(({ text }) => text).join('\n')}` }));
+    const report = testOnlyNames(sources);
+    for (const { file, names } of files) {
+      for (const { name } of names) expect(report).toContain(`${file}: ${name}`);
+      if (names.length === 0) expect(report.filter(line => line.startsWith(`${file}: `))).toEqual([]);
+    }
+  }));
+});
+
+// bypass: the repository is one fixed tree.
+test('no test-only name (test-clock, test-board, __test, TEST_SECRET) appears in src or netlify, comments included', async () => {
+  const files = (await Promise.all(SCANNED.map(filesUnder))).flat();
+  expect(files.map(({ file }) => file), 'the scan reads the game, the function and the signer').toEqual(expect.arrayContaining(['src/main.js', 'netlify/functions/scores.mjs', 'netlify/scores/sessions.mjs']));
+  expect(testOnlyNames(files)).toEqual([]);
 });

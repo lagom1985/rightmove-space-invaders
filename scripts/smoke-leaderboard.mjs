@@ -8,18 +8,20 @@
 // played-games.js and recorded-games.js), and each replays to its own deposit and length before the run sends anything.
 // From slice 03 the deploy checks the clock (D8), so each signing of a game waits the game's length after its session.
 //
-//   --site <name> --preview <URL> [--slice 01|02|03] [--production <URL>] [--permalink <URL>]    preview run: the
-//       leaderboard's steps 1 and 4-10 (K10, K12, K14); with --slice, that slice's gate steps, signing in its shape (01:
-//       S1, S2, S4, S4c, S4b, S5, S3, S6 and S6b; 02: S1, the write guard's opening GET, then S7, S8, S9, S9b and S9c;
-//       03: S1, then S11, S12 and S13)
-//   --site <name> --burst <URL> [--slice 02]    burst run on a throwaway preview whose only change removes rateLimit:
-//       steps 1-3 (K11); with --slice 02, S10 (K11, K20)
+//   --site <name> --preview <URL> --slice 01|02|03 [--production <URL>] [--permalink <URL>]    preview run: that
+//       slice's gate steps, signing in its shape (01: S1, S2, S4, S4c, S4b, S5, S3, S6 and S6b; 02: S1, the write
+//       guard's opening GET, then S7, S8, S9, S9b and S9c; 03: S1, then S11, S12 and S13)
+//   --site <name> --burst <URL> --slice 02    burst run on a throwaway preview whose only change removes rateLimit: S10
+//       (K11, K20)
 //   --production <URL>                 production mode, P1 (K13): one GET, never a POST
 //   --site <name> --unpublished <permalink> --production <URL> [--slice 01|02|03] [--site-id <ID>]    unpublished
 //       check, U1-U3 (K13), U2 signing as the permalink's code does (from --slice 01, through a session from that
 //       permalink; from --slice 02, with a record too; from --slice 03, once its game has lasted since that session):
 //       the published deploy's ID comes from Netlify's API with NETLIFY_AUTH_TOKEN and --site-id, or the owner types it
 //       back
+//
+// A preview or burst run names its slice: the leaderboard's own, from before this feature (its steps 1-10), signed with
+// no session, which today's function refuses at every signing, so they are gone, and a run without --slice is malformed.
 //
 // It prints one JSON summary on stdout (progress goes to stderr) and exits 0 when every hard check passed; 1 when one
 // failed or was inconclusive (an inconclusive step is never a pass), the run was stopped, or the command was malformed;
@@ -201,7 +203,7 @@ const OVER_LIMIT = Object.freeze({ overLimit: true });
 const PUBLISHED_DEPLOY_ID_FIELD = Object.freeze(['published_deploy', 'id']);
 const NETLIFY_SITES_API = 'https://api.netlify.com/api/v1/sites/';
 
-// Valid initials for the smoke signatures, and initials on the word filter for step 4 and S4b, from the bundled rules.
+// Valid initials for the smoke signatures, and initials on the word filter for S4b, from the bundled rules.
 const SIGNERS = [...ALPHABET].map(letter => `SM${letter}`).filter(isAllowedInitials);
 const BLOCKED = BLOCKED_INITIALS[0];
 const signerAt = i => SIGNERS[i % SIGNERS.length];
@@ -393,13 +395,12 @@ async function firstRequest(run) {
   return { step: '1', kpi: 'K10 K12', outcome, status: answer.status, coldStartMs: answer.ms, headers: answer.headers };
 }
 
-// 2 (burst run, over-limit): 20 simultaneous POSTs with distinct scores, the leaderboard's signatures unless `signings`
-// says otherwise. All 200, each with its own id, and each one in the true top 10 finds its id in its answer. Only a 429
-// is inconclusive (the rule wasn't removed: fix the throwaway branch and rerun on a fresh throwaway preview); any other
-// non-200 fails K11 for good.
+// 2 (burst run, over-limit): 20 simultaneous POSTs with distinct scores, the `signings` given. All 200, each with its
+// own id, and each one in the true top 10 finds its id in its answer. Only a 429 is inconclusive (the rule wasn't
+// removed: fix the throwaway branch and rerun on a fresh throwaway preview); any other non-200 fails K11 for good.
 const isRateLimited = statuses => statuses.includes(429);
 
-async function burstOfSignings(run, signings = Array.from({ length: BURST_SIZE }, (_, i) => signature(i))) {
+async function burstOfSignings(run, signings) {
   const answers = await Promise.all(signings.map(signing => sendSigning(run, signing, OVER_LIMIT)));
   const statuses = answers.map(answer => answer.status);
   const rows = signings.map(({ initials, score }, i) => ({ initials, score, id: answers[i].body?.id }));
@@ -421,13 +422,6 @@ async function burstTable(run, burst) {
   return { step: '3', kpi: 'K11', outcome: passOrFail(pass), status: answer.status, shown, listedAt: answer.body?.listedAt ?? null };
 }
 
-// 4: initials on the word filter answer 400 initials-not-allowed, which only the bundled high-scores.js can give.
-async function wordFilter(run) {
-  const answer = await sendSigning(run, { initials: BLOCKED, score: SCORE_STEP });
-  const outcome = passOrFail(answer.status === 400 && answer.body?.error === 'initials-not-allowed');
-  return { step: '4', kpi: 'K12', outcome, status: answer.status, headers: answer.headers };
-}
-
 // 5: within 15 s, two plain GETs and a ?x= one share one cache object (hits, with the 1st one's listedAt); ?table= misses
 // it, with a newer listedAt. A missing Cache-Status fails the step rather than passing it vacuously.
 async function sharedCache(run) {
@@ -444,12 +438,6 @@ async function sharedCache(run) {
   const outcome = !cacheStatus.every(Boolean) ? 'fail' : withinMs > CACHE_TTL_MS ? 'inconclusive' : passOrFail(pass);
   const listedAt = answers.map(answer => answer.body?.listedAt ?? null);
   return { step: '5', kpi: 'K14', outcome, withinMs, statuses: answers.map(answer => answer.status), cacheStatus, listedAt };
-}
-
-// 6: 30 pairs, one every 13 s: a POST, then a cache-missing GET. K10: the p95 (the 29th of 30) under 1000 ms.
-async function signingPairs(run) {
-  const { passed, ...pairs } = await pairPhase(run, run.clock.now(), Array.from({ length: PAIRS }, (_, i) => signature(i)));
-  return { step: '6', kpi: 'K10', outcome: passOrFail(passed), ...pairs };
 }
 
 // 7 (with --production): the production table holds none of the ids signed on the preview. A 404 means production has
@@ -938,19 +926,6 @@ async function floodsApart(run, record, floods) {
   }
 }
 
-// The leaderboard's preview run, steps 1 and 4-10, for a deploy from before rightmove-invaders-replay-verified-scores.
-async function leaderboardPreview(run, record) {
-  record(await timed(run, firstRequest));
-  record(await timed(run, wordFilter));
-  record(await timed(run, sharedCache));
-  await coolDown(run);
-  const pairs = await timed(run, signingPairs);
-  record(pairs);
-  record(await timed(run, signed => productionUntouched(signed, pairs.ids)));
-  await floodsApart(run, record, [[steadyFlood], [fastFlood], [cachedFlood]]);
-  record(await timed(run, permalinkCopy));
-}
-
 // Slice 01's preview run, its gate: K25 (S2, S3, S5), K10 (S5), K14 (S6), K12 (S1, S2, S4b, S6b), K20 items 1-3 (S4) and
 // the test route (S4c).
 async function slice01Preview(run, record) {
@@ -1008,15 +983,6 @@ async function slice03Preview(run, record) {
   record(await timed(run, signing => tenMinuteGamesInTime(signing, bots), 'S13'));
 }
 
-// The leaderboard's burst run, steps 1-3 (K11).
-async function leaderboardBurst(run, record) {
-  record(await timed(run, firstRequest));
-  const burst = await timed(run, burstOfSignings);
-  record(burst);
-  await coolDown(run);
-  record(await timed(run, read => burstTable(read, burst)));
-}
-
 // Slice 02's burst run, S10 (K11, K20 item 3): its 21 scripted games made first, then each over-limit step between 61 s
 // waits: the burst of 20 and its table, then the race for the 21st game and its table.
 async function slice02Burst(run, record) {
@@ -1034,10 +1000,11 @@ async function slice02Burst(run, record) {
   record(await timed(run, read => racedTable(read, race)));
 }
 
-// How each run signs and what its preview and burst runs check: the leaderboard's, before this feature, and each
-// slice's (--slice). signing(body, session, record) puts a signing in the slice's shape; clockCheck, a deploy that
-// refuses a game signed sooner than it lasted (row 14), so each signing of a game waits its length (signableAt).
-const LEADERBOARD = Object.freeze({ sessions: false, clockCheck: false, signing: body => body, preview: leaderboardPreview, burst: leaderboardBurst });
+// How each run signs and what its preview and burst runs check: each slice's (--slice), and, with no --slice, the
+// leaderboard's from before this feature, which has neither (its signing carries no session). signing(body, session,
+// record) puts a signing in the slice's shape; clockCheck, a deploy that refuses a game signed sooner than it lasted
+// (row 14), so each signing of a game waits its length (signableAt).
+const LEADERBOARD = Object.freeze({ sessions: false, clockCheck: false, signing: body => body, preview: null, burst: null });
 const withRecord = (body, session, record) => ({ ...body, session, record });
 const SLICES = Object.freeze({
   '01': Object.freeze({ sessions: true, clockCheck: false, signing: (body, session) => ({ ...body, session }), preview: slice01Preview, burst: null }),
@@ -1138,8 +1105,8 @@ const RUNS = Object.freeze({
 
 // ---- the command line ----
 
-const USAGE = 'node scripts/smoke-leaderboard.mjs --site <name> --preview <URL> [--slice 01|02|03] [--production <URL>] [--permalink <URL>]'
-  + ' | --site <name> --burst <URL> [--slice 02] | --production <URL>'
+const USAGE = 'node scripts/smoke-leaderboard.mjs --site <name> --preview <URL> --slice 01|02|03 [--production <URL>] [--permalink <URL>]'
+  + ' | --site <name> --burst <URL> --slice 02 | --production <URL>'
   + ' | --site <name> --unpublished <permalink> --production <URL> [--slice 01|02|03] [--site-id <ID>] (with NETLIFY_AUTH_TOKEN for the API)';
 const OPTIONS = Object.freeze(Object.fromEntries(['site', 'preview', 'production', 'permalink', 'burst', 'unpublished', 'site-id', 'slice']
   .map(name => [name, { type: 'string' }])));
@@ -1150,15 +1117,17 @@ function modeOf(values) {
   return modes[0] ?? (values.production ? 'production' : undefined);
 }
 
-// No --slice: the leaderboard's run. A slice the script doesn't know, or a burst run the slice has none of, is malformed.
+// No --slice: the leaderboard's signing. A slice the script doesn't know, or a preview or burst run the slice has none
+// of (the leaderboard's has neither), is malformed.
 const sliceOf = name => (name === undefined ? LEADERBOARD : Object.hasOwn(SLICES, name) ? SLICES[name] : undefined);
+const isSliceRun = mode => mode === 'preview' || mode === 'burst';
 
 // Strict: an unknown flag (a typed published deploy ID, say) is a malformed command.
 function optionsFrom(args, env) {
   const { values } = parseArgs({ args, options: OPTIONS });
   const mode = modeOf(values);
   const slice = sliceOf(values.slice);
-  if (!mode || !slice || (mode === 'burst' && !slice.burst)) throw new Error(`usage: ${USAGE}`);
+  if (!mode || !slice || (isSliceRun(mode) && !slice[mode])) throw new Error(`usage: ${USAGE}`);
   return { ...values, mode, slice, sliceName: values.slice ?? null, siteId: values['site-id'], token: env.NETLIFY_AUTH_TOKEN };
 }
 

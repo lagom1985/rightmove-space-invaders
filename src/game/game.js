@@ -140,10 +140,12 @@ export const formationStepInterval = (hurdlesLeft, level) =>
 // pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot,
 // canPlayAgain, invaderX, invaderY }. Everything a game keeps lives here, never at module level: its state g, and,
 // outside g so that g stays plain data, its outbox, the signings on their way, the notice count, its best store, its
-// chance and its recorder. newSeed() -> 32 lowercase hex is required, and called once as each game starts: createGame
-// itself draws nothing. A game made with particles: false throws no sparks (the function's replays, DDD-R9). main.js
-// makes the browser's one game and keeps it to itself, so the page's modules hold no game in play.
+// chance and its recorder. newSeed() -> 32 lowercase hex is required, so no game is made without one, and it is called
+// once as each game starts: createGame itself draws nothing. A game made with particles: false throws no sparks (the
+// function's replays, DDD-R9). main.js makes the browser's one game and keeps it to itself, so the page's modules hold
+// no game in play.
 export function createGame({ newSeed, particles = true }) {
+  if (!newSeed) throw new Error('No seed source: createGame({ newSeed }) needs one before the first game');
   const g = newState();
 
   // Moments the sound system reacts to. The rules publish them here; main.js takes them once per frame.
@@ -315,7 +317,6 @@ export function createGame({ newSeed, particles = true }) {
 
   // One seed per game, and a chance of its own: the Dream Home timer startWave(0) sets is the game's first draw (DDD-R6).
   function startGame() {
-    if (!newSeed) throw new Error('No seed source: createGame({ newSeed }) needs one before the first game');
     const seed = newSeed();
     chance = createChance(seed);
     recorder = createRecorder();

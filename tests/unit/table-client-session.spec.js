@@ -1,22 +1,22 @@
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
-import { loadFreshGame } from './support/fresh-game.js';
-import { assertStateDelta, appendedWith, setTo, unchanged } from '../common/state-delta.js';
+import { assertStateDelta, appendedWith, setTo } from '../common/state-delta.js';
 import { createLeaderboard } from '../../src/platform/leaderboard.js';
 import { SCORE_STEP, TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
-import { GameEvent } from '../../src/game/events.js';
 import { RULES_VERSION } from '../../src/game/record.js';
 
 // Every game asks the table for its session as it starts (DDD-R10): startSession(seed) POSTs { seed } to /api/sessions,
 // once, and only an answer with rows, a listedAt and a session for that seed resolves, to its body as it came. Anything
-// else rejects, so main.js hands the failure to the rules' tableFailed and the promise it keeps for that game, the game's
-// pending session, is that rejection. A well-formed answer's rows go to tableAnswered, under the listing-time rule
-// (DDD-12): they replace the table shown unless they were listed before it.
+// else rejects. Either way the client's timeout is cleared once the answer is in.
+// The hand-over to the rules is main.js's wiring, not the client's (gameStarted: the answer's rows to tableAnswered, a
+// failure to tableFailed, the promise kept as the game's pending session), so it is not copied here: M3's browser
+// scenarios cover it, "Starting a game asks the table's server once, and its answer refreshes the table" and "A game
+// whose session request <trouble> plays as usual, and its signing can't be confirmed" (can't be reached, never answers).
 // The client's ports are doubles: a network that answers 200 with the text given and notes each request, and timers
-// the test holds. Universe: the rules' snapshot(), the requests the network saw, and the timers the client still has set.
+// the test holds. Universe: the requests the network saw, and the timers the client still has set.
 
-const UNIVERSE = ['screen', 'table', 'entry', 'skipped', 'signing', 'settled', 'lastListedAt', 'requests', 'timers.set'];
+const UNIVERSE = ['requests', 'timers.set'];
 
 const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
 const threeLetters = fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials);
@@ -25,8 +25,6 @@ const row = fc.record({ initials: threeLetters, score: deposit, id: fc.uuid() },
 const rows = fc.array(row, { maxLength: TABLE_SIZE }).map(list => list.sort((a, b) => b.score - a.score));
 const table = fc.record({ scores: rows, listedAt: fc.nat() }, { noNullPrototype: true });
 const token = fc.stringMatching(/^[A-Za-z0-9_-]{43}$/);
-// What the table shows as the game starts: nothing yet, nothing since the page load failed, or a table.
-const shownBefore = fc.oneof(fc.constantFrom('nothing yet', 'failed'), table);
 
 // A seed and the table's answer to it: its session, with the table as the server listed it.
 const answered = seed.chain(sent => fc.record({
@@ -79,60 +77,28 @@ function answering(text) {
 }
 const sessionRequest = sent => ({ url: '/api/sessions', method: 'POST', headers: { 'content-type': 'application/json' }, body: { seed: sent }, aborts: true });
 
-// A game just started with `shown` on the table: -> the rules.
-async function gameStartedWith(shown) {
-  const rules = await loadFreshGame();
-  if (shown === 'failed') rules.tableFailed();
-  if (typeof shown === 'object') rules.tableAnswered(shown);
-  rules.handlePresses(new Set(['Enter']));
-  expect(rules.takeEvents().map(event => event.type), 'arranging: Enter did not start a game').toContain(GameEvent.GAME_STARTED);
-  return rules;
-}
-
-// main.js's hand-over on gameStarted (DDD-R10): the session's rows to tableAnswered, a failure to tableFailed. It keeps
-// the promise startSession returned for that game, as the game's pending session.
-function startSessionThrough(leaderboard, rules, sent) {
-  const pendingSession = leaderboard.startSession(sent);
-  const handedOver = pendingSession.then(({ scores, listedAt }) => rules.tableAnswered({ scores, listedAt }), () => rules.tableFailed());
-  return { pendingSession, handedOver };
-}
-
-test('startSession rejects an answer without rows, a listedAt or a session for the seed it sent, and the game treats the table as failed', async () => {
-  await fc.assert(fc.asyncProperty(shownBefore, fallenShort, async (shown, { seed: sent, text }) => {
-    const rules = await gameStartedWith(shown);
+test('startSession rejects an answer without rows, a listedAt or a session for the seed it sent, after one request and with no timer left set', async () => {
+  await fc.assert(fc.asyncProperty(fallenShort, async ({ seed: sent, text }) => {
     const network = answering(text);
-    const observe = () => ({ ...rules.snapshot(), requests: network.requests(), 'timers.set': network.timersSet() });
+    const observe = () => ({ requests: network.requests(), 'timers.set': network.timersSet() });
     const before = observe();
-    const { pendingSession, handedOver } = startSessionThrough(network.leaderboard, rules, sent);
-    await handedOver;
-    await expect(pendingSession, text).rejects.toThrow();
+    await expect(network.leaderboard.startSession(sent), text).rejects.toThrow();
     assertStateDelta(before, observe(), {
       universe: UNIVERSE,
-      expected: {
-        // Unavailable only while no table has ever loaded: a failure keeps the last good table (DDD-9).
-        table: before.table.status === 'unknown' ? setTo({ status: 'unavailable', rows: [] }) : unchanged(),
-        requests: appendedWith(sessionRequest(sent)),
-      },
+      expected: { requests: appendedWith(sessionRequest(sent)) },
     });
   }));
 });
 
-test('a well-formed answer resolves to its body as it came, and its rows replace the table shown unless listed before it', async () => {
-  await fc.assert(fc.asyncProperty(shownBefore, answered, async (shown, { seed: sent, answer }) => {
-    const rules = await gameStartedWith(shown);
+test('a well-formed answer resolves to its body as it came, after one request and with no timer left set', async () => {
+  await fc.assert(fc.asyncProperty(answered, async ({ seed: sent, answer }) => {
     const network = answering(JSON.stringify(answer));
-    const observe = () => ({ ...rules.snapshot(), requests: network.requests(), 'timers.set': network.timersSet() });
+    const observe = () => ({ requests: network.requests(), 'timers.set': network.timersSet() });
     const before = observe();
-    const { pendingSession, handedOver } = startSessionThrough(network.leaderboard, rules, sent);
-    await handedOver;
-    await expect(pendingSession).resolves.toEqual(answer);
-    const listedBefore = before.lastListedAt !== null && answer.listedAt < before.lastListedAt;
+    await expect(network.leaderboard.startSession(sent)).resolves.toEqual(answer);
     assertStateDelta(before, observe(), {
       universe: UNIVERSE,
-      expected: {
-        ...(!listedBefore && { table: setTo({ status: 'available', rows: answer.scores }), lastListedAt: setTo(answer.listedAt) }),
-        requests: appendedWith(sessionRequest(sent)),
-      },
+      expected: { requests: appendedWith(sessionRequest(sent)) },
     });
   }));
 });
@@ -262,7 +228,7 @@ test('a signing whose session fails fails at once, and is never sent', async () 
   await fc.assert(fc.asyncProperty(run, async ({ given: { seed: sent, failure }, pressAt, initials, score, played }) => {
     const held = heldClient();
     const pendingSession = held.startSession(sent);
-    pendingSession.catch(() => {});   // main.js hands every session's failure to tableFailed
+    pendingSession.catch(() => {});   // main.js hands every session's failure on (to tableFailed); here, nothing does
     await held.advanceTo(0);
     const before = held.observe();
     const moments = [

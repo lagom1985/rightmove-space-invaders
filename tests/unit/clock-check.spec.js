@@ -11,15 +11,15 @@ import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { startLocalServer } from './support/local-server.js';
 import { isAllowedInitials } from '../../src/game/high-scores.js';
 import { MAX_GAME_STEPS } from '../../src/game/record.js';
-import scores, { createTablePort, encodeKey, fasterThanTheClock, handleScores } from '../../netlify/functions/scores.mjs';
+import scores, { createTablePort, decodeKey, encodeKey, fasterThanTheClock, handleScores } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
-import { assertStateDelta, setTo } from '../common/state-delta.js';
+import { assertStateDelta, satisfying, setTo } from '../common/state-delta.js';
 import { scriptedGames } from '../common/played-games.js';
 
 // The clock check (DDD-R11, D8, C2; Signing checks row 14): a game can't be signed sooner after its session than it
-// lasted, less the allowance (10 s), judged on the table's clock alone, in integers so the boundary is exact. The
-// handler fails closed: handed no allowance, it uses production's for rows 9b and 14 alike. Each root hands it one:
+// lasted, less the allowance (10 s), judged on the table's clock alone, in integers so the boundary is exact. Handed
+// no allowance, the handler defaults to production's 10 s, for rows 9b and 14 alike. Each root hands it one:
 // the Netlify entry production's always, whatever cookies a request carries; the local server production's too, but
 // for a test board's request carrying test-clock=lenient, which skips the check (E6).
 // Universe of the handler's state deltas: the keys in the table's store; of the roots', the rows a reading shows.
@@ -130,6 +130,34 @@ test('the Netlify entry refuses a session sealed 60 s (or 10.5 s) in the future,
     const atOnce = await throughTheEntry(signingOf('FAB', game, sessionFor(game.seed, Date.now())), cookie);
     expect([atOnce.status, atOnce.body], `a ${lastedMs(game.steps)} ms game signed at once, cookies: ${cookie}`).toEqual([400, { error: 'too-fast' }]);
     assertStateDelta(atOnce.before, atOnce.after, { universe: UNIVERSE });
+  }
+});
+
+// bypass: a composition root's wiring, one representative game a second each side of the allowance the Netlify entry
+// hands the handler (integration level): signed its length less 9 s after its session, it is saved; less 11 s, it is
+// too-fast. So the entry hands 10 s, give or take a second, never 0 (the cases above are all refused with 0 too), and
+// whatever test cookies the request carries. Each session is sealed that long in the past with the test secret, which
+// the entry is given as its own.
+const SECOND = 1000;
+const sealedBefore = (game, msBeforeNow) => sessionFor(game.seed, Date.now() - msBeforeNow);
+
+test('the Netlify entry saves a game signed its length less 9 s after its session, and refuses one signed its length less 11 s as too-fast', async () => {
+  const [game] = scriptedGames(1);
+  const id = signer.gameId(game.seed);
+  for (const cookie of [undefined, LENIENT_COOKIES.join('; ')]) {
+    const sentFrom = Date.now();
+    const inTime = await throughTheEntry(signingOf('FAB', game, sealedBefore(game, lastedMs(game.steps) - 9 * SECOND)), cookie);
+    const sentTo = Date.now();
+    expect([inTime.status, inTime.body.id], `a ${lastedMs(game.steps)} ms game signed its length less 9 s after its session, cookies: ${cookie}`).toEqual([200, id]);
+    const ownRowAdded = (was, now) => {
+      const [added, ...more] = now.filter(key => !was.includes(key)).map(decodeKey);
+      return now.length === was.length + 1 && more.length === 0 && added.initials === 'FAB' && added.score === game.deposit && added.id === id
+        && added.at >= sentFrom && added.at <= sentTo;
+    };
+    assertStateDelta(inTime.before, inTime.after, { universe: UNIVERSE, expected: { 'table.keys': satisfying('its own row added, signed as it arrived', ownRowAdded) } });
+    const tooSoon = await throughTheEntry(signingOf('FAB', game, sealedBefore(game, lastedMs(game.steps) - 11 * SECOND)), cookie);
+    expect([tooSoon.status, tooSoon.body], `a ${lastedMs(game.steps)} ms game signed its length less 11 s after its session, cookies: ${cookie}`).toEqual([400, { error: 'too-fast' }]);
+    assertStateDelta(tooSoon.before, tooSoon.after, { universe: UNIVERSE });
   }
 });
 

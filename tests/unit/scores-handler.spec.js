@@ -553,3 +553,82 @@ test('a record of other rules is rules-changed whatever the rest of it is, never
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 40, examples: EACH_REST.map(([rules, rest]) => [[], 'FAB', scriptedGames(1)[0], rules, rest]) });
 });
+
+// ---- one row per game, worked by hand (DDD-R4) ----
+// The winner rule in three examples whose rows and keys are written out here, never worked out by code: the independent
+// oracle beside score-keys.spec.js's interleaving property, whose own oracle ranks keys as scores.mjs does. A key is
+// s/{9,999,999 - score, 7 digits}-{at, 15 digits}-{initials}-{id} (ADR-004), and each is held as the rows above are,
+// written to the store directly. Every answer goes through handleScores on the production port and the emulator.
+const readingThroughTheListing = async store =>
+  handleScores(new Request(URL), Object.freeze({ list: createTablePort(store).list }), ONLY_THE_CLOCK_LOG_AND_WHERE);
+
+// bypass: one worked example, the winner rule's independent oracle: one game's three keys, signed at three moments.
+test('of one game\'s three keys, a reading shows the one signed first, once, though a later one scored more', async () => {
+  const store = freshStore();
+  for (const key of [
+    's/9997999-001767225000000-ALX-onegame',   // £2,000, signed first: the game's row
+    's/9994999-001767225100000-BEA-onegame',   // £5,000, signed 100 s later
+    's/9998999-001767225200000-CAT-onegame',   // £1,000, signed 200 s later
+    's/9996999-001767225300000-DAN-another',   // £3,000, another game's one key
+  ]) await store.set(key, '');
+  const before = await snapshot(store);
+  const response = await readingThroughTheListing(store);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    scores: [{ initials: 'DAN', score: 3000, id: 'another' }, { initials: 'ALX', score: 2000, id: 'onegame' }],
+    listedAt: NOW,
+  });
+  assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+});
+
+// bypass: one worked example, the winner rule's independent oracle: one game's two keys, signed at the same moment.
+test('of one game\'s two keys signed at the same moment, a reading shows the one first in arcade order, the higher score', async () => {
+  const store = freshStore();
+  for (const key of [
+    's/9998999-001767225000000-ALX-onegame',   // £1,000
+    's/9994999-001767225000000-BEA-onegame',   // £5,000, at the same moment: first in arcade order, so the game's row
+  ]) await store.set(key, '');
+  const before = await snapshot(store);
+  const response = await readingThroughTheListing(store);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ scores: [{ initials: 'BEA', score: 5000, id: 'onegame' }], listedAt: NOW });
+  assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+});
+
+// bypass: one worked example, the prune rule's independent oracle (planPrune): 21 games held, one key each, an hour
+// before the signing, h01 to h21 scoring £1,050 down to £50 by £50. The signing's own game makes 22 winners, so its
+// tidy-up removes the 22nd (h21, £50) and then the 21st (h20, £100), the lowest first, and nothing else; its answer is
+// the first 10 winners.
+const BY_HAND_HELD = Array.from({ length: 21 }, (_, rank) => ({ initials: 'HSE', score: 1050 - 50 * rank, at: NOW - HOUR, id: `h${String(rank + 1).padStart(2, '0')}` }));
+const BY_HAND_PRUNED = ['s/9999949-001767222000000-HSE-h21', 's/9999899-001767222000000-HSE-h20'];
+
+test('a signing that makes 22 winners removes the 22nd and then the 21st, and nothing else', async () => {
+  const [game] = scriptedGames(1);
+  expect(game.deposit, 'arranging: the signing tops the table').toBeGreaterThan(1050);
+  const store = freshStore();
+  for (const r of BY_HAND_HELD) await store.set(encodeKey(r), '');
+  const real = createTablePort(store);
+  const removed = [];
+  const port = Object.freeze({ ...real, remove: key => { removed.push(key); return real.remove(key); } });
+  const logs = [];
+  const before = await snapshot(store);
+  const response = await handleScores(signing(signingOf('FAB', game)), port, { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    scores: [
+      { initials: 'FAB', score: game.deposit, id: gameIdOf(game.seed) },
+      { initials: 'HSE', score: 1050, id: 'h01' }, { initials: 'HSE', score: 1000, id: 'h02' }, { initials: 'HSE', score: 950, id: 'h03' },
+      { initials: 'HSE', score: 900, id: 'h04' }, { initials: 'HSE', score: 850, id: 'h05' }, { initials: 'HSE', score: 800, id: 'h06' },
+      { initials: 'HSE', score: 750, id: 'h07' }, { initials: 'HSE', score: 700, id: 'h08' }, { initials: 'HSE', score: 650, id: 'h09' },
+    ],
+    id: gameIdOf(game.seed),
+    listedAt: NOW,
+  });
+  expect(removed, 'the lowest first').toEqual(BY_HAND_PRUNED);
+  expect(logs.map(({ event, reason, keys }) => ({ event, reason, keys })), 'one line, the 22 keys its listing found').toEqual([{ event: 'scores.signed', reason: 'ok', keys: 22 }]);
+  const ownRow = encodeKey({ initials: 'FAB', score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
+  assertStateDelta(before, await snapshot(store), {
+    universe: UNIVERSE,
+    expected: { 'table.keys': setTo([...before['table.keys'].filter(key => !BY_HAND_PRUNED.includes(key)), ownRow].sort()) },
+  });
+});

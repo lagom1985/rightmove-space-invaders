@@ -621,3 +621,28 @@ test('S11 signs its game at once, then with the lenient cookies, then tries the 
     });
   }), { numRuns: 6 });
 });
+
+// The leaderboard's own preview and burst runs, from before this feature, signed { initials, score } with no session,
+// which today's function refuses at every signing (400 session-required, Signing checks row 6). So a preview or a burst
+// run names its slice: one that doesn't is a malformed command, a usage error naming the slices, and sends nothing.
+// bypass: an exhaustive loop over a closed domain, every preview or burst command without --slice (the preview's with
+// and without --production and --permalink), is stronger than any sample of it.
+const WITHOUT_A_SLICE = [
+  ['--site', SITE, '--preview', PREVIEW],
+  ['--site', SITE, '--preview', PREVIEW, '--production', PRODUCTION],
+  ['--site', SITE, '--preview', PREVIEW, '--permalink', PERMALINK],
+  ['--site', SITE, '--preview', PREVIEW, '--production', PRODUCTION, '--permalink', PERMALINK],
+  ['--site', SITE, '--burst', PREVIEW],
+];
+
+test('a preview or burst run without --slice is a usage error naming the slices 01|02|03, and sends nothing', async () => {
+  for (const args of WITHOUT_A_SLICE) {
+    const clock = fakeClock();
+    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET });
+    const before = deploy.state();
+    const summary = await runSmoke(args, quietly(deploy, clock));
+    expect({ error: summary.error, steps: summary.steps, exitCode: summary.exitCode }, args.join(' '))
+      .toEqual({ error: expect.stringMatching(/^usage: .*--preview <URL> --slice 01\|02\|03 .*--burst <URL> --slice 02 /), steps: [], exitCode: 1 });
+    assertStateDelta(before, deploy.state(), { universe: UNIVERSE });
+  }
+});

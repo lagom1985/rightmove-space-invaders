@@ -248,8 +248,8 @@ function methodRefused(logLine, served) {
 // The table's handler. options, from the composition root: now () -> ms (a new row's time, listedAt, and a session's
 // age), log (receives one entry per request), where ({ scope, context, published }, logged as given), sessions (the
 // signer's verify and gameId, or null when the root has no secret) and clockAllowanceMs (how far ahead of now a session
-// may have been issued, and how much sooner than it lasted a game may be signed; CLOCK_ALLOWANCE_MS when not given, so
-// a root that leaves it out weakens neither check). A GET is handed the port's list alone.
+// may have been issued, and how much sooner than it lasted a game may be signed; when not given, it defaults to
+// production's 10 s, CLOCK_ALLOWANCE_MS). A GET is handed the port's list alone.
 export const handleScores = handlerOf(SCORES, route);
 
 // The session request's handler (DDD-R1): POST /api/sessions { seed } -> 200 { session: { seed, issuedAt, token },
@@ -414,6 +414,7 @@ const hasAllowedInitials = ({ initials }) => isAllowedInitials(initials);
 // sealed (row 9) but issued more than the allowance after now is one it didn't seal (row 9b), and one more than 2 hours
 // old has expired (row 10).
 const SESSION_LIFETIME_MS = 7_200_000;   // 2 hours
+// The allowance the root handed the handler, or production's 10 s (CLOCK_ALLOWANCE_MS) when it handed none.
 const allowanceOf = ({ clockAllowanceMs }) => clockAllowanceMs ?? CLOCK_ALLOWANCE_MS;
 const isSealed = ({ session }, { sessions }) => sessions.verify(session);
 const fromTheFuture = ({ session }, options) => session.issuedAt - options.now() > allowanceOf(options);

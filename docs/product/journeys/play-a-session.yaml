@@ -9,9 +9,13 @@
 # Extended by DISTILL for rightmove-invaders-level-backdrops, 2026-10-26, with the user's approval (no DISCUSS ran): the
 # neighbourhood behind each rung of the ladder in the start and outcome steps, and its shared artifact. This is the edit
 # that feature's DESIGN recorded under Changed assumptions.
+# Extended by DISCUSS for rightmove-invaders-replay-verified-scores, 2026-10-26: J-TABLE-TRUST; the start step asks for
+# the game's session in the background; four error paths (no session, other rules, a page from before the release, an
+# expired session); two shared artifacts (session, game_record). The player sees nothing new: every refused signing
+# ends as "Couldn't confirm" (D5). Revised after the first review cycle (2026-10-26): the seed has one source, the session.
 id: play-a-session
 persona: casual-arcade-player
-jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE, J-TABLE-SIGN, J-TABLE-SKIP]
+jobs: [J-SOUND-FEEDBACK, J-SOUND-TENSION, J-SOUND-CONTROL, J-SOUND-CELEBRATION, J-SOUND-ATMOSPHERE, J-TABLE-SIGN, J-TABLE-SKIP, J-TABLE-TRUST]
 
 steps:
   - id: open
@@ -23,7 +27,10 @@ steps:
     feels: curious
   - id: start
     action: Press Enter.
-    sees: The formation and four terraced-house shields, over the first rung's neighbourhood, City centre at dawn.
+    sees: >
+      The formation and four terraced-house shields, at once, over the first rung's neighbourhood, City centre at dawn.
+      In the background the game asks the high-score table for this game's session, and the answer also refreshes the
+      table; nothing on screen waits for it (replay-verified-scores).
     hears: A "ding-dong" doorbell, then the marching beat (and music, if on).
     feels: engaged
   - id: fight
@@ -98,6 +105,8 @@ shared_artifacts:
   game_events: {source: "the rules' event outbox, takeEvents() (ADR-001); vocabulary in src/game/events.js", drives: effects and jingles}
   high_score_table: {source: "the Score API /api/scores (netlify/functions/scores.mjs over Netlify Blobs), held by the rules as g.table", consumers: [game-over list, title attract list, status mirror High scores list]}
   initials_entry: {source: "g.initials (rules)", consumers: [canvas slots, "data-hud=initials field", live region]}
+  session: {source: "the Score API's session request at each game start (replay-verified-scores, D2, D3): the game's seed and its issue time, signed by the function; the only source of the seed the replay uses", consumers: [the signing of that game, the Score API's replay]}
+  game_record: {source: "the rules, from the game's start to its game over: the held controls (left, right, fire) by step index, and the rules version; never the seed, which comes from the session alone (replay-verified-scores)", consumers: [the signing of that game, the Score API's replay]}
   signing: {source: "g.signing and g.settled (rules)", consumers: [canvas signing line, live region, "the row marked as yours"]}
   neighbourhood: {source: "NEIGHBOURHOODS in src/theme/theme.js, through neighbourhood(g.level)", consumers: [canvas backdrop, "data-hud=neighbourhood field", arrival sentence]}
   wording: {source: "src/view/messages.js (the phrases both views say), src/view/status.js (status mirror only, such as the prompt and the initials field) and src/view/render.js (canvas only, such as the slots and the help line)", consumers: [canvas, status mirror]}
@@ -142,3 +151,15 @@ error_paths:
   - when: The table filled up before the signing arrived.
     then: '"The table filled up before ALX arrived."'
     feels: unlucky, keen to try again
+  - when: The game's session never arrived (the request failed, or no answer within 5 s).
+    then: 'The game plays as usual; a deposit that makes the table is still asked for initials, and the signing ends "Couldn''t confirm ALX''s signing." (replay-verified-scores, D11).'
+    feels: let down, but told plainly
+  - when: A deploy changed how the game plays while the page was open.
+    then: 'The next signing ends "Couldn''t confirm ALX''s signing."; after a reload, games sign as usual (replay-verified-scores, D10).'
+    feels: puzzled, until the reload
+  - when: The page was loaded before the release that verifies games, and is still open.
+    then: 'Its signing ends "Couldn''t confirm ALX''s signing."; the release note says to reload, and after a reload games sign as usual (replay-verified-scores, D5, D12).'
+    feels: puzzled, until the reload
+  - when: A game was left paused for so long that its session, issued at its start, is more than 2 hours old.
+    then: 'The game plays on; its signing ends "Couldn''t confirm ALX''s signing." (replay-verified-scores, D18).'
+    feels: mildly put out, after a very long pause

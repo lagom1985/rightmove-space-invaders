@@ -1,6 +1,6 @@
 # ADR-008: The high-score table is probed, never awaited, and a signing has an explicit outcome
 
-**Status**: Accepted (user, 2026-10-24, revision 3); amended in DEVOPS (user, 2026-10-24): a GET answer may come from the CDN cache, up to 15 s old; the paused outcome is removed, because the ADR-007 fallback was rejected (user, 2026-10-24) · **Feature**: rightmove-invaders-leaderboard
+**Status**: Accepted (user, 2026-10-24, revision 3); amended in DEVOPS (user, 2026-10-24): a GET answer may come from the CDN cache, up to 15 s old; the paused outcome is removed, because the ADR-007 fallback was rejected (user, 2026-10-24); amended by [ADR-012](adr-012-the-table-replays-every-game.md) (user, 2026-10-26): the game-start read is the session request's answer · **Feature**: rightmove-invaders-leaderboard
 
 ## Context
 Responsiveness is the game's first quality attribute: input and sound within one frame. The table is a network call, possibly with a cold start, and it can be unreachable (offline, a static host without the function, a 5xx, a 429). In the walking skeleton:
@@ -14,7 +14,7 @@ POST is not idempotent: a retry after a lost answer would add the score twice.
 
 ## Decision
 - **The network never sits on the frame path.** `main.js` makes the requests through `platform/leaderboard.js` and hands the outcome to the rules from the promise callbacks, between frames. Only `game.js` writes `g`.
-- **When the table is read**: on page load, in the background whenever a game starts (`gameStarted`), and from every POST answer. The server stays the authority: it ranks every valid signature and doesn't refuse one that no longer qualifies.
+- **When the table is read**: on page load, in the background whenever a game starts (`gameStarted`), and from every POST answer. *Amended by ADR-012 (user, 2026-10-26)*: the game-start read is the answer to the game's session request (`POST /api/sessions`). That answer carries rows and `listedAt` like any other, under the same listing-time rule, and is never cached. A signing waits, in a promise and never in a frame, for its game's session. Each request's 5000 ms timeout starts when that request is sent. Every refusal is still an unconfirmed signing. The server stays the authority: it ranks every valid signature and doesn't refuse one that no longer qualifies.
   - **Amended in DEVOPS (user, 2026-10-24)**: a GET answer may come from Netlify's CDN cache and be up to 15 s old (DDD-6). It carries the `listedAt` of its own listing, so the rule below treats it as the older answer it is. POST answers are never cached.
 - **Answers ordered by server listing time**:
   - Every answer that carries rows also carries `listedAt`: the function's `Date.now()` in ms, taken right after its `list` call returns. That is GET `{ scores, listedAt }` and POST `{ scores, id, listedAt }`.

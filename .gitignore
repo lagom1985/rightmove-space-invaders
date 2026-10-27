@@ -11,3 +11,5 @@ playwright-report/
 dist/
 # Netlify CLI link state (`netlify link` writes .netlify/state.json): never committed
 .netlify/
+# Local environment files (a session secret, say): never committed, and never served by scripts/serve.mjs
+.env*

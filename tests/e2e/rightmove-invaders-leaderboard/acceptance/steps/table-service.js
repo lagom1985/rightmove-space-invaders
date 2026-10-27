@@ -1,14 +1,20 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fc from 'fast-check';
 import { expect } from '@playwright/test';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
-import { handleScores, createTablePort } from '../../../../../netlify/functions/scores.mjs';
+import { handleScores, handleSessions, createTablePort } from '../../../../../netlify/functions/scores.mjs';
+import { createSessionSigner, readSessionSecret } from '../../../../../netlify/scores/sessions.mjs';
 import { assertStateDelta, satisfying } from '../../../../common/state-delta.js';
-import { BLOCKED_INITIALS, TABLE_SIZE, Refusal, TableAction, TableFailure, TableRequest, START, OTHER_HOUSE_HUNTERS } from './domain-types.js';
+import { createGameSupply, scriptedGames } from '../../../../common/played-games.js';
+import { TEST_SECRET } from '../../../../common/session-secret.js';
+import {
+  BLOCKED_INITIALS, MAX_PLAUSIBLE_SCORE, TABLE_SIZE, Refusal, TableAction, TableFailure, TableRequest, START, OTHER_HOUSE_HUNTERS,
+  TABLE_PROTOCOL, TableProtocol,
+} from './domain-types.js';
 
 // The high-score table service, driven the way Netlify drives it: handleScores(request, port, options) is called from
 // Node with a Web Request and answers a Web Response (Functions v2), with no browser and no HTTP server. Under it: the
@@ -40,8 +46,26 @@ import { BLOCKED_INITIALS, TABLE_SIZE, Refusal, TableAction, TableFailure, Table
 //
 // The universe of every state delta: the keys in the scenario's store, split into well-formed score keys (the table)
 // and everything else (stray entries). The handler may only add or remove score keys (ADR-004, DDD-4).
+//
+// HOW A SIGNING IS MADE follows TABLE_PROTOCOL (domain-types.js; rightmove-invaders-replay-verified-scores):
+// - BARE: { initials, score }, as before.
+// - SESSION: each signature is a game of its own, with a fresh seed and a session the table issued for it.
+// - SESSION_AND_RECORD: each signature is a game really played in Node to exactly its deposit (tests/common/
+//   played-games.js), signed with its session and its record, and the function replays it. A signature whose deposit
+//   isn't one a game can end on (a bad shape, an implausible claim) carries a stand-in game worth STAND_IN_DEPOSIT, since
+//   those checks come before the replay.
+// Sessions are arranged, never acted: they are issued through the production handler over the raw store, on the
+// table's own clock, and their log lines are dropped, so a scenario's When and its log are the signing's alone.
 
 const URL = 'http://localhost/api/scores';
+const SESSIONS_URL = 'http://localhost/api/sessions';
+// The roots' session secret is, here, a known and public test value (tests/common/session-secret.js, DDD-R17).
+export { TEST_SECRET };
+export const CLOCK_ALLOWANCE_MS = 10_000;   // production's (DDD-R11): the harness never lets a game through faster
+const STAND_IN_DEPOSIT = 1000;
+// A played game is found by playing seeds to a target (played-games.js). Above this, no test should ask for one: an
+// example that claims more must be refused before the replay, or retired (that feature's DISTILL, Retirement list).
+const MOST_A_TEST_GAME_IS_WORTH = 20_000;
 const UNIVERSE = ['table.scores', 'table.leftovers'];
 const LISTING_TAKES_MS = 1000;
 const SEED = Number(process.env.FC_SEED ?? 20261023);
@@ -83,6 +107,7 @@ class ServerClock {
   frozen = false;
   now = () => this.t;
   moveOn(ms) { if (!this.frozen) this.t += ms; return this.t; }
+  setTo(t) { this.t = t; }
 }
 
 class IdSource {
@@ -92,9 +117,12 @@ class IdSource {
 }
 
 // The test store port: the real Store, with failures on demand and the clock moving on as a listing returns.
+// hooks.afterWrite(key), when set, runs once a write has reached the store and before the handler goes on, so a reader
+// can look at the table while a signing is under way.
 function wrapStore(store, clock) {
   const failing = new Set();
   const listing = { returnedAt: null };
+  const hooks = { afterWrite: null };
   const failure = (operation, key = STORE_FAILURE_KEY) => new Error(`The emulated store could not ${operation} ${key}`);
   const intercepted = {
     async list(...args) {
@@ -105,7 +133,9 @@ function wrapStore(store, clock) {
     },
     async set(key, ...rest) {
       if (failing.has('set')) throw failure('save', key);
-      return store.set(key, ...rest);
+      const written = await store.set(key, ...rest);
+      await hooks.afterWrite?.(key);
+      return written;
     },
     async delete(key) {
       if (failing.has('delete')) throw failure('delete', key);
@@ -119,7 +149,7 @@ function wrapStore(store, clock) {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  return { store: wrapped, failing, listing };
+  return { store: wrapped, failing, listing, hooks };
 }
 
 async function readAnswer(response) {
@@ -129,21 +159,78 @@ async function readAnswer(response) {
   return { status: response.status, headers: Object.fromEntries([...response.headers].map(([k, v]) => [k.toLowerCase(), v])), text, body };
 }
 
-// One table: a store of its own on the emulator, behind the production port, with its own clock, ids and log.
-class Table {
+const isDeposit = score => Number.isSafeInteger(score) && score > 0 && score % 50 === 0 && score <= MAX_PLAUSIBLE_SCORE;
+const isSessionRequest = request => new globalThis.URL(request.url).pathname === '/api/sessions';
+
+// One table: a store of its own on the emulator, behind the production port, with its own clock, ids, log, session
+// signer and supply of played games.
+export class Table {
   constructor(store) {
     this.raw = store;
     this.clock = new ServerClock();
     this.ids = new IdSource();
     this.logs = [];
     this.test = wrapStore(store, this.clock);
+    // undefined before sessions exist (BARE); null for a root with no secret (set by a scenario)
+    this.sessions = TABLE_PROTOCOL === TableProtocol.BARE ? undefined : createSessionSigner(readSessionSecret(TEST_SECRET));
+    this.games = createGameSupply();
+    this.sameGame = false;
+    this.lastGame = null;
+  }
+
+  // Each handler gets only what it needs (DDD-R1, the user, 2026-10-27): the session request the signer's sign, the signing
+  // its verify and gameId, and no newId once a row's id is its game's.
+  options(log, handler = handleScores) {
+    const signer = this.sessions;
+    const sessions = signer && (handler === handleSessions ? { sign: signer.sign } : { verify: signer.verify, gameId: signer.gameId });
+    const ids = TABLE_PROTOCOL === TableProtocol.BARE ? { newId: this.ids.next } : {};
+    return { now: this.clock.now, ...ids, log, where: LOCAL, sessions, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
   }
 
   // Built at the first request, so a missing port fails the When step, not the scenario's setup.
   async handle(request) {
     this.port ??= createTablePort(this.test.store);
     const log = entry => this.logs.push(typeof entry === 'string' ? JSON.parse(entry) : entry);
-    return readAnswer(await handleScores(request, this.port, { now: this.clock.now, newId: this.ids.next, log, where: LOCAL }));
+    const handler = isSessionRequest(request) ? handleSessions : handleScores;
+    const port = handler === handleSessions ? { list: this.port.list } : this.port;   // the session request only reads
+    return readAnswer(await handler(request, port, this.options(log, handler)));
+  }
+
+  // Arranging: a session for `seed`, issued `leadMs` before now on this table's clock, through the production handler
+  // over the raw store (so a store failure set up for the When doesn't touch it), its log line dropped.
+  async issueSession(seed, leadMs = 0) {
+    const request = new Request(SESSIONS_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ seed }) });
+    const now = this.clock.t;
+    this.clock.setTo(now - leadMs);
+    try {
+      const answer = await readAnswer(await handleSessions(request, { list: createTablePort(this.raw).list }, this.options(() => {}, handleSessions)));
+      expect(answer.status, `arranging: the table issued no session (${answer.text})`).toBe(200);
+      return answer.body.session;
+    } finally {
+      this.clock.setTo(now);
+    }
+  }
+
+  // The game a signature is: a fresh seed (SESSION), a game played to exactly its deposit (SESSION_AND_RECORD), or the
+  // last one again while the table puts every signature in the same row.
+  nextGame(score) {
+    if (this.sameGame && this.lastGame) return this.lastGame;
+    this.lastGame = TABLE_PROTOCOL === TableProtocol.SESSION ? { seed: randomBytes(16).toString('hex'), record: null } : this.playedGame(isDeposit(score) ? score : STAND_IN_DEPOSIT);
+    return this.lastGame;
+  }
+
+  playedGame(deposit) {
+    expect(deposit, `no test plays a game worth £${deposit}: refuse that claim before the replay, or retire the example`).toBeLessThanOrEqual(MOST_A_TEST_GAME_IS_WORTH);
+    return this.games.take(deposit);
+  }
+
+  // What a signature carries besides { initials, score }: nothing (BARE), its session, or its session and its record. A
+  // played game's session was issued as long before as the game lasted, plus a second, as a real one's would be, so the
+  // clock check (slice 03) lets it through.
+  async gameFields(score, game = TABLE_PROTOCOL === TableProtocol.BARE ? null : this.nextGame(score)) {
+    if (!game) return {};
+    const session = await this.issueSession(game.seed, game.record ? Math.ceil(game.steps * 1000 / 120) + 1000 : 0);
+    return TABLE_PROTOCOL === TableProtocol.SESSION_AND_RECORD ? { session, record: game.record } : { session };
   }
 
   // Raw listing (see the header): it must not move the server's clock.
@@ -168,7 +255,7 @@ export class TableService {
     const token = randomUUID();
     const server = new BlobsServer({ directory, token });
     const { port } = await server.start();
-    return new TableService({ directory, server, token, url: `http://localhost:${port}` });
+    return new this({ directory, server, token, url: `http://localhost:${port}` });
   }
 
   constructor(emulator) {
@@ -218,14 +305,13 @@ export class TableService {
 
   failWhen(action) { this.table.test.failing.add(STORE_OPERATION[action]); }
 
-  // The same moment and the same new-row id for every signature, so the next signature lands on an existing row.
+  // The same moment and the same new-row id for every signature, so the next signature lands on an existing row. Once a
+  // row's id is its game's (SESSION on), that means the same game signed again at the same moment.
   repeatTheSameRow() {
     this.table.clock.frozen = true;
     this.table.ids.fixed = 'dup1';
+    this.table.sameGame = true;
   }
-
-  // An id that can't be part of a well-formed key, so the port must refuse the row (DDD-4).
-  makeRowsItCantFile() { this.table.ids.fixed = 'NOT-AN-ID'; }
 
   async saved(signature) {
     await this.receive(signature);
@@ -238,7 +324,8 @@ export class TableService {
   async receive(signature) {
     const sent = this.resolve(signature);
     const headers = { 'content-type': sent.wrongFormat ? 'text/plain;charset=UTF-8' : 'application/json' };
-    await this.act(new Request(URL, { method: 'POST', headers, body: this.bodyFor(sent) }), sent);
+    const body = await this.bodyFor(sent);
+    await this.act(new Request(URL, { method: 'POST', headers, body }), sent);
   }
 
   async ask(request) {
@@ -260,17 +347,26 @@ export class TableService {
     return { ...signature, initials: blocked };
   }
 
-  bodyFor(sent) {
+  async bodyFor(sent) {
     if (sent.garbled) return 'initials=FAB&score=1000';
-    const json = JSON.stringify({ initials: sent.initials, ...(sent.score === undefined ? {} : { score: sent.score }), ...(sent.note ? { note: 'first time on the table' } : {}) });
+    const signing = { initials: sent.initials, ...(sent.score === undefined ? {} : { score: sent.score }), ...(await this.table.gameFields(sent.score)) };
+    const json = JSON.stringify({ ...signing, ...(sent.note ? { note: 'first time on the table' } : {}) });
     if (!sent.stretchTo) return json;
     expect(Buffer.byteLength(json), 'the signature is already longer than the padding').toBeLessThanOrEqual(sent.stretchTo);
     return json + ' '.repeat(sent.stretchTo - Buffer.byteLength(json));
   }
 
   // ---- properties: the When chooses the generator, the Then states the invariant ----
+  // With records, the deposits come from short scripted games played in Node, each its own game.
   forAnyBatch(atMost) {
-    const signature = fc.record({ initials: fc.constantFrom(...OTHER_HOUSE_HUNTERS), score: fc.integer({ min: 1, max: 400 }).map(units => units * 50) });
+    const initials = fc.constantFrom(...OTHER_HOUSE_HUNTERS);
+    if (TABLE_PROTOCOL === TableProtocol.SESSION_AND_RECORD) {
+      const played = fc.constantFrom(...scriptedGames(2 * atMost));
+      const signature = fc.record({ initials, game: played }).map(({ initials: who, game }) => ({ initials: who, score: game.deposit, game }));
+      this.batches = fc.uniqueArray(signature, { selector: s => s.score, minLength: 1, maxLength: atMost });
+      return;
+    }
+    const signature = fc.record({ initials, score: fc.integer({ min: 1, max: 400 }).map(units => units * 50) });
     this.batches = fc.uniqueArray(signature, { selector: s => s.score, minLength: 1, maxLength: atMost });
   }
 
@@ -279,14 +375,16 @@ export class TableService {
   // Not checked here: that each top-10 signer finds their own row in their own answer. The emulator can't promise it:
   // its listing walks the directory with readdir then stat, and a temporary file renamed in between ends the walk on
   // ENOENT, so a listing taken during concurrent writes can come back short (even empty) with a 200. That is K11's check,
-  // on real Netlify Blobs (the DEVOPS burst run). Runs: 20 batches of up to 30, seed 20261023 (rotate FC_SEED in nightly runs).
+  // on real Netlify Blobs (the DEVOPS burst run). Runs: 20 batches of up to 30, seed 20261023; the build gate is its only run, so on a timing failure the owner re-runs it with a rotated FC_SEED and records the seed (the ATDD policy).
   async checkNoSignatureLost() {
     await fc.assert(fc.asyncProperty(this.batches, async batch => {
       const table = this.newTable();
-      const post = s => new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(s) });
-      const answers = await Promise.all(batch.map(s => table.handle(post(s))));
+      const bodies = [];
+      for (const { initials, score, game } of batch) bodies.push(JSON.stringify({ initials, score, ...(await table.gameFields(score, game)) }));
+      const post = body => new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+      const answers = await Promise.all(bodies.map(body => table.handle(post(body))));
       const read = await table.handle(get());
-      const best = [...batch].sort((a, b) => b.score - a.score).slice(0, TABLE_SIZE);
+      const best = [...batch].sort((a, b) => b.score - a.score).slice(0, TABLE_SIZE).map(({ initials, score }) => ({ initials, score }));
       expect(answers.map(a => a.status), 'every valid signature is answered 200').toEqual(batch.map(() => 200));
       expect(read.body?.scores?.map(({ initials, score }) => ({ initials, score })), 'the table is the best 10 of the batch').toEqual(best);
     }), { seed: SEED, numRuns: PROPERTY_RUNS });

@@ -12,6 +12,10 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # On the legacy Free plan every environment variable, SCORES_SESSION_SECRET included, is visible to the build too, so
+  # Netlify's `npm install` runs no dependency's install scripts (docs/feature/rightmove-invaders-replay-verified-scores/
+  # feature-delta.md, DEVOPS, "The secret and the build"). None of the four dependencies needs one: the gate runs no browser.
+  NPM_FLAGS = "--ignore-scripts"
 
 # The Score API, netlify/functions/scores.mjs (ADR-004). The bundler family is pinned, so that a change to Netlify's
 # default (zisi for JavaScript) can't switch bundlers; the esbuild version itself is whatever Netlify's build image

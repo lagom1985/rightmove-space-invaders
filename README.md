@@ -42,7 +42,27 @@ The game is a static site on Netlify, built from this repo. `netlify.toml` holds
 
 1. Netlify → **Add new site** → **Import from GitHub** → `lagom1985/rightmove-space-invaders`. Leave the build settings as they are; they come from `netlify.toml`.
 2. **Domain management** → **Add domain** → `maketherightmove.fabiodamico.xyz`. Netlify DNS adds the record, and the HTTPS certificate is issued automatically.
-3. **Roll back** a bad release: **Deploys** → a previous deploy → **Publish deploy**. A rollback moves the code, not the data: the production high-score table stays as it is (no signature is undone, no deleted row comes back). Once the fix is on `main`, publish its deploy and click **Unlock to start auto publishing**.
+3. **Roll back** a bad release: **Deploys** → a previous deploy → **Publish deploy**. A rollback moves the code, not the data: the production high-score table stays as it is (no signature is undone, and a rollback brings no deleted row back; a deleted row's own game can sign it back within 2 hours of its session, see step 5). Once the fix is on `main`, publish its deploy and click **Unlock to start auto publishing**. After a rotation of the secret for a leak, never publish a deploy built before it (step 5).
+4. **Set the session secret**, `SCORES_SESSION_SECRET`. Without it nobody can sign the high-score table: the function answers 500 and its log says `secret-missing`. Only the owner handles the values: never paste them into a chat, an issue or a log, and never keep them in a file inside this repository (`.env*` is git-ignored, and the local server never serves it, but neither is a reason to keep one there).
+   - On your own machine, run `openssl rand -base64 32` twice. Each answer is 44 characters, 32 random bytes in canonical base64; anything else counts as missing. Call them **P** (production) and **V** (previews and branch deploys). Generate them separately: one value everywhere would let a preview's sessions sign production.
+   - Never use a value from the repository: `TEST_SECRET` in `tests/common/session-secret.js` is public, so anyone could make sessions with it.
+   - **Project configuration** → **Environment variables** → **Add a variable**, key `SCORES_SESSION_SECRET`, **Different value for each deploy context**: Production gets P, Deploy Previews V, Branch deploys V, and Local development stays empty. If the form offers **Contains secret values**, tick it.
+   - A value applies only from the next deploy built after it is set. Set V before a pull request's preview is built, and P before the merge whose production build needs it.
+   - The first session request answering 500 with `secret-missing` in the log means the value is missing in that context, or isn't 32 bytes of canonical base64. Set it and deploy again; never roll back.
+5. **Rotate the secret** to end every open session at once (after a leak, or to stop a deleted row coming back). It is not routinely needed, and losing the value costs nothing: set a new one.
+   - Before you rotate, ask the context for a session and keep the `session` object it answers with (production shown; a session request writes nothing):
+     ```sh
+     curl -sS -X POST https://maketherightmove.fabiodamico.xyz/api/sessions -H 'content-type: application/json' -d '{"seed":"00000000000000000000000000000000"}'
+     ```
+   - Generate a new value as in step 4, set it for that context, and trigger a deploy of the context (production: **Deploys** → **Trigger deploy** → **Deploy project**). The new value applies only from that deploy: if its build fails, nothing has rotated, so rerun it.
+   - Once the new deploy is published, sign with the session you kept. It must answer 400 `{"error":"invalid-session"}`. The claim is over the plausible ceiling, so even a rotation that hasn't taken saves nothing (it answers `implausible-score` instead):
+     ```sh
+     curl -sS -X POST https://maketherightmove.fabiodamico.xyz/api/scores -H 'content-type: application/json' -d '{"initials":"FAB","score":9999950,"session":<the session object you kept>}'
+     ```
+   - Every session issued before the new deploy stops verifying, so a game in progress as it is published ends "Couldn't confirm" (the next game gets a new session): pick a quiet moment.
+   - Rotating V: redeploy or delete every live preview and branch deploy, or each keeps the old value.
+   - After a rotation for a leak, never publish a deploy built before it: a rollback brings the leaked value back. Fix forward, or pull the kill switch. A rollback across a routine rotation only ends the sessions issued since.
+   - **A deleted row can come back**: the game that signed it can sign it again with the same session, within 2 hours of that session's issue. Look again 2 hours after you delete a row and delete it again if it's back, or rotate the secret, which ends every session at once. Deleting rows is in the leaderboard's owner guide (`docs/feature/rightmove-invaders-leaderboard/feature-delta.md`, "Owner guide: deleting a row").
 
 Every push to `main` deploys to https://maketherightmove.fabiodamico.xyz; pull requests and branches get deploy previews. `npm run build` is what Netlify runs: it executes the unit and in-memory tests (no browsers needed) and then writes `dist/` (just `index.html` and `src/`). If a test fails, nothing is published. The browser tests are not part of that build, so run `npm test` before pushing to `main`.
 

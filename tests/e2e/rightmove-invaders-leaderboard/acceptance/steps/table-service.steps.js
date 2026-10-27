@@ -15,7 +15,6 @@ Given('the high-score table holds {int} scores', ({ tableService }, count) => ta
 Given('the high-score table also holds stray entries that aren\'t signatures', ({ tableService }) => tableService.holdStrayEntries());
 Given('{tableAction} fails', ({ tableService }, action) => tableService.failWhen(action));
 Given('the high-score table puts every new signature in the same row', ({ tableService }) => tableService.repeatTheSameRow());
-Given('the high-score table makes new rows it can\'t file', ({ tableService }) => tableService.makeRowsItCantFile());
 Given('the high-score table has saved {signature}', ({ tableService }, signature) => tableService.saved(signature));
 
 // ---- acting ----

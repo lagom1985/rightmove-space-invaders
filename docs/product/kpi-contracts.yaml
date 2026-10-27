@@ -84,7 +84,7 @@ kpis:
   - id: K10
     feature: rightmove-invaders-leaderboard
     name: Signing is quick on Netlify
-    target: "p95 of POST + GET over 30 paced pairs on a deploy preview < 1000 ms, timed on the client (SPIKE budget); the cold start (the deploy's first request) is recorded as a separate sample, outside the p95"
+    target: "p95 of POST + GET over 30 paced pairs on a deploy preview < 1000 ms, timed on the client (SPIKE budget); the cold start (the deploy's first request) is recorded as a separate sample, outside the p95. Amended by rightmove-invaders-replay-verified-scores (D21, user, 2026-10-26): from its slice 02, a POST that signs a 10-minute record replays it, so the budget is 1,250 ms with the replay's own p95 under 250 ms (smoke steps S8 and S13)"
     measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 1 and 6"
     window: "the preview before the first merge to main; again on every release-check trigger"
     gate: hard
@@ -119,7 +119,7 @@ kpis:
     feature: rightmove-invaders-leaderboard
     name: The rate limit and the GET cache hold on Netlify
     target: "on the shipped config: the deploy log lists the rule (10 per 60 s, ip + domain); steps 8a and 8b record the send rate actually achieved, and below 2 requests/s (8a) or 20 requests/s (8b) the step is inconclusive, never a pass; step 8a (2 requests/s for 125 s): a 429 within 16 s and at most 30 accepted in each full 60 s window (more than 20 is not a fail but triggers a documented recompute of the abuse table before the merge); step 8b (20 requests/s for 60 s, at most 1,200 invocations): a 429 within 11 s, and the count replaces the 10 + 10r assumption in the abuse table (a count above 210 is not a no-go: it triggers a documented recompute, and the user decides before the merge); a GET 61 s later is 200; a GET is a CDN hit within 15 s, also with an unrelated query string; no 429 is served from the cache. A missing Cache-Status header is a fail, not a vacuous pass; the header's real name is confirmed on the first preview. The first preview also records a function answer's full header set (a GET 200, a 400, a POST 200): exactly one Cache-Control value as in DDD-6, Netlify-Vary query=table present, and nothing conflicting with DDD-6 (the netlify.toml /* security headers are expected to be absent, since Netlify doesn't apply custom headers to function answers; if present, they are recorded and harmless)"
-    measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 5, 8a, 8b and 9, plus the deploy log's post-processing stage"
+    measured_by: "scripts/smoke-leaderboard.mjs preview run, steps 5, 8a, 8b and 9, plus the deploy log's post-processing stage. Re-run by rightmove-invaders-replay-verified-scores (smoke step S6) with 8c, session requests at a session request every 4 s, faster than any player restarts (D19; corrected in DISTILL, 2026-10-27), and 8d, sessions and GETs alternating on the shipped config: one counter for both paths"
     window: "the preview before the first merge (go/no-go: no-go = no merge to main); again on every release-check trigger"
     gate: hard
     local_scenarios: "@kpi-K14 'An empty high-score table is read as empty, and everyone sees it at most 15 seconds old' (milestone-1-reading-the-table.feature) and 'A valid signature is saved, and the answer shows where it ranks' (milestone-2-signing-the-table.feature): the header set of a GET 200 (Netlify-CDN-Cache-Control public, s-maxage=15, durable; Cache-Control public, max-age=0, must-revalidate) and of a POST 200 (no-store), with Netlify-Vary query=table and nosniff; every refusal scenario checks no-store and Netlify-Vary too. The local check is at handler level: it proves what the function sets, not that Netlify honours it. The rate limit and the CDN's real behaviour stay K14's on a preview"
@@ -192,3 +192,64 @@ kpis:
     on_miss: "investigate, then decide. The investigation can ask the playtesters (did anyone want past the entry without finding Esc?), but the public table records no cause for an AAA row, so it can't say whether a production row was deliberate. The PO then decides whether a change is needed, and if so opens it via /nw-bugfix"
     local_scenarios: "@kpi-K19 'Esc skips signing' (milestone-5-skip-with-esc.feature): a skip sends nothing to the table. Observational in production (low traffic)"
     baseline: "0 AAA rows on the production top 10 on release day, 2026-10-26 (3 rows: ALF, CAR, FAB)"
+
+  # rightmove-invaders-replay-verified-scores, registered by DEVOPS on 2026-10-26 (the feature delta's "Outcome KPIs"
+  # and DEVOPS "Monitoring contracts"). The smoke steps S1-S13 are specified in that feature delta (DEVOPS, "Preview
+  # smoke test, extended"); DELIVER implements them in scripts/smoke-leaderboard.mjs. DISTILL adds local_scenarios.
+  # Release-check triggers grow: a change to anything the function bundles (src/game/**, src/theme/**,
+  # netlify/scores/**) re-runs K10 and K22 on a preview. K10's budget for signings that replay is D21's (1,250 ms).
+  - id: K20
+    feature: rightmove-invaders-replay-verified-scores
+    name: Forgeries are refused
+    target: "11 of 11 forgeries in the catalogue refused with their reason, and 0 rows saved: (1) no session; (2) an altered session; (3) a game signed twice, with the same or another session; (4) an expired session; (5) a claimed deposit that isn't the replayed one; (6) a record that doesn't end at game over; (7) a malformed record; (8) a record over 60 minutes; (9) a record faster than the clock; (10) a body over the cap; (11) a deposit above 500000"
+    measured_by: "the @server forgery catalogue in the build gate (the function's handler on a real Blobs emulator, item 4 on an injected clock; the Netlify entry is DELIVER's unit tests; corrected in DISTILL, 2026-10-27); on Netlify, smoke steps S4 (items 1-3), S9 and S10 (3, 5-8, 10, 11) and S11 (9), each in its slice's gate; the console forgery by hand on the preview (DoD)"
+    window: "every build; each slice's preview"
+    gate: hard
+    local_scenarios: "@kpi-K20 (DISTILL, 2026-10-26, revised after the Final Wave Review Gate; @pending until DELIVER enables them, then in every Netlify build): the forgery catalogue at the handler (handleScores) on the Blobs emulator (tests/e2e/rightmove-invaders-replay-verified-scores/acceptance/, @server): (1) the walking skeleton 'The owner's table turns away a signing that no game asked for'; (2) milestone-2 'A session the table didn't seal is refused' x6; (3) milestone-2 'A game has one row on the table' x2 and the property 'nobody ever sees two rows for it'; (4) milestone-2 'A session lasts 2 hours' (2 h 1 min, on the harness clock; also 11 s in the future); (5) milestone-4 'A deposit the game didn't play to' x3 and 'A record made up by hand'; (6) milestone-4 'A record that stops a step before / goes on a step after its game over'; (7) milestone-4 'A record whose ... is refused before any replay' x7; (8) milestone-7 'A record of 60 minutes and one step'; (9) milestone-8 'A 20-minute game signed a minute after its session', the 10 s allowance x2, and '... even when the request asks for the local server's lenient clock'; (10) milestone-7 'A signing of 128 KB and one byte' and 'The table stops reading a signing soon after its limit' (the handler's own limit: on Netlify a body over 6 MB never reaches the function); (11) milestone-4 'The ceiling is checked on the claim' (£500,050). Each refusal checks its log reason, that the line gives nothing away, that nothing was saved, and, where it matters, that no replay ran. Plus the browser's own forgery, milestone-5 'A deposit changed on its way to the table is refused', in Chromium, Firefox and WebKit. They prove the handler, not the Netlify entry (DELIVER's unit tests) or Netlify itself (S4, S9-S12)"
+    baseline: "2 of 11 refused today (a body over the 1 KB cap; a deposit above the 250000 ceiling)"
+  - id: K21
+    feature: rightmove-invaders-replay-verified-scores
+    name: Honest games replay to their own deposit
+    target: "0 mismatches over the recorded-games corpus (at least 6 bot games made in Node, from 1 minute to at least one of 15 minutes or more), replayed in Node and in Chromium, Firefox and WebKit, and over every signing of the browser acceptance suite (games played with the keyboard, replayed by the local function)"
+    measured_by: "the recorded games signed through the table in the in-memory project (build gate) and in the browser projects (npm test); the browser scenarios' signings; the Netlify replays of smoke steps S7 and S8 on slice 02's preview"
+    window: "every build and every npm test"
+    gate: hard
+    local_scenarios: "@kpi-K21 (DISTILL, 2026-10-26, revised 2026-10-27; @pending until E5 and slice 02; tag @corpus): milestone-6 'The table saves every recorded game at its recorded deposit, having played it back to its last step' (each signed through the table, project in-memory, the build gate: at least 6 games from about a minute to 15 minutes or more; one on other rules would be refused as such) and 'Every recorded game plays back as it was recorded, in this browser' (Chromium, Firefox, WebKit); 'A recorded game that now ends on another deposit / at another moment is refused by the table, by name' (the check itself); milestone-4 'An honest game's deposit is the deposit the table saves' and milestone-7 'The longest recorded game signs' (the function's replay of games played in Node); and every browser signing in the suite once slice 02 lands, milestone-3 'Typed initials sign the table through the game's own session' first (games played with the keyboard, replayed by the local function). The check only reads the corpus; node scripts/record-corpus.mjs records it and refuses to overwrite a game on the rules version the game plays now"
+    baseline: "probe, 2026-10-26, on a patched copy of the rules: 7 of 7 games identical in Node 22, Chromium 151, Firefox 153 and WebKit 26.5"
+  - id: K22
+    feature: rightmove-invaders-replay-verified-scores
+    name: A long game is verified in time on Netlify
+    target: "on a deploy preview, the corpus's longest game (at least 15 minutes) signed with a session for its seed: answered 200 within 5 s on the client, and its replayMs (its scores.signed log line), scaled to 60 minutes of game time, under 1 s. A 60-minute worst-spacing body (about 119 KB) is posted too, for its upload and parsing time only: its junk inputs end the game early, so its replay is short"
+    measured_by: "smoke step S7, and the owner reading the log line"
+    window: "slice 02's preview, before the clock check lands; again on the release-check triggers (after slice 03, each session is asked at least its game's length ahead, 60 minutes for the 60-minute body)"
+    gate: hard
+    local_scenarios: "@kpi-K22 (DISTILL, 2026-10-26, revised 2026-10-27; @pending until E5 and slice 02): milestone-7 'The longest recorded game signs, and is saved with its deposit' (at least 15 minutes, with its scores.signed line's steps and replayMs) and 'The largest record a human could make in an hour is read and played back, not refused as too long' (about 119 KB: it shows the 60-minute record fits, not a 60-minute replay, since its made-up changes end the game within minutes). No local scenario plays back an honest 60-minute game: none exists to play. K22's target, a 60-minute replay under 1 s on Netlify, is S7's alone, scaled from the longest recorded game"
+    baseline: "probe: about 50 ms for 10 minutes in Node 22 on an M4 Pro, so about 0.3 s for 60 minutes; not measured on Netlify"
+  - id: K23
+    feature: rightmove-invaders-replay-verified-scores
+    name: Honest players are never refused, or the log says why
+    target: "every replay-mismatch, too-fast, rules-changed and session-expired in the 30 days after slice 03's release is investigated; 0 traced to a determinism bug or a clock problem"
+    measured_by: "the daily check: the counts by reason, with the deploy times, recorded in the owner's notes from the function's log (Netlify > Functions > scores, or netlify logs --function scores --since 24h), plus Netlify's own timeout lines for scores; a weekly summary"
+    window: "daily from slice 01's release (session-expired exists from slice 01, replay-mismatch from slice 02) until 30 days after slice 03's release; the day-1 log-retention check is done before slice 03's release"
+    gate: soft
+    on_miss: "a fix, opened via /nw-bugfix"
+    local_scenarios: "@kpi-K23 (DISTILL, 2026-10-26, revised 2026-10-27): milestone-8 'An honest game is never too fast' x3 (signed at once, a session 4 s late, a 10-minute pause; on the harness clock; @pending until slice 03) and milestone-9 'A record from other rules is refused without being replayed' (rules-changed, never mistaken for a forgery; @pending until slice 03). Run now, as a guard: milestone-8 'The browser's clock plays no part' x2 (a whole game in real time, the page's clock an hour fast or slow, no lenient clock, in Chromium, Firefox and WebKit), green today because there is no clock check yet, and kept green once there is. They back the target; the target itself is production's log"
+    baseline: "0: none of these reasons exists before release"
+  - id: K24
+    feature: rightmove-invaders-replay-verified-scores
+    name: Forgers leave no row
+    target: "0 rows on the production table that the owner judges forged in the 30 days after release, re-entered rows included (D7, D16)"
+    measured_by: "GET /api/scores on production weekly (read-only); the owner's own notes of rows deleted, which are the only record of a row that came back (re-entry, D16); the log's refusals by reason"
+    window: "weekly for 30 days after release"
+    gate: soft
+    on_miss: "investigate, then decide whether the accepted residual risk (ADR-012) needs more"
+    baseline: "2026-10-26: forged rows of about 9999950, deleted by the owner at S0; the owner records their count before release"
+  - id: K25
+    feature: rightmove-invaders-replay-verified-scores
+    name: A game's session comes back quickly
+    target: "p95 of the session request (POST /api/sessions, timed on the client) under 1000 ms over 30 paced requests (one every 13 s) on a deploy preview; the first request of a fresh deploy recorded apart"
+    measured_by: "smoke steps S2, S3 and S5's session phase"
+    window: "slice 01's preview; again on the release-check triggers"
+    gate: hard
+    local_scenarios: "@kpi-K25 (DISTILL, 2026-10-26, revised 2026-10-27): milestone-1 'A game that starts gets its session and the table, in one answer' (the answer's shape, its no-store, its log line; @pending until slice 01). Run now, as a guard: milestone-3 'The game starts at once while the table answers its session request ...' x4 (at once, 3 s later, a failure, never), which backs only that the game never waits for its session: green today, when no session is asked for, and kept green once one is. Latency is not measured locally: K25's p95 is S2, S3 and S5's on a preview"
+    baseline: "not measured with sessions. The probe's /api/sessions (a fixed answer, no store) took 155-158 ms on deploy-preview-6, 2026-10-26; K10's POST + GET pairs: p95 924 ms (2026-10-25)"

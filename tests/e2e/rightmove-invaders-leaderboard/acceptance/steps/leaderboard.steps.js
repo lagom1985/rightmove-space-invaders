@@ -10,11 +10,17 @@ const { Given, When, Then } = createBdd(test);
 // Netlify Function and the real Blobs client, against the local Blobs emulator.
 const START = new Date('2026-01-01T09:00:00Z');
 const BOARD_COOKIE = 'test-board';
+// The skeleton plays on the fake clock, much faster than real time, so once the table checks a game against the clock
+// (rightmove-invaders-replay-verified-scores, slice 03) its page carries the local server's lenient clock (DDD-R11, E6),
+// as every page of the leaderboard's driver does. Before that, the local server ignores it.
+const LENIENT_CLOCK = 'test-clock';
 const status = page => page.getByRole('status');
 const highScores = page => page.getByRole('list', { name: 'High scores' }).getByRole('listitem');
 
-const useBoard = (context, table, baseURL) =>
-  context.addCookies([{ name: BOARD_COOKIE, value: table.board, url: baseURL }]);
+const useBoard = (context, table, baseURL) => context.addCookies([
+  { name: BOARD_COOKIE, value: table.board, url: baseURL },
+  { name: LENIENT_CLOCK, value: 'lenient', url: baseURL },
+]);
 
 // A board nobody has used yet is empty.
 Given('the high-score table is empty', async ({ page, table, $testInfo }) => {

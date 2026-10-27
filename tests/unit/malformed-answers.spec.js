@@ -26,6 +26,9 @@ const row = fc.record({ initials: threeLetters, score: deposit, id: fc.uuid() },
 // Fewer than ten rows, best first: any deposit makes the table, so every game over asks for initials.
 const rows = fc.array(row, { maxLength: TABLE_SIZE - 1 }).map(list => list.sort((a, b) => b.score - a.score));
 const table = fc.record({ scores: rows, listedAt: fc.nat() }, { noNullPrototype: true });
+// The game's pending session, already answered: sign() sends only once it has (DDD-R10), so these signings are sent.
+const session = fc.record({ seed: fc.stringMatching(/^[0-9a-f]{32}$/), issuedAt: fc.nat(), token: fc.stringMatching(/^[A-Za-z0-9_-]{43}$/) }, { noNullPrototype: true });
+const answered = given => Promise.resolve({ session: given, scores: [], listedAt: 0 });
 
 // JSON values of every type but one, and every JSON value that isn't a plain object.
 const notA = type => fc.jsonValue().filter(value => typeof value !== type);
@@ -87,10 +90,10 @@ function answering(...texts) {
 }
 
 test('load() and sign() reject a 200 whose body isn\'t the table they promise, and leave no timer set', async () => {
-  await fc.assert(fc.asyncProperty(brokenTableText, brokenSigningText, row, async (loaded, signed, { initials, score }) => {
+  await fc.assert(fc.asyncProperty(brokenTableText, brokenSigningText, row, session, async (loaded, signed, { initials, score }, given) => {
     const network = answering(loaded, signed);
     await expect(network.leaderboard.load(), loaded).rejects.toThrow();
-    await expect(network.leaderboard.sign({ initials, score }), signed).rejects.toThrow();
+    await expect(network.leaderboard.sign({ initials, score, session: answered(given) }), signed).rejects.toThrow();
     expect(network.requests()).toEqual([{ url: '/api/scores', method: 'GET', aborts: true }, { url: '/api/scores', method: 'POST', aborts: true }]);
     expect(network.timersSet()).toBe(0);
   }));
@@ -98,19 +101,19 @@ test('load() and sign() reject a 200 whose body isn\'t the table they promise, a
 
 // The other side of the check: what the function answers (netlify/functions/scores.mjs) still comes through, as it came.
 test('a well-formed answer to load() or sign() resolves to its body as it came', async () => {
-  await fc.assert(fc.asyncProperty(table, fc.uuid(), row, async (loaded, id, { initials, score }) => {
+  await fc.assert(fc.asyncProperty(table, fc.uuid(), row, session, async (loaded, id, { initials, score }, given) => {
     const signed = { ...loaded, id };
     const network = answering(JSON.stringify(loaded), JSON.stringify(signed));
     await expect(network.leaderboard.load()).resolves.toEqual(loaded);
-    await expect(network.leaderboard.sign({ initials, score })).resolves.toEqual(signed);
+    await expect(network.leaderboard.sign({ initials, score, session: answered(given) })).resolves.toEqual(signed);
     expect(network.timersSet()).toBe(0);
   }));
 });
 
 // main.js's hand-overs (DDD-11): an answer to the rules' answered operation, a failure to their failed one.
 const loadThrough = (leaderboard, rules) => leaderboard.load().then(answer => rules.tableAnswered(answer), () => rules.tableFailed());
-const signThrough = (leaderboard, rules, { initials, score, signing }) =>
-  leaderboard.sign({ initials, score }).then(answer => rules.signingAnswered(signing, answer), () => rules.signingFailed(signing));
+const signThrough = (leaderboard, rules, { initials, score, signing }, pendingSession) =>
+  leaderboard.sign({ initials, score, session: pendingSession }).then(answer => rules.signingAnswered(signing, answer), () => rules.signingFailed(signing));
 
 // A game over whose deposit made the table, signed with `initials`: -> the rules, and the INITIALS_ENTERED event main.js
 // takes to the table.
@@ -130,13 +133,13 @@ async function signedAtGameOver(shown, initials, score) {
 }
 
 test('through the rules, a malformed answer settles the signing as unconfirmed, and neither it nor a malformed load changes the table', async () => {
-  const run = fc.record({ shown: table, initials: threeLetters, score: deposit, signed: brokenSigningText, loaded: brokenTableText });
-  await fc.assert(fc.asyncProperty(run, async ({ shown, initials, score, signed, loaded }) => {
+  const run = fc.record({ shown: table, initials: threeLetters, score: deposit, signed: brokenSigningText, loaded: brokenTableText, given: session });
+  await fc.assert(fc.asyncProperty(run, async ({ shown, initials, score, signed, loaded, given }) => {
     const { rules, entered } = await signedAtGameOver(shown, initials, score);
     const network = answering(signed, loaded);
     const observe = () => ({ ...rules.snapshot(), 'timers.set': network.timersSet() });
     const before = observe();
-    await signThrough(network.leaderboard, rules, entered);
+    await signThrough(network.leaderboard, rules, entered, answered(given));
     assertStateDelta(before, observe(), {
       universe: UNIVERSE,
       expected: {

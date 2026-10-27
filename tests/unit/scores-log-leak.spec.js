@@ -1,15 +1,21 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { isAllowedInitials } from '../../src/game/high-scores.js';
 import { createTablePort, encodeKey, handleScores, logToConsole } from '../../netlify/functions/scores.mjs';
+import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
+import { TEST_SECRET } from '../common/session-secret.js';
 import { assertStateDelta, satisfying } from '../common/state-delta.js';
 
-// Nothing about a player reaches the function's log (DDD-17), whatever fails: a store error's message can carry a key,
-// and so initials and an id, and Netlify logs whatever reaches the console. The handler is given the production console
-// logger and the production port, over a real BlobsServer store whose list, set and delete (any of them) throw an error
-// naming a score key. Every console method is captured, so a line on any of them is seen.
+// Nothing about a player reaches the function's log (DDD-17, DDD-R14), whatever fails: a store error's message can
+// carry a key, and so initials and an id, and Netlify logs whatever reaches the console. Every signing carries a session
+// for the player's game (rightmove-invaders-replay-verified-scores), so its seed, its game id (the new row's id) and its
+// token are the player's too. The handler is given the production console logger and the production port, over a real
+// BlobsServer store whose list, set and delete (any of them) throw an error naming a score key, and the signing part of
+// a signer built as the roots build theirs, from a known test secret (DDD-R17). Every console method is captured, so a
+// line on any of them is seen.
 // The universe of every state delta: the keys in the table's store.
 
 const URL = 'http://localhost/api/scores';
@@ -20,6 +26,9 @@ const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'mi
 const CONSOLE = ['log', 'info', 'warn', 'error', 'debug', 'trace'];
 const STORE_OPERATIONS = ['list', 'set', 'delete'];
 const A_KEY = /s\/\d{7}-/;
+const signer = createSessionSigner(readSessionSecret(TEST_SECRET));
+const SIGNING = Object.freeze({ verify: signer.verify, gameId: signer.gameId });
+const gameIdOf = seed => createHash('sha256').update(seed).digest('hex').slice(0, 32);
 
 let emulator;
 test.beforeAll(async () => { emulator = await startBlobsEmulator('scores-log-leak'); });
@@ -53,14 +62,18 @@ async function capturingConsole(call) {
   }
 }
 
-// A player whose initials and id appear in every key the store holds or names: the rows held are theirs too. Ids start
-// with "zq", which no log line's fixed text contains, so finding one in a line means it leaked.
+// A player whose initials and an id of theirs appear in every key the store holds or names: the rows held are theirs
+// too, their ids starting with "zq", which no log line's fixed text contains, so finding one in a line means it leaked.
+// Their signing is their game's, with its seed and a session the table sealed for it; the row it writes has the game id.
 const player = fc.record({
   // Never on the word filter: a POST with those is refused 400 before a row's time is read, so the clock test's 500 can't come.
   initials: fc.stringMatching(/^[A-Z]{3}$/).filter(isAllowedInitials),
   id: fc.stringMatching(/^zq[a-z0-9]{4,10}$/),
+  seed: fc.stringMatching(/^[0-9a-f]{32}$/),
   score: fc.integer({ min: 1, max: 2000 }).map(units => units * 50),
 });
+const sessionOf = ({ seed }) => ({ seed, issuedAt: NOW, token: signer.sign(seed, NOW) });
+const ownKey = who => encodeKey({ ...who, at: NOW, id: gameIdOf(who.seed) });
 const operations = fc.subarray(STORE_OPERATIONS, { minLength: 1 });
 const method = fc.constantFrom('GET', 'POST');
 const held = fc.integer({ min: 0, max: 24 });   // either side of the 20 kept before pruning starts
@@ -69,15 +82,19 @@ async function holdRows(store, { initials, id }, count) {
   for (let i = 0; i < count; i++) await store.set(encodeKey({ initials, score: 50 * (i + 1), at: NOW + i, id: `${id}${i}` }), '');
 }
 
-const requestFor = (verb, { initials, score }) => verb === 'GET'
+const requestFor = (verb, who) => verb === 'GET'
   ? new Request(URL)
-  : new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initials, score }) });
+  : new Request(URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initials: who.initials, score: who.score, session: sessionOf(who) }) });
 
-function expectSaysNothingAbout({ initials, id }, lines) {
+function expectSaysNothingAbout(who, lines) {
+  const { token } = sessionOf(who);
   for (const { text } of lines) {
     expect(text, 'a key reached the console').not.toMatch(A_KEY);
-    expect(text, 'the initials reached the console').not.toContain(initials);
-    expect(text, 'an id reached the console').not.toContain(id);
+    expect(text, 'the initials reached the console').not.toContain(who.initials);
+    expect(text, 'an id reached the console').not.toContain(who.id);
+    expect(text, 'the seed reached the console').not.toContain(who.seed);
+    expect(text, 'the game id reached the console').not.toContain(gameIdOf(who.seed));
+    expect(text, 'the session\'s token reached the console').not.toContain(token);
   }
 }
 
@@ -85,10 +102,10 @@ test('whatever part of the store fails, every request is answered, the console s
   await fc.assert(fc.asyncProperty(player, operations, method, held, async (who, broken, verb, count) => {
     const store = freshStore();
     await holdRows(store, who, count);
-    const port = createTablePort(failing(store, broken, encodeKey({ ...who, at: NOW })));
+    const port = createTablePort(failing(store, broken, ownKey(who)));
     const before = await snapshot(store);
     const { response, lines } = await capturingConsole(() =>
-      handleScores(requestFor(verb, who), port, { now: () => NOW, newId: () => who.id, log: logToConsole, where: LOCAL }));
+      handleScores(requestFor(verb, who), port, { now: () => NOW, log: logToConsole, where: LOCAL, sessions: SIGNING }));
     expect(response).toBeInstanceOf(Response);
     expectSaysNothingAbout(who, lines);
     expect(lines.map(({ method }) => method), 'the log is one line, on console.log').toEqual(lines.map(() => 'log'));
@@ -104,7 +121,7 @@ test('whatever part of the store fails, every request is answered, the console s
       universe: UNIVERSE,
       expected: { 'table.keys': satisfying('none removed, at most one added', (was, now) => was.every(key => now.includes(key)) && now.length - was.length <= 1) },
     });
-  }), { numRuns: RUNS, examples: [[{ initials: 'FAB', id: 'zqt1', score: 1000 }, ['list'], 'GET', 1]] });
+  }), { numRuns: RUNS, examples: [[{ initials: 'FAB', id: 'zqt1', seed: '0123456789abcdef0123456789abcdef', score: 1000 }, ['list'], 'GET', 1]] });
 });
 
 test('when the clock itself fails, the answer is 500 unexpected, logged once as unexpected, and the console says nothing about the player', async () => {
@@ -112,9 +129,9 @@ test('when the clock itself fails, the answer is 500 unexpected, logged once as 
     const store = freshStore();
     await holdRows(store, who, count);
     const before = await snapshot(store);
-    const brokenClock = () => { throw new Error(`The clock failed while filing ${encodeKey({ ...who, at: NOW })}`); };
+    const brokenClock = () => { throw new Error(`The clock failed while filing ${ownKey(who)} for ${JSON.stringify(sessionOf(who))}`); };
     const { response, lines } = await capturingConsole(() =>
-      handleScores(requestFor(verb, who), createTablePort(store), { now: brokenClock, newId: () => who.id, log: logToConsole, where: LOCAL }));
+      handleScores(requestFor(verb, who), createTablePort(store), { now: brokenClock, log: logToConsole, where: LOCAL, sessions: SIGNING }));
     expect(response.status).toBe(500);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ error: 'unexpected' });

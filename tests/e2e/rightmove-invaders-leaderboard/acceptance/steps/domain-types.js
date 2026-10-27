@@ -51,6 +51,16 @@ export const Limit = Object.freeze({
   PRUNE_AT_MOST: 5,      // scores a signing may tidy away (DDD-1)
 });
 
+// How a signing reaches the table (rightmove-invaders-replay-verified-scores). DELIVER flips the switch twice, each time in
+// the commit that changes what the function takes (that feature's DISTILL, "Retirement list for DELIVER"):
+//   BARE                 today: { initials, score }; other house-hunters' rows are signed through the function itself;
+//   SESSION              slice 01: each game asks for a session as it starts, and its signing carries it; other
+//                        house-hunters' rows are arranged through the local server's test route (POST /__test/rows);
+//   SESSION_AND_RECORD   slice 02 on: the signing also carries the game's record, so every deposit signed in a server
+//                        scenario is a game really played in Node (tests/common/played-games.js) and replayed.
+export const TableProtocol = Object.freeze({ BARE: 'bare', SESSION: 'session', SESSION_AND_RECORD: 'session and record' });
+export const TABLE_PROTOCOL = TableProtocol.SESSION;
+
 // Every scenario's clock starts here (page clock and server clock alike).
 export const START = new Date('2026-01-01T09:00:00Z');
 

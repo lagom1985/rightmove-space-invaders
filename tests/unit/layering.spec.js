@@ -5,8 +5,9 @@ import { test, expect } from '@playwright/test';
 import fc from 'fast-check';
 import './support/seed.js';
 
-// The seven layering rules, ADR-006's five, ADR-009's one for the keyboard and ADR-010's one for the backdrops, checked by
-// a hand-rolled import scan over src/** and netlify/** (no dependency-cruiser: seven rules don't need it). The scan recognises every import form an ES
+// The eight import rules, ADR-006's five (rule 5 as ADR-013 amends it), ADR-009's one for the keyboard, ADR-010's one for
+// the backdrops and ADR-013's rule 8, checked by a hand-rolled import scan over src/** and netlify/** (no
+// dependency-cruiser: eight rules don't need it). The scan recognises every import form an ES
 // module has: import … from '…', bare import '…', export … from '…' and dynamic import('…'). It reads source text,
 // not a syntax tree, so a comment or string that looks like an import counts as one: it can over-report, never miss.
 // The token rule reads the same folders as text, every file in them, and finds no name that only the tests may use,
@@ -39,16 +40,20 @@ function target(file, specifier) {
 }
 
 const inside = (path, folder) => path.startsWith(`${folder}/`);
+const SERVER_SIDE = ['src/game/high-scores.js', 'src/game/record.js', 'src/game/replay.js'];
 
 const RULES = [
   { rule: 'game/ imports only from game/ and theme/', applies: file => inside(file, 'src/game'), allows: to => inside(to, 'src/game') || inside(to, 'src/theme') },
   { rule: 'theme/ imports nothing', applies: file => inside(file, 'src/theme'), allows: () => false },
   { rule: 'game/high-scores.js imports nothing', applies: file => file === 'src/game/high-scores.js', allows: () => false },
   { rule: 'src/** never imports netlify/** or @netlify/*', applies: file => inside(file, 'src'), allows: to => !inside(to, 'netlify') && !to.startsWith('@netlify/') },
-  { rule: 'netlify/** imports only src/game/high-scores.js from src/', applies: file => inside(file, 'netlify'), allows: to => !inside(to, 'src') || to === 'src/game/high-scores.js' },
+  // The function replays each game through replay.js, and reads its record through record.js (ADR-013).
+  { rule: 'netlify/** imports from src/ only src/game/high-scores.js, src/game/record.js and src/game/replay.js', applies: file => inside(file, 'netlify'), allows: to => !inside(to, 'src') || SERVER_SIDE.includes(to) },
   { rule: 'platform/input.js imports nothing', applies: file => file === 'src/platform/input.js', allows: () => false },
   // A backdrop depends only on its neighbourhood, its scale and the layout, so it can never read g (ADR-010).
   { rule: 'view/backdrop.js imports only from theme/ and game/config.js', applies: file => file === 'src/view/backdrop.js', allows: to => inside(to, 'src/theme') || to === 'src/game/config.js' },
+  // The game's chance and its record are pure, so both sides of the wire run them alike (ADR-013).
+  { rule: 'game/chance.js and game/record.js import nothing', applies: file => file === 'src/game/chance.js' || file === 'src/game/record.js', allows: () => false },
 ];
 
 // Every import that breaks a rule, as "file -> specifier (rule)".
@@ -110,7 +115,7 @@ test('the scan finds every import, in every ES module form, in the order the sou
 });
 
 // ---- the rules ----
-// bypass: seven fixed rules, each shown broken once and kept once.
+// bypass: eight fixed rules, each shown broken once and kept once (rule 8 once for each of its two modules).
 const BROKEN = [
   ['src/game/game.js', "import { createSynth } from '../sound/synth.js';", 'game/ imports only from game/ and theme/'],
   ['src/game/game.js', "const store = await import('../platform/storage.js');", 'game/ imports only from game/ and theme/'],
@@ -118,27 +123,32 @@ const BROKEN = [
   ['src/game/high-scores.js', "import './config.js';", 'game/high-scores.js imports nothing'],
   ['src/platform/leaderboard.js', "import { handleScores } from '../../netlify/functions/scores.mjs';", 'src/** never imports netlify/** or @netlify/*'],
   ['src/main.js', "import { getStore } from '@netlify/blobs';", 'src/** never imports netlify/** or @netlify/*'],
-  ['netlify/functions/scores.mjs', "import { g } from '../../src/game/game.js';", 'netlify/** imports only src/game/high-scores.js from src/'],
+  ['netlify/functions/scores.mjs', "import { createGame } from '../../src/game/game.js';", 'netlify/** imports from src/ only src/game/high-scores.js, src/game/record.js and src/game/replay.js'],
   ['src/platform/input.js', "import { W } from '../game/config.js';", 'platform/input.js imports nothing'],
   ['src/view/backdrop.js', "import { g, BANNER_TIME } from '../game/game.js';", 'view/backdrop.js imports only from theme/ and game/config.js'],
+  ['src/game/chance.js', "import { W } from './config.js';", 'game/chance.js and game/record.js import nothing'],
+  ['src/game/record.js', "import { STEP } from './config.js';", 'game/chance.js and game/record.js import nothing'],
 ];
 const KEPT = [
   ['src/game/game.js', "import { W } from './config.js';\nimport { COLORS } from '../theme/theme.js';"],
   ['src/main.js', "import { createSynth } from './sound/synth.js';\nimport { g } from './game/game.js';"],
-  ['netlify/functions/scores.mjs', "import { getStore } from '@netlify/blobs';\nimport { randomUUID } from 'node:crypto';\nimport { TABLE_SIZE } from '../../src/game/high-scores.js';"],
+  ['netlify/functions/scores.mjs', "import { getStore } from '@netlify/blobs';\nimport { randomUUID } from 'node:crypto';\nimport { TABLE_SIZE } from '../../src/game/high-scores.js';\nimport { readRecord, MAX_GAME_STEPS } from '../../src/game/record.js';\nimport { replay } from '../../src/game/replay.js';"],
   ['src/platform/input.js', "export function createKeyboard(target = window) {}"],
   ['src/view/backdrop.js', "import { W, H, GROUND } from '../game/config.js';\nimport { COLORS, NEIGHBOURHOODS } from '../theme/theme.js';"],
+  ['src/game/chance.js', "export function createChance(seed) {}"],
+  ['src/game/record.js', "export const RULES_VERSION = 1;\nexport function readRecord(record) {}"],
+  ['src/game/replay.js', "import { createGame } from './game.js';\nimport { readRecord } from './record.js';"],
 ];
 
-test('each of the seven rules reports an import that breaks it, and lets the allowed ones through', () => {
+test('each of the eight import rules reports an import that breaks it, and lets the allowed ones through', () => {
   for (const [file, source, rule] of BROKEN) expect(violations([{ file, source }]), `${file}: ${source}`).toContainEqual(expect.stringContaining(`(${rule})`));
   expect(violations(KEPT.map(([file, source]) => ({ file, source })))).toEqual([]);
 });
 
 // bypass: the repository is one fixed tree.
-test('src and netlify keep the seven layering rules of ADR-006, ADR-009 and ADR-010', async () => {
+test('src and netlify keep the eight import rules of ADR-006, ADR-009, ADR-010 and ADR-013', async () => {
   const modules = (await Promise.all(SCANNED.map(modulesUnder))).flat();
-  expect(modules.map(({ file }) => file), 'the scan reads the rules module, the keyboard, the backdrops and the function').toEqual(expect.arrayContaining(['src/game/high-scores.js', 'src/platform/input.js', 'src/view/backdrop.js', 'netlify/functions/scores.mjs']));
+  expect(modules.map(({ file }) => file), 'the scan reads the rules module, the chance, the record, the replay, the keyboard, the backdrops and the function').toEqual(expect.arrayContaining(['src/game/high-scores.js', 'src/game/chance.js', 'src/game/record.js', 'src/game/replay.js', 'src/platform/input.js', 'src/view/backdrop.js', 'netlify/functions/scores.mjs']));
   expect(violations(modules)).toEqual([]);
 });
 

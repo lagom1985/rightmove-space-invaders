@@ -2,6 +2,7 @@ import { W, H, PX, GROUND, BANNER_TIME } from './config.js';
 import { COLORS, HURDLES, PIN_ART, DREAM_ART, DREAM_BONUSES, pounds } from '../theme/theme.js';
 import { SW, makeShield, sweep, erode, clearRect } from './shields.js';
 import { createChance } from './chance.js';
+import { CONTROL, createRecorder } from './record.js';
 import { burst, updateParticles } from './particles.js';
 import { GameEvent } from './events.js';
 import { INITIALS_LENGTH, makesTheTable, isAllowedInitials } from './high-scores.js';
@@ -114,6 +115,22 @@ function enter(letters) {
   return plan(null, null, letters);
 }
 
+// The three controls the gameplay reads (DDD-R8), as CONTROL bits, and the keys that hold each: left is ArrowLeft or A,
+// right ArrowRight or D, fire Space.
+const CONTROL_KEYS = Object.freeze([
+  [CONTROL.LEFT, ['ArrowLeft', 'KeyA']], [CONTROL.RIGHT, ['ArrowRight', 'KeyD']], [CONTROL.FIRE, ['Space']],
+]);
+
+// The controls held at one step, read through keys.isDown (DDD-T14): update reads them once a step, movePlayer acts on
+// that reading and the recorder records it, so the record can't drift from what the pin did.
+const heldControls = keys =>
+  CONTROL_KEYS.reduce((held, [control, codes]) => (codes.some(code => keys.isDown(code)) ? held | control : held), 0);
+const isHeld = (held, control) => (held & control) !== 0;
+
+// A keyboard, as the rules see it, holding exactly the controls `held` (the replay plays a record through it, DDD-R9).
+export const keysHolding = held =>
+  Object.freeze({ isDown: code => CONTROL_KEYS.some(([control, codes]) => isHeld(held, control) && codes.includes(code)) });
+
 // Seconds between formation steps: shorter as hurdles fall, and shorter again with each wave.
 const FASTEST_STEP = 0.03, EXTRA_STEP_WHEN_FULL = 0.5, WAVE_SPEEDUP = 0.12;
 export const formationStepInterval = (hurdlesLeft, level) =>
@@ -122,10 +139,10 @@ export const formationStepInterval = (hurdlesLeft, level) =>
 // One game per instance (ADR-013, DESIGN DDD-R7): createGame({ newSeed, particles = true }) -> { g, update, handlePresses,
 // pause, takeEvents, applySettings, applyBestStore, tableAnswered, tableFailed, signingAnswered, signingFailed, snapshot,
 // canPlayAgain, invaderX, invaderY }. Everything a game keeps lives here, never at module level: its state g, and,
-// outside g so that g stays plain data, its outbox, the signings on their way, the notice count, its best store and its
-// chance. newSeed() -> 32 lowercase hex is required, and called once as each game starts: createGame itself draws
-// nothing. A game made with particles: false throws no sparks (the function's replays, DDD-R9). main.js makes the
-// browser's one game and keeps it to itself, so the page's modules hold no game in play.
+// outside g so that g stays plain data, its outbox, the signings on their way, the notice count, its best store, its
+// chance and its recorder. newSeed() -> 32 lowercase hex is required, and called once as each game starts: createGame
+// itself draws nothing. A game made with particles: false throws no sparks (the function's replays, DDD-R9). main.js
+// makes the browser's one game and keeps it to itself, so the page's modules hold no game in play.
 export function createGame({ newSeed, particles = true }) {
   const g = newState();
 
@@ -154,6 +171,10 @@ export function createGame({ newSeed, particles = true }) {
   // The rules draw no luck of their own: every gameplay draw takes the game's chance, created from the seed newSeed gives
   // as the game starts (DDD-R6).
   let chance = null;
+
+  // The game's record (DDD-R8): step k is the k-th update after startGame, the one that ends the game included. A new
+  // game starts a record of its own; until then, the last game's stays here for its signing.
+  let recorder = null;
 
   // The rules' side of the table outcomes (DESIGN, "Rules operations"). main.js hands every outcome over between frames,
   // from the promise callbacks (DDD-11); only these functions write the table state and settle a signing.
@@ -273,7 +294,7 @@ export function createGame({ newSeed, particles = true }) {
     g.signing = { n, initials, status: 'pending', id: null, rank: null };
     g.signedThisGame = true;
     onTheirWay.set(n, initials);
-    emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score, signing: n });
+    emit(GameEvent.INITIALS_ENTERED, { initials, score: g.score, signing: n, record: recorder.record() });
   }
 
   function toggleSetting(name, event) {
@@ -297,6 +318,7 @@ export function createGame({ newSeed, particles = true }) {
     if (!newSeed) throw new Error('No seed source: createGame({ newSeed }) needs one before the first game');
     const seed = newSeed();
     chance = createChance(seed);
+    recorder = createRecorder();
     g.score = 0; g.lives = LIVES; g.newBest = false;
     g.initials = null; g.signedThisGame = false; g.skipped = false;   // the signing is kept
     emit(GameEvent.GAME_STARTED, { seed });
@@ -316,13 +338,15 @@ export function createGame({ newSeed, particles = true }) {
   }
 
   // Advance the game by one fixed step of dt seconds. The keyboard, as the rules see it, is only which keys are down:
-  // keys.isDown(code) (DDD-T14).
+  // keys.isDown(code) (DDD-T14). Every step of a game in play, dead or clear is recorded, with the controls held at it.
   function update(dt, keys) {
     g.t += dt;
     updateParticles(g, dt);
+    if (g.state === 'title') return;
+    if (g.state === 'over') { g.overT += dt; return; }
+    const held = heldControls(keys);
+    recorder.step(held);
     switch (g.state) {
-      case 'title': return;
-      case 'over': g.overT += dt; return;
       case 'clear':
         g.banner -= dt;
         moveShot(dt); moveBolts(dt);
@@ -334,18 +358,17 @@ export function createGame({ newSeed, particles = true }) {
         if (g.lives === 0) return gameOver('Offer rejected');
         g.state = 'play'; g.player.x = W / 2 - PW / 2;
     }
-    if (g.state === 'play') movePlayer(dt, keys);
+    if (g.state === 'play') movePlayer(dt, held);
     moveShot(dt);
     moveBolts(dt);
     moveDream(dt);
     if (g.state === 'play') { stepFormation(dt); enemyFire(dt); }
   }
 
-  function movePlayer(dt, keys) {
-    const right = keys.isDown('ArrowRight') || keys.isDown('KeyD');
-    const left = keys.isDown('ArrowLeft') || keys.isDown('KeyA');
+  function movePlayer(dt, held) {
+    const right = isHeld(held, CONTROL.RIGHT), left = isHeld(held, CONTROL.LEFT);
     g.player.x = clamp(g.player.x + (right - left) * PLAYER_SPEED * dt, EDGE_MARGIN, W - EDGE_MARGIN - PW);
-    if (keys.isDown('Space') && !g.shot) {
+    if (isHeld(held, CONTROL.FIRE) && !g.shot) {
       g.shot = { x: g.player.x + PW / 2 - SHOT_W / 2, y: g.player.y - 10 };
       emit(GameEvent.SHOT_FIRED);
     }

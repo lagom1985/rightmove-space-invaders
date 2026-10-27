@@ -691,6 +691,11 @@ DESIGN's open questions for DEVOPS, answered:
 
 A deletion is final: there is no backup. Deleting a top-10 row lets the 11th climb back, but a POST that listed just before the deletion may prune that row at the same moment, so the table can briefly show 9 rows. Accepted: moderation is rare.
 
+Since every signing needs its game's session (amended by rightmove-invaders-replay-verified-scores, 2026-10-27):
+- **A deleted row can come back** within 2 hours of its session's issue, if the same signing is sent again (that feature's D16). Look again after 2 hours, and delete it again if it's back.
+- **To shut every open session at once**, rotate the secret (README, Deploy). It also ends the 2 hours in which a deleted row can come back.
+- **A row's id is its game id**: the last field of the key, the SHA-256 of the game's seed cut to 32 hex characters (ADR-004 as amended). Deleting by key is unchanged.
+
 **Before DISTILL and DELIVER**:
 - **DISTILL**:
   - no 429 scenario (Netlify only), and no paused scenario, since the fallback was rejected

@@ -1,6 +1,7 @@
 // Local server for play and the acceptance tests: the game's static files, plus the high-score table at /api/scores
 // and a game's session request at /api/sessions. ES modules don't load from file:// URLs, so the game has to be served
-// over http.
+// over http. Its files are an allow-list (PL-11): index.html, src/** and the test fixture pages the browsers load, never
+// a path with a segment starting with '.', so a local .env never is; anything else is 404, as a missing file.
 // The table is the real Netlify Function's handlers (netlify/functions/scores.mjs) behind its restricted port, and the
 // real @netlify/blobs client, against the Blobs emulator in a fresh temporary directory, so every start begins with
 // empty tables and needs no Netlify account. Each `test-board` cookie gets a table of its own (tests run side by side);
@@ -15,7 +16,7 @@ import { readFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getStore } from '@netlify/blobs';
 import { BlobsServer } from '@netlify/blobs/server';
@@ -34,6 +35,7 @@ const BOARD = /(?:^|;\s*)test-board=([a-z0-9-]{1,40})(?:;|$)/;
 const SESSIONS_PATH = '/api/sessions';
 const TABLE_PATHS = Object.freeze(['/api/scores', SESSIONS_PATH]);
 const TEST_ROWS = '/__test/rows';
+const FIXTURE_PAGE = /^\/tests\/e2e\/[^/]+\/acceptance\/fixtures\/[^/]+\.html$/;   // synth-host.html, replay-host.html
 // What this root knows about where the table is kept (DDD-17): locally, and no deploy at all.
 const LOCAL = Object.freeze({ scope: 'local', context: 'missing', published: 'missing' });
 // The production clock, its allowance and the production logger.
@@ -141,14 +143,21 @@ function pathOf(req) {
   try { return decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return null; }
 }
 
+// The path is the decoded one, so an escaped slash is a separator here: a '..' it hides is a dotfile segment too, and
+// with none of those a listed path can't leave the root.
+const isListed = path => path === '/' || path === '/index.html' || path.startsWith('/src/') || FIXTURE_PAGE.test(path);
+const hasDotfileSegment = path => path.split('/').some(segment => segment.startsWith('.'));
+
+const notFound = res => res.writeHead(404).end('Not found');
+
 async function serveFile(path, res) {
-  const file = normalize(join(root, path.endsWith('/') ? path + 'index.html' : path));
-  if (!file.startsWith(root.endsWith(sep) ? root : root + sep)) { res.writeHead(403).end(); return; }
+  if (!isListed(path) || hasDotfileSegment(path)) return notFound(res);
+  const file = join(root, path === '/' ? 'index.html' : path);
   try {
     const body = await readFile(file);
     res.writeHead(200, { 'content-type': types[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' }).end(body);
   } catch {
-    res.writeHead(404).end('Not found');
+    notFound(res);
   }
 }
 

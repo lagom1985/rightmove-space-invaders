@@ -34,7 +34,7 @@ npx playwright install   # first time only
 npm test
 ```
 
-The acceptance suites live in `tests/e2e/<feature>/acceptance/`, one per feature: `rightmove-invaders` (the game), `rightmove-invaders-sound` (sound and music), `rightmove-invaders-leaderboard` (the shared high-score table), `rightmove-invaders-typed-initials` (typing your initials on a new high score) and `rightmove-invaders-level-backdrops` (a neighbourhood for every rung of the ladder). They drive the real page with keyboard events in Chromium, Firefox and WebKit, and use Playwright's fake clock to fast-forward game time. Scenarios tagged `@in-memory` or `@server` need no browser and run once, in the `in-memory` project; the unit properties are in `tests/unit/`.
+The acceptance suites live in `tests/e2e/<feature>/acceptance/`, one per feature: `rightmove-invaders` (the game), `rightmove-invaders-sound` (sound and music), `rightmove-invaders-leaderboard` (the shared high-score table), `rightmove-invaders-typed-initials` (typing your initials on a new high score), `rightmove-invaders-level-backdrops` (a neighbourhood for every rung of the ladder) and `rightmove-invaders-replay-verified-scores` (the table takes a score only from a game it has played back). They drive the real page with keyboard events in Chromium, Firefox and WebKit, and use Playwright's fake clock to fast-forward game time. Scenarios tagged `@in-memory` or `@server` need no browser and run once, in the `in-memory` project; the unit properties are in `tests/unit/`.
 
 ## Deploy
 
@@ -70,12 +70,18 @@ Every push to `main` deploys to https://maketherightmove.fabiodamico.xyz; pull r
 
 Plain Canvas2D and ES modules, with no runtime dependencies in the browser and no bundler (`npm run build` only copies the files to publish). The shared high-score table is a Netlify Function (`netlify/functions/scores.mjs`), whose only dependency is `@netlify/blobs`.
 
+The table takes a score only from a game it has played back (`docs/product/architecture/adr-012-the-table-replays-every-game.md`). Each game picks its own seed and asks `/api/sessions` for a signed session as it starts. Its signing carries that session and the game's record (the controls held at each step); the function replays the record from the seed on the same rules, and keeps the deposit the game reached. **What still gets through** is a program that plays well, in real time or by searching offline for the inputs and seeds that do best. It is still held to the rules of the game, to its own length in real time (no game is signed sooner than it lasted after its session was issued), to one row per game, to its session's 2 hours, to the rate limit per IP and hostname, and to £500,000. The owner still deletes rows by hand (a deleted row can come back within its session's 2 hours), and rotating the secret ends every session at once (Deploy, step 5).
+
 `src/` is organised by layer, matching the ports and adapters in `docs/product/architecture/brief.md`: `game/` holds the rules and state with no browser APIs, and the other folders plug into it from `main.js`.
 
 | File | Job |
 |---|---|
 | `src/main.js` | Composition root and game loop: fixed 120 Hz simulation steps, one render per display frame |
-| `src/game/game.js` | Rules and state; publishes moments such as a shot or a pause for the sound system. Settings and the best-score store are handed in from `main.js` |
+| `src/game/game.js` | Rules and state, one game per instance (`createGame`): every gameplay draw comes from the game's own seed, and the controls held at each step are recorded. Publishes moments such as a shot or a pause for the sound system. Settings and the best-score store are handed in from `main.js` |
+| `src/game/chance.js` | The game's chance: every gameplay draw, from the game's 128-bit seed (pure, no imports) |
+| `src/game/particles.js` | The particles, which are only for show: the one place in `game/` that may use `Math.random`; a replayed game makes none |
+| `src/game/record.js` | The game's record: the rules version, the 60-minute bound, the controls held at each step in a compact form, the recorder and a strict reader, shared with the function (no imports) |
+| `src/game/replay.js` | Plays a record back from its seed on a fresh game, to its game over and its deposit: how the function checks a signing |
 | `src/game/shields.js` | Destructible house shields |
 | `src/game/high-scores.js` | The high-score rules shared by the game and the function: table size, initials, the word filter, what makes a valid signature and which deposits make the table. Imports nothing |
 | `src/game/events.js` | The game's vocabulary: game events (the sound system's, and the table's: `initialsEntered`, with which `main.js` signs the high-score table), cue operations and sound names |
@@ -87,10 +93,12 @@ Plain Canvas2D and ES modules, with no runtime dependencies in the browser and n
 | `src/view/messages.js` | The words both views show (the signing messages, the refused initials, the skipped signing, the unavailable table, play again), declared once (data only, no imports) |
 | `src/platform/input.js` | Keyboard, including holding very quick taps so they aren't lost |
 | `src/platform/storage.js` | Best score and the sound and music settings in `localStorage` |
-| `src/platform/leaderboard.js` | The high-score table client: reads and signs `/api/scores`, one request per call with a 5-second timeout |
+| `src/platform/leaderboard.js` | The high-score table client: asks `/api/sessions` for each game's session as it starts, and reads and signs `/api/scores`, a signing carrying its game's session and record; one request per call with a 5-second timeout |
 | `src/theme/theme.js` | Names, colours, values, pixel art and the property ladder (data only, no imports) |
-| `netlify/functions/scores.mjs` | The shared high-score table: a Netlify Function over Netlify Blobs, behind `/api/scores` (read the top 10, or sign it) |
-| `scripts/smoke-leaderboard.mjs` | Smoke test of the high-score table on a Netlify preview and on production, run by hand with the owner's OK |
+| `netlify/functions/scores.mjs` | The shared high-score table: a Netlify Function over Netlify Blobs, behind `/api/sessions` (a session for each game as it starts) and `/api/scores` (read the top 10, or sign it: the function replays the signed game, keeps the deposit it reached, and keeps one row per game) |
+| `netlify/scores/sessions.mjs` | The session signer, server only: HMAC-signed sessions from `SCORES_SESSION_SECRET`, and each game's id from its seed |
+| `scripts/smoke-leaderboard.mjs` | Smoke test of the high-score table on a Netlify preview and on production, run by hand with the owner's OK; `--slice 01`, `02` and `03` run each replay-verified slice's gate |
+| `scripts/record-corpus.mjs` | Records the recorded games in `tests/fixtures/recorded-games/`, bot games played in Node on the real rules, which the build replays; rerun after every `RULES_VERSION` bump |
 
 Design notes and the performance spike are in `docs/feature/rightmove-invaders/spike/`.
 

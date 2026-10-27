@@ -5,7 +5,7 @@ import fc from 'fast-check';
 import './support/seed.js';
 import { startBlobsEmulator } from './support/blobs-emulator.js';
 import { TABLE_SIZE, isAllowedInitials } from '../../src/game/high-scores.js';
-import { MAX_GAME_STEPS, readRecord } from '../../src/game/record.js';
+import { MAX_GAME_STEPS, RULES_VERSION, readRecord } from '../../src/game/record.js';
 import { createTablePort, decodeKey, encodeKey, handleScores, handleSessions } from '../../netlify/functions/scores.mjs';
 import { createSessionSigner, readSessionSecret } from '../../netlify/scores/sessions.mjs';
 import { TEST_SECRET } from '../common/session-secret.js';
@@ -58,7 +58,11 @@ const seed = fc.stringMatching(/^[0-9a-f]{32}$/);
 // Short games played in Node, each with its seed, its record and the deposit it played to, and a player's signing of
 // one.
 const played = fc.constantFrom(...scriptedGames(12));
-const signingOf = (initials, game, session = sessionFor(game.seed)) => ({ initials, score: game.deposit, session, record: game.record });
+// A game's session is issued as long before its signing as the game lasted, plus a second, as a real game's is (the
+// acceptance harness's rule), so the clock check (row 14) lets it through.
+const onTimeMs = game => Math.ceil(game.steps * 1000 / 120) + 1000;
+const onTimeFor = (game, signedAt = NOW) => sessionFor(game.seed, signedAt - onTimeMs(game));
+const signingOf = (initials, game, session = onTimeFor(game)) => ({ initials, score: game.deposit, session, record: game.record });
 
 test('a GET handed only the listing answers 200 with the best ten rows held, and leaves the table as it was', async () => {
   await fc.assert(fc.asyncProperty(held, async rows => {
@@ -147,11 +151,11 @@ test('with a stopped clock, the same game signed again with the same initials an
     const store = freshStore();
     const logs = [];
     const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING };
-    const first = sessionFor(game.seed);
+    const first = onTimeFor(game);
     expect((await handleScores(signing(signingOf(who, game, first)), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
     const before = await snapshot(store);
     expect(before['table.keys'], 'arranging: the first signing\'s row').toEqual([encodeKey({ initials: who, score: game.deposit, at: NOW, id: gameIdOf(game.seed) })]);
-    const again = anotherSession ? sessionFor(game.seed, NOW - 1000) : first;
+    const again = anotherSession ? sessionFor(game.seed, first.issuedAt - 1000) : first;
     const response = await handleScores(signing(signingOf(who, game, again)), createTablePort(store), options);
     expect(response.status).toBe(503);
     expect(response.headers.get('cache-control')).toBe('no-store');
@@ -174,12 +178,12 @@ test('a game signed again whose own key the store fails to remove is still 409 a
     for (const r of rows) await store.set(encodeKey(r), '');
     const logs = [];
     const options = { now: movingClock(NOW).now, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING };
-    const session = sessionFor(game.seed);
+    const session = onTimeFor(game);
     expect((await handleScores(signing(signingOf(first, game, session)), createTablePort(store), options)).status, 'arranging: the first signing').toBe(200);
     const before = await snapshotWithRows(store);
     const real = createTablePort(store);
     const port = Object.freeze({ ...real, remove: async () => { throw new Error('The store could not delete a key'); } });
-    const response = await handleScores(signing(signingOf(again, game, anotherSession ? sessionFor(game.seed, NOW - 1000) : session)), port, options);
+    const response = await handleScores(signing(signingOf(again, game, anotherSession ? sessionFor(game.seed, session.issuedAt - 1000) : session)), port, options);
     expect(response.status).toBe(409);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ error: 'already-signed' });
@@ -266,10 +270,11 @@ test('each handler is handed only its part of the port and of the signer, and th
     expect(read.status, 'the GET').toBe(200);
     assertStateDelta(beforeSession, await snapshot(store), { universe: UNIVERSE });
 
-    const saved = await handleScores(signing(signingOf(signed, game, session)), port, { ...ONLY_THE_CLOCK_LOG_AND_WHERE, sessions: SIGNING });
+    const signedAt = NOW + onTimeMs(game);   // signed as long after its session as the game lasted, plus a second
+    const saved = await handleScores(signing(signingOf(signed, game, session)), port, { ...ONLY_THE_CLOCK_LOG_AND_WHERE, now: () => signedAt, sessions: SIGNING });
     expect(saved.status, 'the signing').toBe(200);
     expect((await saved.json()).id, 'the new row\'s id is its game id').toBe(gameIdOf(game.seed));
-    const ownRow = encodeKey({ initials: signed, score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
+    const ownRow = encodeKey({ initials: signed, score: game.deposit, at: signedAt, id: gameIdOf(game.seed) });
     assertStateDelta(beforeSession, await snapshot(store), {
       universe: UNIVERSE,
       expected: { 'table.keys': setTo([...beforeSession['table.keys'], ownRow].sort()) },
@@ -372,7 +377,8 @@ test('a signing whose session the table didn\'t seal is invalid-session, logged 
 // A session lasts 2 hours, on the handler's own clock (D18; DDD-R2's lifetime; Signing checks rows 9b and 10, C8): verify
 // takes no clock, so the handler judges a sealed session's issue time with its now and the roots' clockAllowanceMs
 // (10 s). For any issue time, an otherwise good signing is 400 session-expired exactly when its session is more than 2
-// hours old (now - issuedAt > 7,200,000), and 400 invalid-session exactly when it was issued more than 10 s after now.
+// hours old (now - issuedAt > 7,200,000), and 400 invalid-session exactly when it was issued more than 10 s after now;
+// neither, it is 400 too-fast when signed sooner than its game lasted, less those 10 s (row 14, after rows 9b and 10).
 // Either is never kept, is logged scores.rejected with its reason and nothing of the player, and saves nothing; any
 // other issue time signs the game's deposit. The issue times crowd both edges, so a check one millisecond off is
 // caught.
@@ -383,9 +389,10 @@ const issuedFromNow = fc.oneof(
   fc.integer({ min: -LIFETIME_MS - 2, max: -LIFETIME_MS + 2 }),
   fc.integer({ min: CLOCK_ALLOWANCE_MS - 2, max: CLOCK_ALLOWANCE_MS + 2 }),
 );
-const lifetimeRefusal = fromNow => {
+const lifetimeRefusal = (fromNow, game) => {
   if (fromNow > CLOCK_ALLOWANCE_MS) return 'invalid-session';
-  return -fromNow > LIFETIME_MS ? 'session-expired' : null;
+  if (-fromNow > LIFETIME_MS) return 'session-expired';
+  return game.steps * 1000 > (-fromNow + CLOCK_ALLOWANCE_MS) * 120 ? 'too-fast' : null;
 };
 
 test('a signing is session-expired exactly past 2 hours, and invalid-session exactly when issued more than 10 s ahead, and the table is unchanged', async () => {
@@ -396,7 +403,7 @@ test('a signing is session-expired exactly past 2 hours, and invalid-session exa
     const before = await snapshot(store);
     const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
     const response = await handleScores(signing(signingOf(signed, game, sessionFor(game.seed, NOW + fromNow))), createTablePort(store), options);
-    const refused = lifetimeRefusal(fromNow);
+    const refused = lifetimeRefusal(fromNow, game);
     const ownRow = encodeKey({ initials: signed, score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
     expect(response.status, `issued ${fromNow} ms from now`).toBe(refused ? 400 : 200);
     expect(response.headers.get('cache-control')).toBe('no-store');
@@ -412,14 +419,16 @@ test('a signing is session-expired exactly past 2 hours, and invalid-session exa
 
 // Only a record readRecord reads is ever replayed (DDD-R5, Signing checks rows 11 and 12b): an otherwise good signing,
 // its session sealed and its claim the deposit its game played to, carrying any record readRecord refuses (any JSON
-// value at all, or the game's own record with one rule of the reader broken: M4's seven faults, then the DELIVER
-// clarification's three, a field beside rules, steps and keys, an entry that changes nothing, a delta with a leading
-// zero) is 400 invalid-record, never kept. Its one log line is scores.rejected invalid-record, with no replay's steps
-// or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each fault is a breaker:
-// (record, changes) -> what is no longer a record; the clarification's three are also run as examples, whatever the
-// seed.
+// value at all but one naming a safe-integer rules version other than RULES_VERSION, which row 12 refuses as
+// rules-changed before the reader, or the game's own record with one rule of the reader broken: M4's seven faults,
+// then the DELIVER clarification's three, a field beside rules, steps and keys, an entry that changes nothing, a delta
+// with a leading zero) is 400 invalid-record, never kept. Its one log line is scores.rejected invalid-record, with no
+// replay's steps or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each fault is a
+// breaker: (record, changes) -> what is no longer a record; the clarification's three are also run as examples,
+// whatever the seed.
 const RECORD_LETTERS = 'ABCDEFGH';
 const RECORD_FIELDS = ['rules', 'steps', 'keys'];
+const namesOtherRules = value => typeof value === 'object' && value !== null && Number.isSafeInteger(value.rules) && value.rules !== RULES_VERSION;
 const inserted = (keys, index, text) => `${keys.slice(0, index)}${text}${keys.slice(index)}`;
 const entryEnds = keys => [...keys].flatMap((character, index) => (RECORD_LETTERS.includes(character) ? [index + 1] : []));
 const otherControls = (controls, by) => RECORD_LETTERS[(controls + by) % 8];
@@ -431,7 +440,7 @@ const anEntryChangingNothing = (which, gap) => (record, changes) => {
 const aLeadingZero = (which, zeros) => (record, changes) =>
   ({ ...record, keys: inserted(record.keys, [0, ...entryEnds(record.keys)][which % changes.length], '0'.repeat(zeros)) });
 const notARecord = fc.oneof(
-  fc.jsonValue({ maxDepth: 2 }).filter(value => readRecord(value) === null).map(value => () => value),
+  fc.jsonValue({ maxDepth: 2 }).filter(value => readRecord(value) === null && !namesOtherRules(value)).map(value => () => value),
   fc.constantFrom(12345, null, ['0A'], { keys: '0A' }).map(keys => record => ({ ...record, keys })),
   fc.constantFrom(...'IJXZ').map(letter => record => ({ ...record, keys: `0${letter}${record.keys.slice(2)}` })),
   fc.integer({ min: 1, max: 7 }).map(by => (record, changes) => ({ ...record, keys: inserted(record.keys, 2, `0${otherControls(changes[0][1], by)}`) })),
@@ -499,4 +508,127 @@ test('any record longer than MAX_GAME_STEPS is game-too-long, never replayed, an
     expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'game-too-long', ms: expect.any(Number), ...LOCAL }]);
     assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
   }), { numRuns: 30, examples: [[[], 'FAB', scriptedGames(1)[0], 1, null]] });
+});
+
+// A record of other rules is rules-changed whatever the rest of it is (D10, DDD-R12, Signing checks row 12; the user,
+// 2026-10-27): an otherwise good signing, its session sealed, carrying a record that names any safe-integer rules
+// version other than RULES_VERSION, is 400 rules-changed, never kept, before the rest of the record is read and before
+// any replay. The rest is its game's own record, which on RULES_VERSION would sign; one readRecord refuses (any of the
+// faults above) or any fields at all; one longer than an hour (row 13); or up to an hour of standing still, signed the
+// moment its session was issued, faster than the clock (row 14). Every other session is issued as long before its
+// signing as its game lasted, plus a second. Its one log line is scores.rejected rules-changed, with no replay's steps
+// or replayMs, since it never replayed, and nothing of the player. Nothing is saved. Each rest is run as an example,
+// whatever the seed.
+const otherRules = fc.oneof(fc.constantFrom(RULES_VERSION - 1, RULES_VERSION + 1), fc.maxSafeInteger()).filter(rules => rules !== RULES_VERSION);
+const LONGEST_SIGNED_AT_ONCE = CLOCK_ALLOWANCE_MS * 120 / 1000;   // 1,200 steps: the longest game the clock lets sign at once
+const onTime = (game, record) => ({ record, session: onTimeFor(game) });
+const itsOwn = game => onTime(game, game.record);
+const broken = breaking => game => onTime(game, breaking(game.record, readRecord(game.record).changes));
+const anyFields = fields => game => onTime(game, fields);
+const longerThanAnHour = (by, change) => game => onTime(game, pastTheHour(game.record, by, change));
+const signedAtOnce = steps => game => ({ record: { rules: RULES_VERSION, steps, keys: '0A' }, session: sessionFor(game.seed, NOW) });
+const anyRest = fc.oneof(
+  fc.constant(itsOwn),
+  notARecord.map(broken),
+  fc.dictionary(fc.string({ maxLength: 8 }), fc.jsonValue({ maxDepth: 1 }), { maxKeys: 4 }).map(anyFields),
+  fc.tuple(over, oneMoreChange).map(([by, change]) => longerThanAnHour(by, change)),
+  fc.integer({ min: LONGEST_SIGNED_AT_ONCE + 1, max: MAX_GAME_STEPS }).map(signedAtOnce),
+);
+const EACH_REST = [[RULES_VERSION + 1, itsOwn], [0, broken(CLARIFIED[0])], [-1, anyFields({})],
+  [Number.MAX_SAFE_INTEGER, longerThanAnHour(1, null)], [RULES_VERSION + 1, signedAtOnce(MAX_GAME_STEPS)]];
+
+test('a record of other rules is rules-changed whatever the rest of it is, never replayed, and the table is unchanged', async () => {
+  await fc.assert(fc.asyncProperty(held, initials, played, otherRules, anyRest, async (rows, who, game, rules, rest) => {
+    const { record, session } = rest(game);
+    const store = freshStore();
+    for (const r of rows) await store.set(encodeKey(r), '');
+    const logs = [];
+    const before = await snapshot(store);
+    const options = { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+    const response = await handleScores(signing({ ...signingOf(who, game, session), record: { ...record, rules } }), createTablePort(store), options);
+    expect(response.status, `rules ${rules}`).toBe(400);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ error: 'rules-changed' });
+    expect(logs, 'one line, its reason; never replayed, so no steps or replayMs').toEqual([{ event: 'scores.rejected', reason: 'rules-changed', ms: expect.any(Number), ...LOCAL }]);
+    assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+  }), { numRuns: 40, examples: EACH_REST.map(([rules, rest]) => [[], 'FAB', scriptedGames(1)[0], rules, rest]) });
+});
+
+// ---- one row per game, worked by hand (DDD-R4) ----
+// The winner rule in three examples whose rows and keys are written out here, never worked out by code: the independent
+// oracle beside score-keys.spec.js's interleaving property, whose own oracle ranks keys as scores.mjs does. A key is
+// s/{9,999,999 - score, 7 digits}-{at, 15 digits}-{initials}-{id} (ADR-004), and each is held as the rows above are,
+// written to the store directly. Every answer goes through handleScores on the production port and the emulator.
+const readingThroughTheListing = async store =>
+  handleScores(new Request(URL), Object.freeze({ list: createTablePort(store).list }), ONLY_THE_CLOCK_LOG_AND_WHERE);
+
+// bypass: one worked example, the winner rule's independent oracle: one game's three keys, signed at three moments.
+test('of one game\'s three keys, a reading shows the one signed first, once, though a later one scored more', async () => {
+  const store = freshStore();
+  for (const key of [
+    's/9997999-001767225000000-ALX-onegame',   // £2,000, signed first: the game's row
+    's/9994999-001767225100000-BEA-onegame',   // £5,000, signed 100 s later
+    's/9998999-001767225200000-CAT-onegame',   // £1,000, signed 200 s later
+    's/9996999-001767225300000-DAN-another',   // £3,000, another game's one key
+  ]) await store.set(key, '');
+  const before = await snapshot(store);
+  const response = await readingThroughTheListing(store);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    scores: [{ initials: 'DAN', score: 3000, id: 'another' }, { initials: 'ALX', score: 2000, id: 'onegame' }],
+    listedAt: NOW,
+  });
+  assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+});
+
+// bypass: one worked example, the winner rule's independent oracle: one game's two keys, signed at the same moment.
+test('of one game\'s two keys signed at the same moment, a reading shows the one first in arcade order, the higher score', async () => {
+  const store = freshStore();
+  for (const key of [
+    's/9998999-001767225000000-ALX-onegame',   // £1,000
+    's/9994999-001767225000000-BEA-onegame',   // £5,000, at the same moment: first in arcade order, so the game's row
+  ]) await store.set(key, '');
+  const before = await snapshot(store);
+  const response = await readingThroughTheListing(store);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ scores: [{ initials: 'BEA', score: 5000, id: 'onegame' }], listedAt: NOW });
+  assertStateDelta(before, await snapshot(store), { universe: UNIVERSE });
+});
+
+// bypass: one worked example, the prune rule's independent oracle (planPrune): 21 games held, one key each, an hour
+// before the signing, h01 to h21 scoring £1,050 down to £50 by £50. The signing's own game makes 22 winners, so its
+// tidy-up removes the 22nd (h21, £50) and then the 21st (h20, £100), the lowest first, and nothing else; its answer is
+// the first 10 winners.
+const BY_HAND_HELD = Array.from({ length: 21 }, (_, rank) => ({ initials: 'HSE', score: 1050 - 50 * rank, at: NOW - HOUR, id: `h${String(rank + 1).padStart(2, '0')}` }));
+const BY_HAND_PRUNED = ['s/9999949-001767222000000-HSE-h21', 's/9999899-001767222000000-HSE-h20'];
+
+test('a signing that makes 22 winners removes the 22nd and then the 21st, and nothing else', async () => {
+  const [game] = scriptedGames(1);
+  expect(game.deposit, 'arranging: the signing tops the table').toBeGreaterThan(1050);
+  const store = freshStore();
+  for (const r of BY_HAND_HELD) await store.set(encodeKey(r), '');
+  const real = createTablePort(store);
+  const removed = [];
+  const port = Object.freeze({ ...real, remove: key => { removed.push(key); return real.remove(key); } });
+  const logs = [];
+  const before = await snapshot(store);
+  const response = await handleScores(signing(signingOf('FAB', game)), port, { now: () => NOW, log: entry => logs.push(entry), where: LOCAL, sessions: SIGNING });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    scores: [
+      { initials: 'FAB', score: game.deposit, id: gameIdOf(game.seed) },
+      { initials: 'HSE', score: 1050, id: 'h01' }, { initials: 'HSE', score: 1000, id: 'h02' }, { initials: 'HSE', score: 950, id: 'h03' },
+      { initials: 'HSE', score: 900, id: 'h04' }, { initials: 'HSE', score: 850, id: 'h05' }, { initials: 'HSE', score: 800, id: 'h06' },
+      { initials: 'HSE', score: 750, id: 'h07' }, { initials: 'HSE', score: 700, id: 'h08' }, { initials: 'HSE', score: 650, id: 'h09' },
+    ],
+    id: gameIdOf(game.seed),
+    listedAt: NOW,
+  });
+  expect(removed, 'the lowest first').toEqual(BY_HAND_PRUNED);
+  expect(logs.map(({ event, reason, keys }) => ({ event, reason, keys })), 'one line, the 22 keys its listing found').toEqual([{ event: 'scores.signed', reason: 'ok', keys: 22 }]);
+  const ownRow = encodeKey({ initials: 'FAB', score: game.deposit, at: NOW, id: gameIdOf(game.seed) });
+  assertStateDelta(before, await snapshot(store), {
+    universe: UNIVERSE,
+    expected: { 'table.keys': setTo([...before['table.keys'].filter(key => !BY_HAND_PRUNED.includes(key)), ownRow].sort()) },
+  });
 });

@@ -6,17 +6,22 @@
 // (netlify/scores/sessions.mjs, tests/common/session-secret.js). From slice 02 every signing carries its game's record,
 // so the games are made in Node on the real rules (src/game/game.js, record.js and replay.js, through tests/common/
 // played-games.js and recorded-games.js), and each replays to its own deposit and length before the run sends anything.
+// From slice 03 the deploy checks the clock (D8), so each signing of a game waits the game's length after its session.
 //
-//   --site <name> --preview <URL> [--slice 01|02] [--production <URL>] [--permalink <URL>]    preview run: the
-//       leaderboard's steps 1 and 4-10 (K10, K12, K14); with --slice, that slice's gate steps, signing in its shape (01:
-//       S1, S2, S4, S4c, S4b, S5, S3, S6 and S6b; 02: S1, the write guard's opening GET, then S7, S8, S9, S9b and S9c)
-//   --site <name> --burst <URL> [--slice 02]    burst run on a throwaway preview whose only change removes rateLimit:
-//       steps 1-3 (K11); with --slice 02, S10 (K11, K20)
+//   --site <name> --preview <URL> --slice 01|02|03 [--production <URL>] [--permalink <URL>]    preview run: that
+//       slice's gate steps, signing in its shape (01: S1, S2, S4, S4c, S4b, S5, S3, S6 and S6b; 02: S1, the write
+//       guard's opening GET, then S7, S8, S9, S9b and S9c; 03: S1, then S11, S12 and S13)
+//   --site <name> --burst <URL> --slice 02    burst run on a throwaway preview whose only change removes rateLimit: S10
+//       (K11, K20)
 //   --production <URL>                 production mode, P1 (K13): one GET, never a POST
-//   --site <name> --unpublished <permalink> --production <URL> [--slice 01|02] [--site-id <ID>]    unpublished check,
-//       U1-U3 (K13), U2 signing as the permalink's code does (from --slice 01, through a session from that permalink; from
-//       --slice 02, with a record too): the published deploy's ID comes from Netlify's API with NETLIFY_AUTH_TOKEN and
-//       --site-id, or the owner types it back
+//   --site <name> --unpublished <permalink> --production <URL> [--slice 01|02|03] [--site-id <ID>]    unpublished
+//       check, U1-U3 (K13), U2 signing as the permalink's code does (from --slice 01, through a session from that
+//       permalink; from --slice 02, with a record too; from --slice 03, once its game has lasted since that session):
+//       the published deploy's ID comes from Netlify's API with NETLIFY_AUTH_TOKEN and --site-id, or the owner types it
+//       back
+//
+// A preview or burst run names its slice: the leaderboard's own, from before this feature (its steps 1-10), signed with
+// no session, which today's function refuses at every signing, so they are gone, and a run without --slice is malformed.
 //
 // It prints one JSON summary on stdout (progress goes to stderr) and exits 0 when every hard check passed; 1 when one
 // failed or was inconclusive (an inconclusive step is never a pass), the run was stopped, or the command was malformed;
@@ -198,13 +203,15 @@ const OVER_LIMIT = Object.freeze({ overLimit: true });
 const PUBLISHED_DEPLOY_ID_FIELD = Object.freeze(['published_deploy', 'id']);
 const NETLIFY_SITES_API = 'https://api.netlify.com/api/v1/sites/';
 
-// Valid initials for the smoke signatures, and initials on the word filter for step 4 and S4b, from the bundled rules.
+// Valid initials for the smoke signatures, and initials on the word filter for S4b, from the bundled rules.
 const SIGNERS = [...ALPHABET].map(letter => `SM${letter}`).filter(isAllowedInitials);
 const BLOCKED = BLOCKED_INITIALS[0];
 const signerAt = i => SIGNERS[i % SIGNERS.length];
 const signature = i => ({ initials: signerAt(i), score: (i + 1) * SCORE_STEP });
 // The i-th signing of a game made in Node claims its deposit, or `score` when a step means it to claim another.
 const claimOf = (game, i, score = game.deposit) => ({ initials: signerAt(i), score });
+// The i-th signing of a game made in Node, in the run's slice's shape, with `session` and the game's own record.
+const gameSigning = (run, game, session, i = 0) => run.slice.signing(claimOf(game, i), session, game.record);
 // A seed of 32 hex digits, uppercase: the near miss of a seed that S4 sends, refused as invalid-seed.
 const MALFORMED_SEED = '0123456789ABCDEF0123456789ABCDEF';
 
@@ -223,6 +230,12 @@ const isoAt = ms => new Date(ms).toISOString();
 const toStderr = message => process.stderr.write(`${message}\n`);
 const until = async (run, time) => { if (time > run.clock.now()) await run.clock.sleep(time - run.clock.now()); };
 const coolDown = async run => { run.progress('waiting 61 s for the rate-limit window to clear'); await run.clock.sleep(COOL_DOWN_MS); };
+// A signing, sent to the target's table.
+const sendSigning = (run, body, options) => run.client.post(scoresAt(run.target), body, options);
+// An answer as a step's summary shows it.
+const briefOf = answer => ({ status: answer.status, error: answer.body?.error ?? null });
+// Whether the table's ids are the same in two listings; unknown (null) when either never came.
+const unchangedIds = (before, after) => (before !== null && after !== null ? isDeepStrictEqual(after, before) : null);
 
 // Cache-Status (RFC 9211): one member per cache, each with parameters; `hit` on any member means no function ran.
 const isHit = (cacheStatus = '') => cacheStatus.split(',')
@@ -314,6 +327,12 @@ function sessionFor(answer, seed) {
   return session?.seed === seed && Number.isSafeInteger(session.issuedAt) && typeof session.token === 'string' ? session : null;
 }
 
+// A session request for `seed` -> { answer, session: the session it carries for that seed, or null }.
+async function sessionAskedFor(run, seed, options) {
+  const answer = await askSession(run, seed, options);
+  return { answer, session: sessionFor(answer, seed) };
+}
+
 // A session sealed with the repository's public test secret, as a root seals one: with the 32 bytes readSessionSecret
 // decodes, as the Netlify entry reads SCORES_SESSION_SECRET (the base64 text itself would seal another token, which
 // even a deploy whose secret is the public value refuses). A deploy that signs with it has the public value.
@@ -328,24 +347,34 @@ async function sessionPhase(run, from, seeds) {
   const asked = [];
   for (const [i, seed] of seeds.entries()) {
     await until(run, from + i * PACE_MS);
-    const answer = await askSession(run, seed);
-    asked.push({ answer, session: sessionFor(answer, seed) });
+    asked.push(await sessionAskedFor(run, seed));
   }
   return asked;
 }
 
 const freshSeeds = count => Array.from({ length: count }, freshSeed);
 
-// The pair phase: one pair every 13 s from `from`, the i-th signing then a cache-missing GET. A pair is timed by its two
-// exchanges, so a wait for the limit is never counted. K10: every pair answered 200, and the p95 under `p95UnderMs`
-// (1000 ms; D21's 1,250 ms from slice 02, whose signings carry records).
-async function pairPhase(run, from, signings, p95UnderMs = P95_UNDER_MS) {
+// D8, from slice 03 (row 14): a deploy that checks the clock refuses a game signed sooner after its session than it
+// lasted, less 10 s. On such a deploy a game is signed no sooner than its own length (steps x 1000 / 120 ms, rounded
+// up) after its session's answer came back, on the run's clock: the deploy issued the session before then, whatever
+// its own clock reads, and the 10 s are the deploy's margin, never the run's. On a deploy without the check, at once.
+const lastedMs = record => Math.ceil((record.steps * 1000) / STEPS_A_SECOND);
+const signableAt = (run, asked, record) => (run.slice.clockCheck ? asked.sentAt + asked.ms + lastedMs(record) : -Infinity);
+
+// The pair phase: one pair every 13 s from `from`, the i-th signing then a cache-missing GET, and none before
+// `notBefore[i]` (its game's signableAt), the pairs after it keeping 13 s apart. A pair is timed by its two exchanges,
+// so a wait for the limit is never counted. K10: every pair answered 200, and the p95 under `p95UnderMs` (1000 ms;
+// D21's 1,750 ms from slice 02, whose signings carry records, as the user revised it on 2026-10-27).
+async function pairPhase(run, from, signings, { p95UnderMs = P95_UNDER_MS, notBefore = [] } = {}) {
   const pairs = [];
+  let due = from;
   for (const [i, signing] of signings.entries()) {
-    await until(run, from + i * PACE_MS);
-    const post = await run.client.post(scoresAt(run.target), signing);
+    due = Math.max(due, notBefore[i] ?? -Infinity);
+    await until(run, due);
+    const post = await sendSigning(run, signing);
     const get = await run.client.get(scoresAt(run.target, missQuery()));
     pairs.push({ ms: post.ms + get.ms, post, get });
+    due += PACE_MS;
   }
   const p95Ms = p95Of(pairs.map(pair => pair.ms));
   const answered = pairs.every(pair => pair.post.status === 200 && pair.get.status === 200);
@@ -366,14 +395,13 @@ async function firstRequest(run) {
   return { step: '1', kpi: 'K10 K12', outcome, status: answer.status, coldStartMs: answer.ms, headers: answer.headers };
 }
 
-// 2 (burst run, over-limit): 20 simultaneous POSTs with distinct scores, the leaderboard's signatures unless `signings`
-// says otherwise. All 200, each with its own id, and each one in the true top 10 finds its id in its answer. Only a 429
-// is inconclusive (the rule wasn't removed: fix the throwaway branch and rerun on a fresh throwaway preview); any other
-// non-200 fails K11 for good.
+// 2 (burst run, over-limit): 20 simultaneous POSTs with distinct scores, the `signings` given. All 200, each with its
+// own id, and each one in the true top 10 finds its id in its answer. Only a 429 is inconclusive (the rule wasn't
+// removed: fix the throwaway branch and rerun on a fresh throwaway preview); any other non-200 fails K11 for good.
 const isRateLimited = statuses => statuses.includes(429);
 
-async function burstOfSignings(run, signings = Array.from({ length: BURST_SIZE }, (_, i) => signature(i))) {
-  const answers = await Promise.all(signings.map(signing => run.client.post(scoresAt(run.target), signing, OVER_LIMIT)));
+async function burstOfSignings(run, signings) {
+  const answers = await Promise.all(signings.map(signing => sendSigning(run, signing, OVER_LIMIT)));
   const statuses = answers.map(answer => answer.status);
   const rows = signings.map(({ initials, score }, i) => ({ initials, score, id: answers[i].body?.id }));
   const expected = [...rows].sort((a, b) => b.score - a.score).slice(0, TABLE_SIZE);
@@ -394,13 +422,6 @@ async function burstTable(run, burst) {
   return { step: '3', kpi: 'K11', outcome: passOrFail(pass), status: answer.status, shown, listedAt: answer.body?.listedAt ?? null };
 }
 
-// 4: initials on the word filter answer 400 initials-not-allowed, which only the bundled high-scores.js can give.
-async function wordFilter(run) {
-  const answer = await run.client.post(scoresAt(run.target), { initials: BLOCKED, score: SCORE_STEP });
-  const outcome = passOrFail(answer.status === 400 && answer.body?.error === 'initials-not-allowed');
-  return { step: '4', kpi: 'K12', outcome, status: answer.status, headers: answer.headers };
-}
-
 // 5: within 15 s, two plain GETs and a ?x= one share one cache object (hits, with the 1st one's listedAt); ?table= misses
 // it, with a newer listedAt. A missing Cache-Status fails the step rather than passing it vacuously.
 async function sharedCache(run) {
@@ -417,12 +438,6 @@ async function sharedCache(run) {
   const outcome = !cacheStatus.every(Boolean) ? 'fail' : withinMs > CACHE_TTL_MS ? 'inconclusive' : passOrFail(pass);
   const listedAt = answers.map(answer => answer.body?.listedAt ?? null);
   return { step: '5', kpi: 'K14', outcome, withinMs, statuses: answers.map(answer => answer.status), cacheStatus, listedAt };
-}
-
-// 6: 30 pairs, one every 13 s: a POST, then a cache-missing GET. K10: the p95 (the 29th of 30) under 1000 ms.
-async function signingPairs(run) {
-  const { passed, ...pairs } = await pairPhase(run, run.clock.now(), Array.from({ length: PAIRS }, (_, i) => signature(i)));
-  return { step: '6', kpi: 'K10', outcome: passOrFail(passed), ...pairs };
 }
 
 // 7 (with --production): the production table holds none of the ids signed on the preview. A 404 means production has
@@ -526,9 +541,8 @@ async function productionRead(run) {
 // S2: the first session request, for a fresh seed, is the secret check. 200 { session, scores, listedAt }, the session
 // for the seed sent, also proves the bundle; its time is a warm K25 sample. A 500 stops the run (SECRET_MISSING).
 async function firstSession(run) {
-  const seed = freshSeed();
-  const answer = await askSession(run, seed);
-  return { step: 'S2', kpi: 'K25 K12', outcome: passOrFail(sessionFor(answer, seed) !== null), status: answer.status, ms: answer.ms, headers: answer.headers };
+  const { answer, session } = await sessionAskedFor(run, freshSeed());
+  return { step: 'S2', kpi: 'K25 K12', outcome: passOrFail(session !== null), status: answer.status, ms: answer.ms, headers: answer.headers };
 }
 
 const SECRET_MISSING = 'stopped: the first session request answered 500, so this deploy has no session secret, or one that'
@@ -549,13 +563,15 @@ const FORGERIES = Object.freeze({
   publicSecret: [400, 'invalid-session'],       // sealed with TEST_SECRET: a 200 means the deploy's secret is public
 });
 const answersAs = (answer, [status, error]) => answer.status === status && (error === undefined || answer.body?.error === error);
+// A step's named answers, as its summary shows them.
+const inBrief = answers => Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, briefOf(answer)]));
 const PUBLIC_SECRET_FOUND = 'the deploy signed a session sealed with the public TEST_SECRET: its secret is the public value.'
   + ' Set a value of its own for this context (the owner guide, "The session secret") and deploy again';
 
 // S4: each answer as FORGERIES says, each no-store, and one row in all: session B's listing, after A's signings, shows
 // only A's game. tableIds are the ids of the table's last listing, which S4c is checked against.
 async function forgeries(run) {
-  const sign = body => run.client.post(scoresAt(run.target), body);
+  const sign = body => sendSigning(run, body);
   const game = signature(1);
   const seed = freshSeed();
   const answers = {};
@@ -566,7 +582,8 @@ async function forgeries(run) {
   answers.signed = await sign(run.slice.signing(game, sessionA));
   answers.signedAgain = await sign(run.slice.signing(game, sessionA));
   answers.sessionB = await askSession(run, seed);
-  answers.signedWithB = await sign(run.slice.signing(game, sessionFor(answers.sessionB, seed)));
+  const sessionB = sessionFor(answers.sessionB, seed);
+  answers.signedWithB = await sign(run.slice.signing(game, sessionB));
   answers.sessionsRead = await run.client.get(sessionsAt(run.target));
   answers.malformedSeed = await run.client.post(sessionsAt(run.target), { seed: MALFORMED_SEED });
   // Dated by the deploy's own clock (session A's issuedAt), so the probe is never refused for coming from the future.
@@ -574,7 +591,7 @@ async function forgeries(run) {
   const id = answers.signed.body?.id ?? null;
   const checks = {
     answered: Object.entries(FORGERIES).every(([name, expected]) => answersAs(answers[name], expected)),
-    issued: sessionA !== null && sessionFor(answers.sessionB, seed) !== null,
+    issued: sessionA !== null && sessionB !== null,
     allowsPost: answers.sessionsRead.headers.allow === 'POST',
     noStore: Object.values(answers).every(hasNoStore),
     oneRow: id !== null && isDeepStrictEqual(idsOf(answers.sessionB.body), [id]),
@@ -583,24 +600,25 @@ async function forgeries(run) {
   const lastListing = Object.values(answers).findLast(answer => Array.isArray(answer.body?.scores));
   return {
     step: 'S4', kpi: 'K20', outcome: passOrFail(Object.values(checks).every(Boolean)), publicSecret, ...(publicSecret && { reason: PUBLIC_SECRET_FOUND }),
-    ...checks, answers: Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, { status: answer.status, error: answer.body?.error ?? null }])),
-    id, tableIds: lastListing ? idsOf(lastListing.body) : null,
+    ...checks, answers: inBrief(answers), id, tableIds: lastListing ? idsOf(lastListing.body) : null,
   };
 }
 
-// S4c, its own step after a 61 s wait (1 request): POST /__test/rows with a test-board cookie. The route is the local
-// server's, never the function's, so a 404 or 405 passes once the next listing (S4b's session) shows no row written.
+// POST /__test/rows with a test-board cookie: the local server's test route (DDD-R17), never the function's.
+const postToTheTestRoute = run => run.client.post(at(run.target, TEST_ROWS_PATH), signature(3), { headers: { cookie: 'test-board=smoke' } });
+
+// S4c, its own step after a 61 s wait (1 request): the test route, where a 404 or 405 passes once the next listing
+// (S4b's session) shows no row written.
 async function testRoute(run) {
-  const answer = await run.client.post(at(run.target, TEST_ROWS_PATH), signature(3), { headers: { cookie: 'test-board=smoke' } });
+  const answer = await postToTheTestRoute(run);
   return { step: 'S4c', kpi: 'K20', status: answer.status };
 }
 
 const ROUTE_ABSENT = Object.freeze([404, 405]);
 // The listings on either side, as ids: unknown (null) when one never came, which leaves a 404 or 405 inconclusive.
 function settleTestRoute(route, idsBefore, idsAfter) {
-  const known = idsBefore !== null && idsAfter !== null;
-  const noRowWritten = known ? isDeepStrictEqual(idsAfter, idsBefore) : null;
-  const outcome = !ROUTE_ABSENT.includes(route.status) ? 'fail' : known ? passOrFail(noRowWritten) : 'inconclusive';
+  const noRowWritten = unchangedIds(idsBefore, idsAfter);
+  const outcome = !ROUTE_ABSENT.includes(route.status) ? 'fail' : noRowWritten === null ? 'inconclusive' : passOrFail(noRowWritten);
   return { ...route, outcome, noRowWritten };
 }
 
@@ -610,10 +628,8 @@ const NO_RECORD = Object.freeze({});
 // A session, then blocked initials signed with it: 400 initials-not-allowed. The word filter (check 8) comes before the
 // token (check 9), and only the bundled high-scores.js can give it. -> { asked, session, answer, refused }
 async function blockedInitials(run) {
-  const seed = freshSeed();
-  const asked = await askSession(run, seed);
-  const session = sessionFor(asked, seed);
-  const answer = await run.client.post(scoresAt(run.target), run.slice.signing({ initials: BLOCKED, score: SCORE_STEP }, session, NO_RECORD));
+  const { answer: asked, session } = await sessionAskedFor(run, freshSeed());
+  const answer = await sendSigning(run, run.slice.signing({ initials: BLOCKED, score: SCORE_STEP }, session, NO_RECORD));
   return { asked, session, answer, refused: answersAs(answer, [400, 'initials-not-allowed']) };
 }
 
@@ -653,10 +669,9 @@ async function sessionFlood(run) {
   const acceptedBefore429 = first429 < 0 ? null : answers.slice(0, first429).filter(answer => answer.status === 200).length;
   const mostAcceptedInAWindow = mostAcceptedInAFullWindow(answers);
   await coolDown(run);
-  const seed = freshSeed();
-  const after = await askSession(run, seed);
+  const { answer: after, session } = await sessionAskedFor(run, freshSeed());
   const onTime = acceptedBefore429 !== null && acceptedBefore429 >= LIMIT && acceptedBefore429 <= LIMIT_WITH_LAG;
-  const outcome = passOrFail(onTime && sessionFor(after, seed) !== null);
+  const outcome = passOrFail(onTime && session !== null);
   return { step: '8c', kpi: 'K14', overLimit: true, outcome, acceptedBefore429, first429AfterMs, mostAcceptedInAWindow, afterStatus: after.status };
 }
 
@@ -674,16 +689,13 @@ async function mixedFlood(run) {
 // ---- slice 02's steps (DEVOPS "Preview smoke test, extended"): every signing carries its game's record ----
 
 const LONG_SIGNING_UNDER_MS = 5000;     // K22: the long game's signing, on the client
-const REPLAY_HOUR_UNDER_MS = 1000;      // K22: its replayMs, scaled to 60 minutes of game time
-const D21_P95_UNDER_MS = 1250;          // K10 under D21: a pair whose POST carries a 10-minute record
-const REPLAY_P95_UNDER_MS = 165;        // D21: a 10-minute record's replayMs, p95
+const D21_P95_UNDER_MS = 1750;          // K10 under D21, as the user revised it (2026-10-27): a pair whose POST carries a 10-minute record
+const REPLAY_P95_UNDER_MS = 650;        // D21, revised likewise: a 10-minute record's replayMs, p95
 const SIGNING_CAP_BYTES = 128 * 1024;   // the signing's body cap (DDD-R3)
 const OVER_NETLIFY_BYTES = 7 * 1024 * 1024;   // above the 6 MB Netlify buffers for a function
 const HUMAN_CHANGES_A_SECOND = 15;      // D20: a fast human's pace of key changes
 const CONTROL_LETTERS = 'ABCDEFGH';     // record.js's letters: the controls held, 0 to 7
 const RACERS = 3;
-
-const signAt = run => body => run.client.post(scoresAt(run.target), body);
 
 // `body` with a padding field that brings its JSON to exactly `bytes` bytes (ASCII: a character is a byte).
 function paddedTo(body, bytes) {
@@ -714,38 +726,40 @@ function worstSpacedHour() {
   return Object.freeze({ rules: RULES_VERSION, steps: MAX_GAME_STEPS, keys });
 }
 
-// S7 (K22, K21): the corpus's longest game signed with a session for its seed, 200 within 5 s on the client; then the
+// S7 (K22, K21): the corpus's longest game signed with a session for its seed, 200 within 5 s on the client, its
+// replayMs scaled to 60 minutes of game time recorded, not gated (D21, as the user revised it on 2026-10-27); then the
 // 60-minute body of the worst spacing, with a session of its own, refused as replay-mismatch, its time recorded. The
 // first session request is the secret check (a 500 stops the run): then nothing more is sent.
 async function longGameAndHour(run, game) {
-  const asked = await askSession(run, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   if (asked.status === 500) return { step: 'S7', kpi: 'K22 K21', outcome: 'fail', sessionStatus: 500 };
-  const signed = await signAt(run)(run.slice.signing(claimOf(game, 0), sessionFor(asked, game.seed), game.record));
-  const hourSeed = freshSeed();
-  const hourSession = sessionFor(await askSession(run, hourSeed), hourSeed);
+  const signed = await sendSigning(run, gameSigning(run, game, session));
+  const { session: hourSession } = await sessionAskedFor(run, freshSeed());
   const hourBody = run.slice.signing(signature(1), hourSession, worstSpacedHour());
-  const hour = await signAt(run)(hourBody);
+  const hour = await sendSigning(run, hourBody);
   const inTime = signed.status === 200 && typeof signed.body?.id === 'string' && signed.ms < LONG_SIGNING_UNDER_MS;
-  const replayMsUnder = Math.floor((REPLAY_HOUR_UNDER_MS * game.steps) / MAX_GAME_STEPS);
+  const toAnHour = Math.round((MAX_GAME_STEPS / game.steps) * 100) / 100;
   return {
     step: 'S7', kpi: 'K22 K21', outcome: passOrFail(inTime && hourSession !== null && answersAs(hour, [400, 'replay-mismatch'])),
     sessionStatus: asked.status, status: signed.status, ms: signed.ms, id: signed.body?.id ?? null, steps: game.steps, minutes: minutesOf(game),
-    hour: { bytes: JSON.stringify(hourBody).length, status: hour.status, error: hour.body?.error ?? null, ms: hour.ms },
-    next: `its scores.signed line's replayMs must be under ${replayMsUnder} (1 s for 60 minutes, scaled to its ${game.steps} steps)`,
+    hour: { bytes: JSON.stringify(hourBody).length, ...briefOf(hour), ms: hour.ms },
+    next: `its scores.signed line's replayMs, times ${toAnHour} for 60 minutes of game time (its ${game.steps} steps of ${MAX_GAME_STEPS}): recorded, not gated (D21)`,
   };
 }
 
 // S8 (K10 under D21, K21): the session phase for the 30 bot games' seeds, then the pair phase, each POST signing its
-// game with its session and its record. Pass: every session issued, every pair 200, the p95 under 1,250 ms.
+// game with its session and its record; on a deploy that checks the clock (S13), only once the game has lasted since
+// its session. Pass: every session issued, every pair 200, the p95 under 1,750 ms.
 async function tenMinuteGames(run, games) {
   const start = run.clock.now();
   const asked = await sessionPhase(run, start, games.map(game => game.seed));
-  const signings = games.map((game, i) => run.slice.signing(claimOf(game, i), asked[i].session, game.record));
-  const { passed, ...pairs } = await pairPhase(run, start + games.length * PACE_MS, signings, D21_P95_UNDER_MS);
+  const signings = games.map((game, i) => gameSigning(run, game, asked[i].session, i));
+  const notBefore = games.map((game, i) => signableAt(run, asked[i].answer, game.record));
+  const { passed, ...pairs } = await pairPhase(run, start + games.length * PACE_MS, signings, { p95UnderMs: D21_P95_UNDER_MS, notBefore });
   const issued = asked.every(({ session }) => session !== null);
   return {
     step: 'S8', kpi: 'K10 K21', outcome: passOrFail(issued && passed), ...pairs, minutes: games.map(minutesOf),
-    next: `netlify logs --function scores --json: the ${games.length} scores.signed lines' replayMs, p95 under ${REPLAY_P95_UNDER_MS} ms (D21)`,
+    next: `netlify logs --function scores --json: the ${games.length} scores.signed lines' replayMs, p95 under ${REPLAY_P95_UNDER_MS} ms (D21, as revised)`,
   };
 }
 
@@ -765,23 +779,20 @@ const REFUSED = Object.freeze({
 // S9 (K20, K12): one session, then the 7 refused signings with it. Nothing kept is settled by the next listing (S9b's
 // session): tableIds are the ids its own session's listing showed.
 async function refusedSignings(run, game) {
-  const asked = await askSession(run, game.seed);
-  const session = sessionFor(asked, game.seed);
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
   const shape = (claim, record) => run.slice.signing(claim, session, record);
   const answers = {};
-  for (const [name, [, forge]] of Object.entries(REFUSED)) answers[name] = await signAt(run)(forge(game, shape));
+  for (const [name, [, forge]] of Object.entries(REFUSED)) answers[name] = await sendSigning(run, forge(game, shape));
   const answered = Object.entries(REFUSED).every(([name, [expected]]) => answersAs(answers[name], expected));
   return {
-    step: 'S9', kpi: 'K20 K12', outcome: passOrFail(session !== null && answered),
-    answers: Object.fromEntries(Object.entries(answers).map(([name, answer]) => [name, { status: answer.status, error: answer.body?.error ?? null }])),
-    tableIds: session && idsOf(asked.body),
+    step: 'S9', kpi: 'K20 K12', outcome: passOrFail(session !== null && answered), answers: inBrief(answers), tableIds: session && idsOf(asked.body),
   };
 }
 
 // The listings on either side of S9, as ids: unchanged, or S9 kept something; unknown (null) when one never came,
 // which leaves a pass inconclusive.
 function settleNothingKept(refused, idsAfter) {
-  const nothingKept = refused.tableIds !== null && idsAfter !== null ? isDeepStrictEqual(idsAfter, refused.tableIds) : null;
+  const nothingKept = unchangedIds(refused.tableIds, idsAfter);
   const outcome = refused.outcome === 'fail' || nothingKept === false ? 'fail' : nothingKept === null ? 'inconclusive' : 'pass';
   return { ...refused, outcome, nothingKept };
 }
@@ -792,12 +803,12 @@ function settleNothingKept(refused, idsAfter) {
 async function bundleAndPublicSecret(run) {
   const { asked, session, answer, refused } = await blockedInitials(run);
   const sealed = publicSession(freshSeed(), session?.issuedAt ?? run.clock.now());
-  const probe = await signAt(run)(run.slice.signing(signature(2), sealed, NO_RECORD));
+  const probe = await sendSigning(run, run.slice.signing(signature(2), sealed, NO_RECORD));
   const publicSecret = probe.body?.error === 'invalid-record';
   return {
     step: 'S9b', kpi: 'K12', outcome: passOrFail(session !== null && refused && answersAs(probe, [400, 'invalid-session'])),
     publicSecret, ...(publicSecret && { reason: PUBLIC_SECRET_FOUND }), statuses: [asked.status, answer.status, probe.status],
-    probe: { status: probe.status, error: probe.body?.error ?? null }, tableIds: session && idsOf(asked.body),
+    probe: briefOf(probe), tableIds: session && idsOf(asked.body),
   };
 }
 
@@ -805,7 +816,7 @@ async function bundleAndPublicSecret(run) {
 // status is recorded, with the time to look for no line of ours by.
 async function overNetlifysLimit(run) {
   const at = isoAt(run.clock.now());
-  const answer = await signAt(run)(paddedTo(signature(3), OVER_NETLIFY_BYTES));
+  const answer = await sendSigning(run, paddedTo(signature(3), OVER_NETLIFY_BYTES));
   return {
     step: 'S9c', kpi: 'K20', outcome: 'recorded', status: answer.status, bytes: OVER_NETLIFY_BYTES, at,
     next: 'the function\'s log has no scores line at that time: the platform refused the body before the function ran',
@@ -815,10 +826,10 @@ async function overNetlifysLimit(run) {
 // S10.2 (burst run, over-limit): a session for each of 20 scripted games with distinct deposits, all at once, then the
 // 20 signings at once (step 2's rule). A 429 is inconclusive, as in step 2.
 async function sessionsThenBurst(run, games) {
-  const asked = await Promise.all(games.map(game => askSession(run, game.seed, OVER_LIMIT)));
-  const sessions = asked.map((answer, i) => sessionFor(answer, games[i].seed));
-  const burst = await burstOfSignings(run, games.map((game, i) => run.slice.signing(claimOf(game, i), sessions[i], game.record)));
-  const sessionStatuses = asked.map(answer => answer.status);
+  const asked = await Promise.all(games.map(game => sessionAskedFor(run, game.seed, OVER_LIMIT)));
+  const sessions = asked.map(({ session }) => session);
+  const burst = await burstOfSignings(run, games.map((game, i) => gameSigning(run, game, sessions[i], i)));
+  const sessionStatuses = asked.map(({ answer }) => answer.status);
   const outcome = isRateLimited(sessionStatuses) ? 'inconclusive' : sessions.includes(null) ? 'fail' : burst.outcome;
   return { ...burst, kpi: 'K11', outcome, sessionStatuses };
 }
@@ -826,11 +837,11 @@ async function sessionsThenBurst(run, games) {
 // S10.4 (burst run, over-limit): 3 sessions for one game, then its 3 signings at once. Pass: at most one 200, the others
 // 409 (or 503, a key written at the same moment). A 429 is inconclusive.
 async function raceForOneGame(run, game) {
-  const asked = await Promise.all(Array.from({ length: RACERS }, () => askSession(run, game.seed, OVER_LIMIT)));
-  const sessions = asked.map(answer => sessionFor(answer, game.seed));
-  const answers = await Promise.all(sessions.map((session, i) => run.client.post(scoresAt(run.target), run.slice.signing(claimOf(game, i), session, game.record), OVER_LIMIT)));
+  const asked = await Promise.all(Array.from({ length: RACERS }, () => sessionAskedFor(run, game.seed, OVER_LIMIT)));
+  const sessions = asked.map(({ session }) => session);
+  const answers = await Promise.all(sessions.map((session, i) => sendSigning(run, gameSigning(run, game, session, i), OVER_LIMIT)));
   const statuses = answers.map(answer => answer.status);
-  const sessionStatuses = asked.map(answer => answer.status);
+  const sessionStatuses = asked.map(({ answer }) => answer.status);
   const oneAtMost = statuses.filter(status => status === 200).length <= 1 && statuses.every(status => [200, 409, 503].includes(status));
   const outcome = isRateLimited([...sessionStatuses, ...statuses]) ? 'inconclusive' : passOrFail(!sessions.includes(null) && oneAtMost);
   return { step: 'S10.4', kpi: 'K20', overLimit: true, outcome, sessionStatuses, statuses, gameId: gameIdOf(game.seed) };
@@ -843,22 +854,76 @@ async function racedTable(run, race) {
   return { step: 'S10.5', kpi: 'K20', outcome: passOrFail(answer.status === 200 && rows <= 1), status: answer.status, rowsOfTheGame: rows };
 }
 
+// ---- slice 03's steps (DEVOPS "Preview smoke test, extended"): no game signed sooner than it lasted ----
+
+// The local server's switches (DDD-R11, E6): its lenient clock, on a test board. The function has neither.
+const LENIENT_COOKIES = 'test-clock=lenient; test-board=x';
+
+// S11's answers, in order, and what each must be (K20 item 9).
+const CLOCK_CHECKED = Object.freeze({
+  signedAtOnce: [[400, 'too-fast']],
+  withLenientCookies: [[400, 'too-fast']],
+  testRoute: [[404], [405]],
+  signedInTime: [[200]],
+});
+const answersOneOf = (answer, alternatives) => alternatives.some(expected => answersAs(answer, expected));
+
+// S11 (K20 item 9): a scripted game of about 30 s (well over the 10 s allowance and a round trip) signed straight after
+// a session for its seed, then the same signing with the lenient cookies: too-fast, both; the test route: 404 or 405;
+// then a new session for the game, and the game signed once it has lasted: 200. No row written before then: the new
+// session's listing shows the first's. The first session request is the secret check (a 500 stops the run).
+async function tooFast(run, game) {
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
+  if (asked.status === 500) return { step: 'S11', kpi: 'K20', outcome: 'fail', sessionStatus: 500 };
+  const atOnce = gameSigning(run, game, session);
+  const answers = {};
+  answers.signedAtOnce = await sendSigning(run, atOnce);
+  answers.withLenientCookies = await sendSigning(run, atOnce, { headers: { cookie: LENIENT_COOKIES } });
+  answers.testRoute = await postToTheTestRoute(run);
+  const { answer: askedAgain, session: later } = await sessionAskedFor(run, game.seed);
+  await until(run, signableAt(run, askedAgain, game.record));
+  answers.signedInTime = await sendSigning(run, gameSigning(run, game, later));
+  const noRowWritten = unchangedIds(session && idsOf(asked.body), later && idsOf(askedAgain.body));
+  const id = answers.signedInTime.body?.id ?? null;
+  const answered = Object.entries(CLOCK_CHECKED).every(([name, alternatives]) => answersOneOf(answers[name], alternatives));
+  return {
+    step: 'S11', kpi: 'K20', outcome: passOrFail(answered && typeof id === 'string' && noRowWritten === true),
+    sessionStatus: asked.status, steps: game.steps, answers: inBrief(answers), noRowWritten, id,
+  };
+}
+
+// S12 (K23): a scripted game's own record, but naming the rules before the deploy's (a page left open across a deploy
+// that changed them), signed with a session for its seed once the game has lasted: rules-changed, whatever the rest of
+// it is. Nothing kept: a cache-missing GET after it lists what its session's listing showed.
+async function otherRules(run, game) {
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
+  const record = { ...game.record, rules: RULES_VERSION - 1 };
+  await until(run, signableAt(run, asked, record));
+  const answer = await sendSigning(run, run.slice.signing(claimOf(game, 0), session, record));
+  const after = await run.client.get(scoresAt(run.target, missQuery()));
+  const refused = {
+    step: 'S12', kpi: 'K23', outcome: passOrFail(session !== null && answersAs(answer, [400, 'rules-changed'])),
+    ...briefOf(answer), rules: record.rules, tableIds: session && idsOf(asked.body),
+    next: 'its scores.rejected line (rules-changed) has no steps and no replayMs: it was never replayed',
+  };
+  return settleNothingKept(refused, after.status === 200 ? idsOf(after.body) : null);
+}
+
+// S13 (K10 under D21, with the clock check on): S8 on slice 03's deploy, each pair sent once its game has lasted since
+// its session; for games of 9 to 11 minutes, about 17 minutes in all.
+async function tenMinuteGamesInTime(run, games) {
+  return { ...(await tenMinuteGames(run, games)), kpi: 'K10' };
+}
+
 // ---- the runs ----
 
-// The leaderboard's preview run, steps 1 and 4-10, for a deploy from before rightmove-invaders-replay-verified-scores.
-async function leaderboardPreview(run, record) {
-  record(await timed(run, firstRequest));
-  record(await timed(run, wordFilter));
-  record(await timed(run, sharedCache));
-  await coolDown(run);
-  const pairs = await timed(run, signingPairs);
-  record(pairs);
-  record(await timed(run, signed => productionUntouched(signed, pairs.ids)));
-  for (const floodStep of [steadyFlood, fastFlood, cachedFlood]) {
+// The over-limit floods, in order, each after a 61 s wait: [takeStep, the step it is in this run when it is named
+// otherwise].
+async function floodsApart(run, record, floods) {
+  for (const [floodStep, step] of floods) {
     await coolDown(run);
-    record(await timed(run, floodStep));
+    record(await timed(run, floodStep, step));
   }
-  record(await timed(run, permalinkCopy));
 }
 
 // Slice 01's preview run, its gate: K25 (S2, S3, S5), K10 (S5), K14 (S6), K12 (S1, S2, S4b, S6b), K20 items 1-3 (S4) and
@@ -879,10 +944,7 @@ async function slice01Preview(run, record) {
   record(signed);
   record(await timed(run, sessionsOnAFullerTable));
   record(await timed(run, sharedCache, 'S6.5'));
-  for (const [floodStep, step] of [[steadyFlood, 'S6.8a'], [fastFlood, 'S6.8b'], [sessionFlood, 'S6.8c'], [mixedFlood, 'S6.8d'], [cachedFlood, 'S6.9']]) {
-    await coolDown(run);
-    record(await timed(run, floodStep, step));
-  }
+  await floodsApart(run, record, [[steadyFlood, 'S6.8a'], [fastFlood, 'S6.8b'], [sessionFlood, 'S6.8c'], [mixedFlood, 'S6.8d'], [cachedFlood, 'S6.9']]);
   record(await timed(run, read => productionUntouched(read, [forged.id, ...signed.ids]), 'S6b.7'));
   record(await timed(run, permalinkCopy, 'S6b.10'));
 }
@@ -907,13 +969,18 @@ async function slice02Preview(run, record) {
   record(await timed(run, overNetlifysLimit));
 }
 
-// The leaderboard's burst run, steps 1-3 (K11).
-async function leaderboardBurst(run, record) {
-  record(await timed(run, firstRequest));
-  const burst = await timed(run, burstOfSignings);
-  record(burst);
-  await coolDown(run);
-  record(await timed(run, read => burstTable(read, burst)));
+// Slice 03's preview run, its gate: K20 item 9 (S11), K23 (S12), K10 under D21 (S13). Its games are made first (S11
+// signs the longer of its two scripted games), S1 is the write guard's opening GET, and every signing but S11's two
+// probes waits its game's length after its session.
+async function slice03Preview(run, record) {
+  const [longer, shorter] = (await gamesMade(run.games.scripted(2))).toSorted((a, b) => b.steps - a.steps);
+  const bots = await gamesMade(run.games.tenMinute(PAIRS));
+  record(await timed(run, firstRequest, 'S1'));
+  const clockChecked = await timed(run, signing => tooFast(signing, longer));
+  record(clockChecked);
+  if (clockChecked.sessionStatus === 500) throw new Error(SECRET_MISSING);
+  record(await timed(run, signing => otherRules(signing, shorter)));
+  record(await timed(run, signing => tenMinuteGamesInTime(signing, bots), 'S13'));
 }
 
 // Slice 02's burst run, S10 (K11, K20 item 3): its 21 scripted games made first, then each over-limit step between 61 s
@@ -933,21 +1000,27 @@ async function slice02Burst(run, record) {
   record(await timed(run, read => racedTable(read, race)));
 }
 
-// How each run signs and what its preview and burst runs check: the leaderboard's, before this feature, and each
-// slice's (--slice). signing(body, session, record) puts a signing in the slice's shape. 03-04 adds slice 03 (S11-S13).
-const LEADERBOARD = Object.freeze({ sessions: false, signing: body => body, preview: leaderboardPreview, burst: leaderboardBurst });
+// How each run signs and what its preview and burst runs check: each slice's (--slice), and, with no --slice, the
+// leaderboard's from before this feature, which has neither (its signing carries no session). signing(body, session,
+// record) puts a signing in the slice's shape; clockCheck, a deploy that refuses a game signed sooner than it lasted
+// (row 14), so each signing of a game waits its length (signableAt).
+const LEADERBOARD = Object.freeze({ sessions: false, clockCheck: false, signing: body => body, preview: null, burst: null });
+const withRecord = (body, session, record) => ({ ...body, session, record });
 const SLICES = Object.freeze({
-  '01': Object.freeze({ sessions: true, signing: (body, session) => ({ ...body, session }), preview: slice01Preview, burst: null }),
-  '02': Object.freeze({ sessions: true, signing: (body, session, record) => ({ ...body, session, record }), preview: slice02Preview, burst: slice02Burst }),
+  '01': Object.freeze({ sessions: true, clockCheck: false, signing: (body, session) => ({ ...body, session }), preview: slice01Preview, burst: null }),
+  '02': Object.freeze({ sessions: true, clockCheck: false, signing: withRecord, preview: slice02Preview, burst: slice02Burst }),
+  '03': Object.freeze({ sessions: true, clockCheck: true, signing: withRecord, preview: slice03Preview, burst: null }),
 });
 
 // U2's signing, as the permalink's code takes it: from slice 01 on, through a session from that same permalink, for a
-// scripted game made in Node, whose record a slice-02 signing carries.
+// scripted game made in Node, whose record a slice-02 signing carries, and which a slice-03 one signs once it has
+// lasted.
 async function signOnce(run) {
-  if (!run.slice.sessions) return run.client.post(scoresAt(run.target), signature(0));
+  if (!run.slice.sessions) return sendSigning(run, signature(0));
   const [game] = await gamesMade(run.games.scripted(1));
-  const session = sessionFor(await askSession(run, game.seed), game.seed);
-  return run.client.post(scoresAt(run.target), run.slice.signing(claimOf(game, 0), session, game.record));
+  const { answer: asked, session } = await sessionAskedFor(run, game.seed);
+  await until(run, signableAt(run, asked, game.record));
+  return sendSigning(run, gameSigning(run, game, session));
 }
 
 // Rule 2's published deploy ID, never from a flag: Netlify's API with the owner's token, or the owner typing it back.
@@ -1032,9 +1105,9 @@ const RUNS = Object.freeze({
 
 // ---- the command line ----
 
-const USAGE = 'node scripts/smoke-leaderboard.mjs --site <name> --preview <URL> [--slice 01|02] [--production <URL>] [--permalink <URL>]'
-  + ' | --site <name> --burst <URL> [--slice 02] | --production <URL>'
-  + ' | --site <name> --unpublished <permalink> --production <URL> [--slice 01|02] [--site-id <ID>] (with NETLIFY_AUTH_TOKEN for the API)';
+const USAGE = 'node scripts/smoke-leaderboard.mjs --site <name> --preview <URL> --slice 01|02|03 [--production <URL>] [--permalink <URL>]'
+  + ' | --site <name> --burst <URL> --slice 02 | --production <URL>'
+  + ' | --site <name> --unpublished <permalink> --production <URL> [--slice 01|02|03] [--site-id <ID>] (with NETLIFY_AUTH_TOKEN for the API)';
 const OPTIONS = Object.freeze(Object.fromEntries(['site', 'preview', 'production', 'permalink', 'burst', 'unpublished', 'site-id', 'slice']
   .map(name => [name, { type: 'string' }])));
 
@@ -1044,15 +1117,17 @@ function modeOf(values) {
   return modes[0] ?? (values.production ? 'production' : undefined);
 }
 
-// No --slice: the leaderboard's run. A slice the script doesn't know, or a burst run the slice has none of, is malformed.
+// No --slice: the leaderboard's signing. A slice the script doesn't know, or a preview or burst run the slice has none
+// of (the leaderboard's has neither), is malformed.
 const sliceOf = name => (name === undefined ? LEADERBOARD : Object.hasOwn(SLICES, name) ? SLICES[name] : undefined);
+const isSliceRun = mode => mode === 'preview' || mode === 'burst';
 
 // Strict: an unknown flag (a typed published deploy ID, say) is a malformed command.
 function optionsFrom(args, env) {
   const { values } = parseArgs({ args, options: OPTIONS });
   const mode = modeOf(values);
   const slice = sliceOf(values.slice);
-  if (!mode || !slice || (mode === 'burst' && !slice.burst)) throw new Error(`usage: ${USAGE}`);
+  if (!mode || !slice || (isSliceRun(mode) && !slice[mode])) throw new Error(`usage: ${USAGE}`);
   return { ...values, mode, slice, sliceName: values.slice ?? null, siteId: values['site-id'], token: env.NETLIFY_AUTH_TOKEN };
 }
 

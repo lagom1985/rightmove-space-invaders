@@ -1,7 +1,8 @@
 // Shared high-score rules (ADR-006, DDD-3): one rule on both sides of the wire. Pure: imports nothing.
-// src/game/game.js uses the initials rules and makesTheTable (only the browser does); netlify/functions/scores.mjs uses
-// the table size, the score field's maximum, signature validity (word filter included) and the plausible ceiling;
-// scripts/smoke-leaderboard.mjs builds its signatures from these rules too.
+// src/game/game.js uses the initials rules and makesTheTable (in the browser, and in the function's replays, whose
+// games have no table and so never ask for initials); netlify/functions/scores.mjs uses the table size, the score
+// field's maximum, signature validity (word filter included) and the plausible ceiling; scripts/smoke-leaderboard.mjs
+// builds its signatures from these rules too.
 
 export const TABLE_SIZE = 10;                          // rows on the shared table
 export const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';  // arcade initials

@@ -96,10 +96,9 @@ test('each game draws one seed as it starts, publishes it in gameStarted, and pl
   }), { numRuns: 30 });
 });
 
-// bypass: one fixed condition, a game made without a seed source.
-test('without a seed source, Enter on the title throws and leaves the game on the title', () => {
-  const rules = createGame({});
-  expect(() => rules.handlePresses(new Set(['Enter']))).toThrow(/seed source/);
-  expect(rules.snapshot().screen).toBe('title');
-  expect(rules.takeEvents()).toEqual([]);
+// bypass: one fixed condition, a game made without a seed source. newSeed is required (DDD-R7), so createGame refuses
+// to make the game at all, rather than a game whose first Enter throws.
+test('without a seed source, createGame throws: no game is made', () => {
+  expect(() => createGame({})).toThrow(/seed source/);
+  expect(() => createGame({ particles: false })).toThrow(/seed source/);
 });

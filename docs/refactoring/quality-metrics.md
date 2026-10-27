@@ -167,3 +167,74 @@ Fan-in and fan-out of the modules whose edges changed:
 - Unresolved import specifiers in `src/`: 0.
 - Test lines changed: 10 added and 8 removed in 8 files, all import specifiers.
 - Behaviour: unchanged. Full suite 148 passed (run once, after the batch); `npm run build` passed (46 unit and in-memory tests) with 21 files in `dist/`. A differential run of the synth against the previous commit (32,000 graph comparisons) and canvas hashes of 9 scenes were identical.
+
+---
+
+## Third pass, 2026-10-27: replay-verified scores (L1-L6)
+
+Measured on the production files `rightmove-invaders-replay-verified-scores` changed, before (commit `6bcbd9b`) and after (see `refactoring-log.md`). Lines are the file's; code lines leave out blank and comment-only lines. Function lengths run from the declaration's first line to its closing brace, comments and blank lines inside included, as in the second pass; named functions count function declarations, arrow functions bound to a `const` and object methods. Tests are not counted.
+
+### Lines per file
+
+| File | Lines before | Lines after | Code before | Code after |
+|---|---|---|---|---|
+| `netlify/functions/scores.mjs` | 517 | 532 | 308 | 310 |
+| `scripts/smoke-leaderboard.mjs` | 1187 | 1192 | 845 | 842 |
+| `scripts/serve.mjs` | 187 | 186 | 129 | 127 |
+| `src/game/record.js` | 70 | 73 | 45 | 45 |
+| `src/game/high-scores.js` | 55 | 56 | 26 | 26 |
+| `netlify/scores/sessions.mjs`, `src/main.js`, `src/platform/leaderboard.js`, `src/view/render.js`, `src/game/` `chance`, `game`, `particles`, `replay`, `shields` (untouched) | 1142 | 1142 | 815 | 815 |
+| **Total** | **3158** | **3181** | **2168** | **2165** |
+
+- **Code lines**: 3 fewer. The pass removed copies, not features, and the shared helpers each cost a line or two.
+- **Lines grew by 23** while code lines fell by 3: 26 more lines of comment (13 in `scores.mjs`, 8 in the smoke test, 1 in `serve.mjs`, 3 in `record.js`, 1 in `high-scores.js`). Each new helper (`handlerOf`, `refuse`'s options, `whereOf`, `sessionAskedFor`, `gameSigning`, `unchangedIds`, `briefOf`, `floodsApart`) has a header, and the two comments made true in `src/game/` say more than the old ones did.
+
+### Duplication
+
+| Measure | Before | After |
+|---|---|---|
+| `scores.mjs`: handler wrappers (journal, try, 500 `unexpected`) | 2 | 1 (`handlerOf`) |
+| `scores.mjs`: method checks at the top of a handler's route | 2 | 1 (in `handlerOf`) |
+| `scores.mjs`: `refuse` calls passing `NEVER_KEPT` only to reach a later argument | 4 | 0 |
+| `scores.mjs`: inline functions in the Signing checks table | 5 | 0 (every row a named check, with its row number) |
+| `scores.mjs`: "an object, not null" written out | 3 | 1 (`isObject`) |
+| `smoke-leaderboard.mjs`: a signing posted by hand (`run.client.post(scoresAt(run.target), …)` or `signAt(run)(…)`) | 17 | 0 (`sendSigning`) |
+| `smoke-leaderboard.mjs`: calls to `sessionFor`, each with the seed a second time | 16 | 3 (`sessionAskedFor` holds 1) |
+| `smoke-leaderboard.mjs`: `run.slice.signing(claimOf(game, i), session, game.record)` | 8 | 1 (`gameSigning`), plus S12's, which signs another record |
+| `smoke-leaderboard.mjs`: ids compared across two listings, with null when one never came | 3 | 1 (`unchangedIds`) |
+| `smoke-leaderboard.mjs`: `{ status, error }` of an answer written out | 4 | 1 (`briefOf`) |
+| `smoke-leaderboard.mjs`: loops of floods between 61 s waits | 2 | 1 (`floodsApart`) |
+| `serve.mjs`: `putsRow` asked per request | 2 | 1 |
+| `serve.mjs`: the JSON no-store headers written out | 2 | 1 (`JSON_NO_STORE`) |
+
+### Function lengths
+
+| Function | Before | After |
+|---|---|---|
+| `scores.mjs`: the two handlers and their routes (`handleScores`, `handleSessions`, `route`, `issue`; after: `handlerOf`, the two exports, `route`, `issue`) | 34 | 29 |
+| `scores.mjs`: the Netlify entry (`scores`) | 12 | 11 |
+| `smoke-leaderboard.mjs`: `slice01Preview` | 23 | 20 |
+| `smoke-leaderboard.mjs`: `tooFast` (S11) | 21 | 19 |
+| `smoke-leaderboard.mjs`: `longGameAndHour` (S7) | 17 | 16 |
+| `smoke-leaderboard.mjs`: `leaderboardPreview` | 14 | 11 |
+| `smoke-leaderboard.mjs`: `otherRules` (S12) | 14 | 13 |
+| `smoke-leaderboard.mjs`: `refusedSignings` (S9) | 11 | 10 |
+| `smoke-leaderboard.mjs`: `blockedInitials` | 7 | 5 |
+| `smoke-leaderboard.mjs`: functions over 10 lines | 24 | 23 |
+| `smoke-leaderboard.mjs`: `forgeries` (S4) | 32 | 33 (session B read once, on its own line) |
+
+- **Named functions**: `scores.mjs` 64 to 71 (the five named checks, `isObject`, `hasExactly`, `whereOf`, `handlerOf`, less the two handler declarations), `smoke-leaderboard.mjs` 126 to 131, `serve.mjs` 21 to 21.
+
+### Interfaces and rules
+
+| | Before | After |
+|---|---|---|
+| Exports of `scores.mjs`, `smoke-leaderboard.mjs`, `serve.mjs` | 17, 6, 0 | the same names |
+| Files in `src/` and `netlify/` | 28, 2 | 28, 2 (none added) |
+| Layering rules, the token rule, rule 9 (`layering.spec.js`) | hold | hold |
+| `RULES_VERSION` | 1 | 1 |
+
+### Other checks
+
+- Test lines changed: 2 test files. `scores-handler.spec.js` (a generator's filter and its comment; no assertion) and the leaderboard's `parameter-types.js` (one phrase alternative and its branch removed). No `.feature` changed.
+- Behaviour: unchanged. `npm run build` passed (364 tests: 158 unit, 206 in-memory) in 18.5 s against the 30 s budget, with 29 files in `dist/`; the full suite (`PORT=4185 CI=1 npm test`, run once after the batch) passed 775 tests in 19.0 minutes, none failed, flaky or skipped.

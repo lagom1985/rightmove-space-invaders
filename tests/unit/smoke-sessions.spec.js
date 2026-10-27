@@ -13,7 +13,7 @@ import { loadRecordedGames } from '../common/recorded-games.js';
 import { TEST_SECRET } from '../common/session-secret.js';
 import { createNodeGames, runSmoke } from '../../scripts/smoke-leaderboard.mjs';
 
-// The preview smoke test of slices 01 and 02 (DEVOPS "Preview smoke test, extended": its pacing, S1-S10 and the slices'
+// The preview smoke test of slices 01 to 03 (DEVOPS "Preview smoke test, extended": its pacing, S1-S13 and the slices'
 // gates), driven through the script's run entry point with its ports faked: the network, a deploy of the real function
 // (dispatch, an in-memory table per host, a session signer built as the Netlify entry builds its own), the clock,
 // virtual time that a wait moves on at once, so a 40-minute run takes a moment, and, where a property isn't about them,
@@ -34,6 +34,7 @@ const UNIVERSE = ['network.requests'];
 const slice01Preview = (...flags) => ['--site', SITE, '--slice', '01', '--preview', PREVIEW, ...flags];
 const slice02Preview = () => ['--site', SITE, '--slice', '02', '--preview', PREVIEW];
 const slice02Burst = () => ['--site', SITE, '--slice', '02', '--burst', PREVIEW];
+const slice03Preview = () => ['--site', SITE, '--slice', '03', '--preview', PREVIEW];
 
 // The run's clock, a port: now, and a wait that moves time on by its length at once.
 function fakeClock() {
@@ -61,10 +62,14 @@ function memoryStore() {
 // `latencies` ms on the run's clock (at least 1, so two signings never share a moment). `testRoute`, when given, answers
 // POST /__test/rows with its status instead of the function's 404, and writes a row first if it `writes`. `signing`,
 // when given, answers POST /api/scores in the function's place: (signer, clock) -> (request, table) -> a Response.
-function fakeDeploy({ clock, secret, latencies = [1], testRoute = null, signing = null }) {
+// `clockAllowanceMs` is the dispatch's: Infinity for a deploy of slice 01 or 02, CLOCK_ALLOWANCE_MS for slice 03's.
+function fakeDeploy({ clock, secret, latencies = [1], testRoute = null, signing = null, clockAllowanceMs = Infinity }) {
   const readSecret = readSessionSecret(secret);
   const signer = readSecret && createSessionSigner(readSecret);
-  const options = { now: clock.now, log: () => {}, clockAllowanceMs: CLOCK_ALLOWANCE_MS };
+  // A deploy of slice 01 or 02 has no clock check (row 14 is slice 03's): the real dispatch handed an allowance no game
+  // outlasts, as 02-05's stand-in kept slice 01's envelope. No smoke step sends a session from the future, so row 9b,
+  // which this allowance also opens, decides nothing here. Slice 03's deploy has the Netlify entry's own allowance.
+  const options = { now: clock.now, log: () => {}, clockAllowanceMs };
   const signs = signing && signing(signer, clock);
   const tables = new Map();
   const tableOf = host => tables.get(host) ?? tables.set(host, createTablePort(memoryStore())).get(host);
@@ -150,6 +155,8 @@ const SLICE_02_RUNS = Object.freeze({
   preview: Object.freeze({ args: slice02Preview(), uses: [STAND_IN.longest, STAND_IN.scripted], overLimit: [], honest: 31 }),
   burst: Object.freeze({ args: slice02Burst(), uses: [STAND_IN.scripted, STAND_IN.scripted + 20], overLimit: ['S10.2', 'S10.4'], honest: 23 }),
 });
+// Slice 03's preview run (S1, S11, S12, S13), on a deploy with the Netlify entry's clock allowance.
+const SLICE_03_PREVIEW = Object.freeze({ args: slice03Preview(), overLimit: [], clockAllowanceMs: CLOCK_ALLOWANCE_MS });
 
 const stepNamed = (summary, name) => summary.steps.find(step => step.step === name);
 const spanOf = step => [Date.parse(step.startedAt), Date.parse(step.finishedAt)];
@@ -193,14 +200,15 @@ test('the limiter never lets an 11th request to one host into any 60 s window ou
       },
     });
   }), { numRuns: 20 });
-  // Slice 02's runs: its preview run has no over-limit step, and its burst run (S10) two, the burst and the race.
-  await fc.assert(fc.asyncProperty(fc.constantFrom('preview', 'burst'), latencies, async (mode, ms) => {
+  // Slice 02's runs: its preview run has no over-limit step, and its burst run (S10) two, the burst and the race. Slice
+  // 03's preview run has none, and waits each game's length on a deploy that checks the clock.
+  await fc.assert(fc.asyncProperty(fc.constantFrom(SLICE_02_RUNS.preview, SLICE_02_RUNS.burst, SLICE_03_PREVIEW), latencies, async (run, ms) => {
     const clock = fakeClock();
-    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET, latencies: ms });
+    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET, latencies: ms, clockAllowanceMs: run.clockAllowanceMs });
     const before = deploy.state();
-    const summary = await runSmoke(SLICE_02_RUNS[mode].args, quietly(deploy, clock));
+    const summary = await runSmoke(run.args, quietly(deploy, clock));
     const overLimit = summary.steps.filter(step => step.overLimit);
-    expect(overLimit.map(step => step.step)).toEqual(SLICE_02_RUNS[mode].overLimit);
+    expect(overLimit.map(step => step.step)).toEqual(run.overLimit);
     const spans = overLimit.map(spanOf);
     assertStateDelta(before, deploy.state(), {
       universe: UNIVERSE,
@@ -209,7 +217,7 @@ test('the limiter never lets an 11th request to one host into any 60 s window ou
           (_, after) => after.length > 0 && noCrowdedWindow(after, spans) && quietAround(after, spans, PREVIEW_HOST)),
       },
     });
-  }), { numRuns: 6 });
+  }), { numRuns: 8 });
 });
 
 // S5's or S8's requests, in order: 30 session requests, then 30 pairs of a signing carrying its own game's session (the
@@ -461,18 +469,22 @@ test('the 7 refusals of S9 share one session and are each refused for their own 
   }), { numRuns: 6 });
 });
 
+// The preview runs from slice 02, and the step whose first session request is the run's secret check.
+const SECRET_CHECKS = Object.freeze([[slice02Preview(), 'S7'], [slice03Preview(), 'S11']]);
+
 test('under --slice 02, a 500 to the first session request stops the run, and S9b\'s probe sealed with the public test secret fails it', async () => {
-  await fc.assert(fc.asyncProperty(notASecret, latencies, async (secret, ms) => {
+  // So under --slice 03, whose first session request is S11's.
+  await fc.assert(fc.asyncProperty(fc.constantFrom(...SECRET_CHECKS), notASecret, latencies, async ([args, checking], secret, ms) => {
     const clock = fakeClock();
-    const deploy = fakeDeploy({ clock, secret, latencies: ms });
+    const deploy = fakeDeploy({ clock, secret, latencies: ms, clockAllowanceMs: CLOCK_ALLOWANCE_MS });
     const before = deploy.state();
-    const summary = await runSmoke(slice02Preview(), quietly(deploy, clock));
+    const summary = await runSmoke(args, quietly(deploy, clock));
     assertStateDelta(before, deploy.state(), { universe: UNIVERSE, expected: { 'network.requests': normalizedTo(requests => requests.map(kindOf), [READ, SESSION]) } });
     expect(summary.steps.map(({ step, outcome, sessionStatus }) => ({ step, outcome, sessionStatus }))).toEqual([
-      { step: 'S1', outcome: 'pass', sessionStatus: undefined }, { step: 'S7', outcome: 'fail', sessionStatus: 500 }]);
+      { step: 'S1', outcome: 'pass', sessionStatus: undefined }, { step: checking, outcome: 'fail', sessionStatus: 500 }]);
     expect(summary.error).toMatch(/SCORES_SESSION_SECRET/);
     expect(summary.exitCode).toBe(1);
-  }), { numRuns: 10 });
+  }), { numRuns: 12 });
   // The probe is a session sealed as the Netlify entry seals one, from the decoded 32 bytes of TEST_SECRET, sent with a
   // record {}. The real dispatch on a deploy whose secret is TEST_SECRET passes row 9 and answers invalid-record, which
   // fails S9b (so the run); on one with any other canonical secret it answers invalid-session, and S9b passes.
@@ -500,10 +512,11 @@ test('under --slice 02, a 500 to the first session request stops the run, and S9
   }), { numRuns: 6, examples: [[TEST_SECRET, [1]]] });
 });
 
-// Against the real function, at a deploy's pace (each answer within 600 ms, so a pair within 1,200), every step of
-// slice 02's runs passes its rule, and S9c's status is recorded: the 7 MB body, refused by the function here (413), and
-// by Netlify before the function on a deploy.
-const quickLatencies = fc.array(fc.integer({ min: 1, max: 600 }), { minLength: 1, maxLength: 12 });
+// Against the real function, at a deploy's pace (each answer within 874 ms, so a pair within 1,748: under D21's
+// 1,750 ms, as the user revised it on 2026-10-27, and often over its first 1,250), every step of slice 02's runs passes
+// its rule, and S9c's status is recorded: the 7 MB body, refused by the function here (413), and by Netlify before the
+// function on a deploy.
+const quickLatencies = fc.array(fc.integer({ min: 1, max: 874 }), { minLength: 1, maxLength: 12 });
 const SLICE_02_STEPS = Object.freeze({
   preview: [['S1', 'pass'], ['S7', 'pass'], ['S8', 'pass'], ['S9', 'pass'], ['S9b', 'pass'], ['S9c', 'recorded']],
   burst: [['S10.1', 'pass'], ['S10.2', 'pass'], ['S10.3', 'pass'], ['S10.4', 'pass'], ['S10.5', 'pass']],
@@ -516,4 +529,120 @@ test('against the real function, every step of slice 02\'s runs passes by its ru
     const summary = await runSmoke(SLICE_02_RUNS[mode].args, quietly(deploy, clock));
     expect({ steps: summary.steps.map(({ step, outcome }) => [step, outcome]), exitCode: summary.exitCode }).toEqual({ steps: SLICE_02_STEPS[mode], exitCode: 0 });
   }), { numRuns: 6 });
+});
+
+// ---- slice 03 (DEVOPS "Preview smoke test, extended", S11-S13; D8, row 14) ----
+
+// The unpublished check under --slice 03, Netlify's API answering with a published deploy that isn't the permalink's.
+const PUBLISHED_ID = 'fedcba9876543210fedcba98';
+const slice03Unpublished = () => ['--site', SITE, '--slice', '03', '--unpublished', PERMALINK, '--production', PRODUCTION, '--site-id', 'a-site-id'];
+const withNetlifyApi = fetch => (url, init) => (url.startsWith('https://api.netlify.com/') ? Promise.resolve(Response.json({ published_deploy: { id: PUBLISHED_ID } })) : fetch(url, init));
+const SLICE_03_RUNS = Object.freeze({
+  preview: Object.freeze({ args: slice03Preview(), signings: 34, steps: [['S1', 'pass'], ['S11', 'pass'], ['S12', 'pass'], ['S13', 'pass']] }),
+  unpublished: Object.freeze({ args: slice03Unpublished(), signings: 1, steps: [['U1', 'pass'], ['U2', 'pass'], ['U3', 'pass']] }),
+});
+
+// Games of every length the run may be handed: the corpus's six recorded games, of about 1½ to 15½ minutes (three of
+// them outlast S13's 6½-minute session phase, so only a wait of their own length gets them signed), and 26 of the
+// stand-in pool's scripted ones, of 12 to 30 s; all real, so the real dispatch replays every signing. The run is handed
+// them in `order`, each call to the games port taking the next ones.
+const SLICE_03_GAMES = 32;   // S11's and S12's scripted games, and S13's 30
+let lengthsPool = null;
+async function gamesOfEveryLength() {
+  if (lengthsPool) return lengthsPool;
+  const corpus = await loadRecordedGames();
+  lengthsPool = [...corpus, ...standInPool().slice(0, SLICE_03_GAMES - corpus.length)];
+  return lengthsPool;
+}
+function gamesIn(order, games) {
+  let next = 0;
+  const take = async count => order.slice(next, (next += count)).map(at => games[at]);
+  return { scripted: take, tenMinute: take, longest: async () => (await take(1))[0] };
+}
+const anyOrder = fc.shuffledSubarray([...Array(SLICE_03_GAMES).keys()], { minLength: SLICE_03_GAMES, maxLength: SLICE_03_GAMES });
+
+// Whether a signing was sent at least its game's length after its session was issued, compared in integers as the
+// clock check compares (row 14), with no allowance.
+const sentOnceItsGameLasted = ({ at, body }) => (at - body.session.issuedAt) * 120 >= body.record.steps * 1000;
+
+test('no signing is sent sooner after its session than its game lasted, whatever the games\' lengths', async () => {
+  // On a deploy with the clock check's real allowance (10 s), every signing but S11's two probes (signed at once: the
+  // second with the local server's lenient cookies, which the function ignores) waits its own game's length after its
+  // session, so the real dispatch takes every honest one: each step of slice 03's runs passes its rule, S13's 30 pairs
+  // included, whatever the games' lengths and wherever they fall in the run.
+  const games = await gamesOfEveryLength();
+  await fc.assert(fc.asyncProperty(fc.constantFrom('preview', 'unpublished'), anyOrder, quickLatencies, async (mode, order, ms) => {
+    const clock = fakeClock();
+    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET, latencies: ms, clockAllowanceMs: CLOCK_ALLOWANCE_MS });
+    const run = SLICE_03_RUNS[mode];
+    const before = deploy.state();
+    const summary = await runSmoke(run.args, { ...quietly({ fetch: withNetlifyApi(deploy.fetch) }, clock, gamesIn(order, games)), env: { NETLIFY_AUTH_TOKEN: 'a-token' } });
+    const s11 = stepNamed(summary, 'S11');
+    const probes = s11 ? deploy.state()['network.requests'].filter(isWithin(spanOf(s11))).filter(request => kindOf(request) === SIGNING).slice(0, 2) : [];
+    assertStateDelta(before, deploy.state(), {
+      universe: UNIVERSE,
+      expected: {
+        'network.requests': satisfying(`appended with ${run.signings} signings, each sent once its game had lasted since its session, but S11's two probes, sent sooner`,
+          (_, after) => {
+            const signings = after.filter(request => kindOf(request) === SIGNING);
+            return signings.length === run.signings && probes.every(probe => !sentOnceItsGameLasted(probe))
+              && signings.filter(signing => !probes.includes(signing)).every(sentOnceItsGameLasted);
+          }),
+      },
+    });
+    expect({ steps: summary.steps.map(({ step, outcome }) => [step, outcome]), exitCode: summary.exitCode }).toEqual({ steps: run.steps, exitCode: 0 });
+  }), { numRuns: 8, examples: [['preview', [...Array(SLICE_03_GAMES).keys()], [874]]] });
+});
+
+// S11's 6 requests, in order: a session, its game signed at once, again with the local server's lenient cookies, the
+// local server's test route with a test-board cookie, a new session for the same game, and the game signed with it.
+const S11_REQUESTS = [SESSION, SIGNING, SIGNING, 'POST /__test/rows', SESSION, SIGNING];
+
+test('S11 signs its game at once, then with the lenient cookies, then tries the test route, then signs it under a new session', async () => {
+  await fc.assert(fc.asyncProperty(fc.integer({ min: STAND_IN.scripted, max: POOL - 2 }), latencies, async (scriptedAt, ms) => {
+    const clock = fakeClock();
+    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET, latencies: ms, clockAllowanceMs: CLOCK_ALLOWANCE_MS });
+    const summary = await runSmoke(slice03Preview(), quietly(deploy, clock, standInGames({ scriptedAt })));
+    const [beforeS11, afterS11] = aroundStep(deploy.state()['network.requests'], stepNamed(summary, 'S11'));
+    const game = [...standInPool().slice(scriptedAt, scriptedAt + 2)].sort((a, b) => b.steps - a.steps)[0];
+    assertStateDelta(beforeS11, afterS11, {
+      universe: UNIVERSE,
+      expected: {
+        'network.requests': satisfying('appended with S11\'s 6 requests for the longer of its two scripted games, the probe with test-clock=lenient and a test-board, the route with a test-board',
+          (old, now) => {
+            const [asked, atOnce, lenient, route, askedAgain, inTime] = now.slice(old.length);
+            return now.slice(old.length).map(kindOf).join() === S11_REQUESTS.join()
+              && [asked, askedAgain].every(request => request.body.seed === game.seed)
+              && isDeepStrictEqual(lenient.body, atOnce.body) && atOnce.body.session.seed === game.seed && atOnce.body.score === game.deposit
+              && /\btest-clock=lenient\b/.test(lenient.cookie) && /\btest-board=/.test(lenient.cookie) && /^test-board=/.test(route.cookie)
+              && inTime.body.session.issuedAt > atOnce.body.session.issuedAt && isDeepStrictEqual(inTime.body.record, game.record);
+          }),
+      },
+    });
+  }), { numRuns: 6 });
+});
+
+// The leaderboard's own preview and burst runs, from before this feature, signed { initials, score } with no session,
+// which today's function refuses at every signing (400 session-required, Signing checks row 6). So a preview or a burst
+// run names its slice: one that doesn't is a malformed command, a usage error naming the slices, and sends nothing.
+// bypass: an exhaustive loop over a closed domain, every preview or burst command without --slice (the preview's with
+// and without --production and --permalink), is stronger than any sample of it.
+const WITHOUT_A_SLICE = [
+  ['--site', SITE, '--preview', PREVIEW],
+  ['--site', SITE, '--preview', PREVIEW, '--production', PRODUCTION],
+  ['--site', SITE, '--preview', PREVIEW, '--permalink', PERMALINK],
+  ['--site', SITE, '--preview', PREVIEW, '--production', PRODUCTION, '--permalink', PERMALINK],
+  ['--site', SITE, '--burst', PREVIEW],
+];
+
+test('a preview or burst run without --slice is a usage error naming the slices 01|02|03, and sends nothing', async () => {
+  for (const args of WITHOUT_A_SLICE) {
+    const clock = fakeClock();
+    const deploy = fakeDeploy({ clock, secret: OTHER_SECRET });
+    const before = deploy.state();
+    const summary = await runSmoke(args, quietly(deploy, clock));
+    expect({ error: summary.error, steps: summary.steps, exitCode: summary.exitCode }, args.join(' '))
+      .toEqual({ error: expect.stringMatching(/^usage: .*--preview <URL> --slice 01\|02\|03 .*--burst <URL> --slice 02 /), steps: [], exitCode: 1 });
+    assertStateDelta(before, deploy.state(), { universe: UNIVERSE });
+  }
 });

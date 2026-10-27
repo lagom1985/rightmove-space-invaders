@@ -377,6 +377,8 @@ This is a spec only. DELIVER implements it and runs it once ADR-005 and the amen
 | Production mode | `--production <URL>` | the production custom domain; **GET only** | P1–P3 | K13 |
 | Unpublished check | `--site <name> --unpublished <permalink> --production <URL>`, with `NETLIFY_AUTH_TOKEN` and `--site-id <ID>` for the API route, or interactive otherwise | the permalink of an older, unpublished production deploy | U1–U3 | K13 |
 
+Amended by rightmove-invaders-replay-verified-scores (DELIVER, 2026-10-27): a preview or burst run now needs `--slice 01|02|03` (a burst run `--slice 02`) and runs that slice's steps; the preview and burst runs above, which signed with no session, were retired with that feature.
+
 - **Runtime**: Node 22 `fetch`, no dependencies. It imports `src/game/high-scores.js` for valid and blocked initials. It prints one JSON summary. It exits 1 if a hard check fails, and 2 if the write guard refuses.
 - **Write guard**: checked before any POST, in every mode. A refusal writes nothing.
   1. **Host**: a POST goes only to `deploy-preview-<n>--<site>.netlify.app` or `<branch>--<site>.netlify.app`, with `<site>` taken from `--site`.
@@ -695,6 +697,11 @@ Since every signing needs its game's session (amended by rightmove-invaders-repl
 - **A deleted row can come back** within 2 hours of its session's issue, if the same signing is sent again (that feature's D16). Look again after 2 hours, and delete it again if it's back.
 - **To shut every open session at once**, rotate the secret (README, Deploy). It also ends the 2 hours in which a deleted row can come back.
 - **A row's id is its game id**: the last field of the key, the SHA-256 of the game's seed cut to 32 hex characters (ADR-004 as amended). Deleting by key is unchanged.
+
+Since the table replays every game (amended by rightmove-invaders-replay-verified-scores, DELIVER, 2026-10-27; that feature's D16 and ADR-012):
+- **Every row was played**: the function replays each signed game and keeps the deposit it reached, refuses a record of other rules, and takes no game sooner than it lasted after its session was issued.
+- **What still gets through**: a program that plays well, in real time or by searching offline for the inputs and seeds that do best. It is still held to the rules of the game, to its own length in real time (D8), to one row per game (D7), to its session's 2 hours (D18), to the rate limit per IP and hostname, and to £500,000.
+- **The owner still deletes by hand** any row they judge forged, as above; the bullets before these say how to keep it off the table.
 
 **Before DISTILL and DELIVER**:
 - **DISTILL**:
@@ -1294,6 +1301,7 @@ The walking skeleton plays through the real page and keyboard, and the real func
   1. Open a pull request from `worktree-leaderboard-spike`, for its deploy preview. With the user's OK, push the throwaway burst branch (`smoke/no-rate-limit`: the candidate commit without `rateLimit`).
   2. The burst run (K11): `node scripts/smoke-leaderboard.mjs --site <name> --burst <throwaway preview URL>`. Then delete that deploy and its branch.
   3. The preview run (K10, K12, K14): `node scripts/smoke-leaderboard.mjs --site <name> --preview <preview URL> --production https://maketherightmove.fabiodamico.xyz --permalink <preview permalink>`. Also read by hand: the `published` flag in the preview's log line, the full header set, and the `Cache-Status` header's name.
+     - Amended by rightmove-invaders-replay-verified-scores (DELIVER, 2026-10-27): the burst and preview runs now need `--slice` (the burst run `--slice 02`); the two commands above, the leaderboard's own runs, were retired with that feature.
   4. Record the account's Blobs limits (Quota and outage risk).
   5. Start the list of live function hostnames: the smoke-test previews, and any branch deploy that the push of `worktree-leaderboard-spike` made.
   6. The user decides whether to move the game to a Netlify team of its own.

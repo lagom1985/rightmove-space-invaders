@@ -75,7 +75,10 @@ const player = fc.record({
   id: fc.stringMatching(/^zq[a-z0-9]{4,10}$/),
   game: fc.constantFrom(...GAMES),
 }).map(({ initials, id, game }) => ({ initials, id, seed: game.seed, score: game.deposit, record: game.record, steps: game.steps }));
-const sessionOf = ({ seed }) => ({ seed, issuedAt: NOW, token: signer.sign(seed, NOW) });
+// The session is issued as long before NOW as the game lasted, plus a second, as a real game's is (the acceptance
+// harness's rule), so the clock check (row 14) lets the signing through.
+const issuedOnTime = steps => NOW - Math.ceil(steps * 1000 / 120) - 1000;
+const sessionOf = ({ seed, steps }) => ({ seed, issuedAt: issuedOnTime(steps), token: signer.sign(seed, issuedOnTime(steps)) });
 const ownKey = who => encodeKey({ ...who, at: NOW, id: gameIdOf(who.seed) });
 const operations = fc.subarray(STORE_OPERATIONS, { minLength: 1 });
 const method = fc.constantFrom('GET', 'POST');

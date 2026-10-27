@@ -151,3 +151,58 @@ Test comments and a test title still say "theme" for the sound data. The brief w
 - `tests/unit/synth-mix.spec.js:8` (comment: "the numbers in the theme")
 
 Earlier flagged stale comments from the folder move (`fresh-game.js`, `director-harness.js`, `game-driver.js`, `domain-types.js`, `synth-host.html`) are also still there.
+
+## 2026-10-27: replay-verified scores, one shape for both handlers and one way to sign in the smoke test
+
+- **Level**: RPP L1 to L4 (readability, complexity, responsibilities, abstractions); L5 and L6 looked at, nothing to change. **Scope**: the production files `rightmove-invaders-replay-verified-scores` changed in DELIVER (`git diff 01b710b..HEAD`), plus the four items DELIVER left.
+- **Method**: planned in cascade order (L1 to L6), applied as one batch, suite run once at the end.
+- **Behaviour**: unchanged. The Score API gives the same answers, statuses, reasons and log lines, with the Signing checks in the same order and the clock read the same number of times; the smoke test sends the same requests, in the same order, with the same bodies, and prints the same summary fields; the local server serves the same routes with the same headers. `src/game/` plays as before: `game.js`, `chance.js`, `replay.js`, `shields.js` and `particles.js` are untouched, `record.js` and `high-scores.js` changed in comments only, and `RULES_VERSION` is still 1. No export was added, removed or renamed; no file was added.
+- **Commit**: `refactor(rightmove-invaders-replay-verified-scores): one handler shape for the Score API, one way to sign and to ask for a session in the smoke test (L1-L6)`.
+
+### What was done
+
+| File | Transformation | RPP |
+|---|---|---|
+| `netlify/functions/scores.mjs` | `handlerOf(served, serve)`: `handleScores` and `handleSessions` were one wrapper written twice (a journal, a try, 500 `unexpected` under the path's error event), and `route` and `issue` both opened with the same method check. One factory now holds that policy, and the two exports are `handlerOf(SCORES, route)` and `handlerOf(SESSIONS, issue)`, called as before with `(request, port, options)` | L3, L4 |
+| | `refuse(logLine, error, { event, headers, fields })`: a parameter object in place of three trailing positional defaults, so no caller passes `NEVER_KEPT` only to reach the event (4 such calls, now 0) | L2 |
+| | The Signing checks table names every row: its five inline functions became `hasAllowedInitials`, `isSealed`, `notFromTheFuture`, `notExpired` and `claimIsPlausible`, and each row carries its number in DESIGN's table (6 to 16). Same predicates, same order | L1 |
+| | `isObject` and `hasExactly(value, fields)`, shared by the signing's and the session request's shape checks (the object test was written 3 times). `isSeedRequest` reads `hasExactly(body, ['seed'])`, which for a parsed JSON body is what `keys.length === 1 && hasOwn('seed')` was | L2 |
+| | `refuseBeforeTheTable`: one guard and one journal, not a journal in each branch; `whereOf(scope, deploy)` names where the Netlify entry says the table is kept | L2 |
+| | The comment that `saving` and `passOnRefusal` both carried is said once | L1 |
+| `scripts/smoke-leaderboard.mjs` | `sendSigning(run, body, options)`: the one way a step signs, in place of the curried `signAt(run)(body)` (8 uses) and 9 direct `run.client.post(scoresAt(run.target), …)` | L1, L2 |
+| | `sessionAskedFor(run, seed, options)` -> `{ answer, session }`: asking for a session and taking it out of its answer, with the seed passed once (`sessionFor` was called in 16 places, now in 3, the helper's included) | L2 |
+| | `gameSigning(run, game, session, i)`: the i-th signing of a game made in Node, in place of 7 of the 8 copies of `run.slice.signing(claimOf(game, i), session, game.record)` (S12's, which signs another record, stays) | L2 |
+| | `unchangedIds(before, after)`: whether two listings show the same ids, null when one never came, for `settleTestRoute`, `settleNothingKept` and S11's `noRowWritten` | L2 |
+| | `briefOf(answer)`: `{ status, error }` as a summary shows an answer (4 inline copies, now 1; the summaries' key order is kept) | L1 |
+| | `floodsApart(run, record, floods)`: the over-limit floods, each after a 61 s wait, for the leaderboard's run and slice 01's | L2 |
+| | S4 reads session B out of its answer once, not twice | L1 |
+| `scripts/serve.mjs` | The request listener asks `putsRow` once, with a guard clause for files | L2 |
+| | `JSON_NO_STORE`, the headers of the root's own JSON answers (the test route's and its 500), written once | L1 |
+| `src/game/record.js` | The header said game-too-long is "the signing's next check" after the reader. Since 03-03 the signing checks rules-changed (row 12) before `readRecord` (row 12b) and game-too-long (row 13) after it: the comment now says that the reader judges neither the rules version nor the length, and which check does, on which side. It also says the function reads with it, as the replay does | L1 |
+| `src/game/high-scores.js` | The header said only the browser runs `game.js`'s use of `makesTheTable`; the function's replays run it too, with no table, so they never ask for initials | L1 |
+
+### Items DELIVER left
+
+1. **`tests/unit/scores-handler.spec.js`, "any record readRecord refuses is invalid-record"**: its `fc.jsonValue` arm could draw an object naming a safe-integer `rules` other than `RULES_VERSION`, which row 12 answers `rules-changed`. The arm's filter now also drops such a value (`namesOtherRules`), and the comment above says why. Its assertions are as they were. The rules-changed property, which reuses the same generator and then sets `rules` itself, is unaffected.
+2. **`tests/e2e/rightmove-invaders-leaderboard/acceptance/steps/parameter-types.js`**: the `stretched past 1 KB` alternative of the `{signature}` type, and its 1,025-byte branch, are gone; its comment says what "stretched to 1 KB" still is. No `.feature` used it (`grep`: the only "stretched past 1 KB" left is the session request's `its seed stretched past 1 KB`, another type in another file); `npx bddgen` generates every scenario and `npx bddgen export --unused-steps` lists none.
+3. **`src/game/record.js`'s header**: made true (above).
+4. **Duplication in `scores.mjs` and `smoke-leaderboard.mjs`**: reduced as above, without changing an answer, a log line or a step's outcome.
+
+### Left as they were
+
+- **`src/game/game.js`, `chance.js`, `replay.js`, `shields.js`, `particles.js`**: the six recorded games must replay to their deposit and step, and no draw may move. Nothing in them was worth that risk; the one-letter names are the house idiom in the game code.
+- **`src/main.js`, `src/platform/leaderboard.js`, `src/view/render.js`, `netlify/scores/sessions.mjs`**: already small and plain after DELIVER; nothing to do.
+- **No new module.** The Signing checks, or the smoke test's slice steps, could live in modules of their own, but DESIGN's component table has neither, and each file still reads in sections.
+- **"Exactly these fields"** is also checked in `sessions.mjs` (`isSession`), `record.js` (`hasItsFieldsAlone`) and `high-scores.js` (`hasExactlyTheFields`). Two of those must import nothing (rules 3 and 8), so one shared helper would need a module of its own.
+- **The 32-hex seed pattern** is in `scores.mjs` and `sessions.mjs`: DDD-R1's request and DDD-R2's session, two rules that agree today.
+- **`replay.js` and the smoke test's `firstStepsOf`** both walk a record's changes step by step. A shared walker in `record.js` would sit on the replay's hot path (D21's budget) to save four lines.
+- **The smoke test's expectation tables** (`FORGERIES`, `REFUSED`, `CLOCK_CHECKED`) have three shapes because the steps check three different things: one answer each, a forgery with its answer, and alternatives.
+- **The secret check in the three slice runs** (record the step, then a 500 stops the run) is three lines each around one shared message; a helper would not make it shorter.
+- **`failedLocally` in `serve.mjs`** maps a path to its error event, as `scores.mjs`'s `PATHS` does; exporting `PATHS` for one line would widen the function's surface.
+
+### Verification
+
+- `npm run build`: passed, 364 tests (158 unit, 206 in-memory), 18.5 s wall time against the 30 s budget, 29 files in `dist/`.
+- `PORT=4185 CI=1 npm test`, run once after the batch: **775 passed** in 19.0 minutes (158 unit, 206 in-memory, 137 in each of Chromium, Firefox and WebKit), none failed, flaky or skipped.
+- `node --check scripts/smoke-leaderboard.mjs`: passes. `npx bddgen export --unused-steps`: 0.
+- The layering rules, the token rule and rule 9 (`tests/unit/layering.spec.js`) are green; the six recorded games replay to their deposit and step in Node and in the three browsers (M6).
